@@ -35,7 +35,7 @@ ol, ul {{ margin: 1mm 0; padding-left: 6mm }} img {{ width: 100%; border: 0.3mm 
 </style><body>
 <h1>朱書き照合ツール　利用ガイド</h1>
 <div class="sub">初校・朱書き・修正後を照合し、確認が必要な箇所を一覧にします</div>
-<div class="box">Google Chrome または Microsoft Edge で、次のどちらかを開くだけで使えます（インストール不要）。<br>・Web：<b>https://mgr-pages.github.io/kousei_tool/</b><br>・ファイル：「朱書き照合ツール.html」をダブルクリック（インターネット接続も不要）<br>どちらの場合も、選んだPDFは<b>このパソコンのブラウザの中だけで処理され、外部には送信されません</b>。</div>
+<div class="box">「朱書き照合ツール.html」を<b>ダブルクリックで開くだけ</b>で使えます（Google Chrome または Microsoft Edge）。インストールやインターネット接続は不要で、ファイルは<b>このパソコンの中だけで処理され、外部には送信されません</b>。</div>
 
 <h2>1. 用意するもの</h2>
 <table><tr><th>もの</th><th>注意</th></tr>
