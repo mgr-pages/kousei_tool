@@ -25,6 +25,28 @@
     cMapUrl: 'embedded/', cMapPacked: true, standardFontDataUrl: 'embedded/', useSystemFonts: false, isEvalSupported: false,
   }).promise;
 
+  // 複数のPDFを、並べた順にページをつなげて1冊として扱う(ほかの処理は numPages と getPage(n) だけを使うので、そのまま動く)
+  PC.joinPdfs = (docs, names) => {
+    const parts = []; let n = 0;
+    docs.forEach((d, i) => { parts.push({ name: names[i], start: n, pages: d.numPages }); n += d.numPages; });
+    return {
+      numPages: n, parts,
+      getPage: k => { const i = parts.findIndex(q => k - 1 < q.start + q.pages); return docs[i].getPage(k - parts[i].start); },
+      destroy: () => Promise.all(docs.map(d => d.destroy())),
+    };
+  };
+  // files: 選んだときに読み込んでおいた中身 { name, type, buf }。pdf.jsは渡したデータを手放させるため、毎回写しを渡す
+  PC.openPdfs = async files => {
+    const docs = [];
+    for (const f of files) {
+      try { docs.push(await PC.openPdf(f.buf.slice(0))); }
+      catch (e) { throw new Error(`「${f.name}」を開けません（${e && e.message ? e.message : e}）`); }
+    }
+    return PC.joinPdfs(docs, files.map(f => f.name));
+  };
+  // 通しのページ番号(0始まり)が、どのファイルの何ページ目か
+  PC.pageOf = (parts, pno) => { const q = (parts || []).find(x => pno < x.start + x.pages); return q ? { name: q.name, page: pno - q.start + 1 } : null; };
+
   // ページを指定の解像度で描画して画像にする(annots: 注釈も描くか)
   PC.renderPage = async (doc, pno, dpi, annots) => {
     const page = await doc.getPage(pno + 1), vp = page.getViewport({ scale: dpi / 72 });
@@ -80,14 +102,16 @@
   };
 
   // スキャン: ページ順に1枚ずつ取り出せる形にする(全ページを一度に展開するとメモリが足りなくなるため)
-  // PDFは各ページを300dpiで描画、画像はそのまま。複数ファイルはファイル名の順に並べる
+  // PDFは各ページを300dpiで描画、画像はそのまま。複数ファイルは渡された順(画面のリストの順)につなげる
+  PC.isPdf = f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
   PC.scanSource = async files => {
     const items = [];
-    for (const f of [...files].sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true }))) {
-      if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') {
-        const doc = await PC.openPdf(await f.arrayBuffer());
+    for (const f of files) {
+      if (PC.isPdf(f)) {
+        let doc;
+        try { doc = await PC.openPdf(f.buf.slice(0)); } catch (e) { throw new Error(`「${f.name}」を開けません（${e && e.message ? e.message : e}）`); }
         for (let i = 0; i < doc.numPages; i++) items.push({ doc, i });
-      } else items.push({ file: f });
+      } else items.push({ file: new Blob([f.buf], { type: f.type }) });
     }
     return {
       count: items.length,

@@ -13,3 +13,10 @@ done
 node test/run.js "$DATA/old.pdf" "$DATA/new.pdf" digital "$DATA/T1_digital.pdf" "$OUT/digital.json" > "$OUT/digital.log" 2>&1
 echo "デジタル: $(tail -1 "$OUT/digital.log" | cut -c1-40) | $(python3 "$EVAL" "$GT" "$OUT/digital.json" --digital --csv "$OUT/digital.csv" | head -1)"
 python3 "$EVAL" "$GT" "$OUT/digital.json" --digital | tail -n +2
+# 複数ファイル: 分割したPDFをばらばらの順で渡し、名前の順につなげた結果が1ファイルのとき(s1・デジタル)と完全に同じになるか
+S=$DATA/split
+node test/run.js $S/old-11.pdf,$S/old-9.pdf,$S/old-12.pdf,$S/old-10.pdf $S/new-b.pdf,$S/new-a.pdf scan $S/scan-2.pdf,$S/scan-1.pdf "$OUT/split_scan.json" "$OUT/rules.json" > "$OUT/split_scan.log" 2>&1
+node test/run.js $S/old-12.pdf,$S/old-10.pdf,$S/old-9.pdf,$S/old-11.pdf $S/new-a.pdf,$S/new-b.pdf digital $S/digital-2.pdf,$S/digital-1.pdf "$OUT/split_digital.json" > "$OUT/split_digital.log" 2>&1
+same() { python3 -c "import json,sys; a,b=(json.load(open(f)) for f in sys.argv[1:3]); print('一致' if a==b else '差あり（%d件と%d件）' % (len(a), len(b)))" "$1" "$2" 2>&1; }
+echo "複数ファイル（紙）: 1ファイルのときと$(same "$OUT/split_scan.json" "$OUT/paper_s1.json")"
+echo "複数ファイル（注釈）: 1ファイルのときと$(same "$OUT/split_digital.json" "$OUT/digital.json")"

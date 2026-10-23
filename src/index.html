@@ -23,7 +23,22 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .step { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px }
 .step .t { font-weight: 700; font-size: 13px; margin-bottom: 6px }
 .step .t span { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px }
-.step .fname { color: var(--sub); font-size: 12px; word-break: break-all; min-height: 18px }
+.step.over { border-color: var(--accent); background: #f0f6fd }
+.pick { position: relative; display: inline-block; margin-bottom: 6px }
+.pick input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer }
+.pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px }
+.pick.disabled { opacity: .45; pointer-events: none }
+.flist { list-style: none; margin: 0; padding: 0; counter-reset: f }
+.flist li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid #eef0f3; counter-increment: f }
+.flist li::before { content: counter(f) "."; color: var(--sub); min-width: 18px }
+.flist .nm { flex: 1; min-width: 0; word-break: break-all }
+.flist .pc { color: var(--sub); white-space: nowrap }
+.flist .ops button { border: 1px solid var(--line); background: #fff; border-radius: 4px; padding: 0 5px; font-size: 11px; cursor: pointer; line-height: 18px }
+.flist .ops button:disabled { opacity: .3; cursor: default }
+.flist .em { flex-basis: 100%; color: var(--c-B); padding-left: 22px }
+.flist li.err .nm { color: var(--c-B) }
+.ftot { font-size: 12px; color: var(--sub); margin-top: 4px; display: flex; gap: 8px; align-items: center }
+.ftot button { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 12px }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px }
 .seg label { padding: 4px 10px; cursor: pointer; font-size: 13px; border-right: 1px solid var(--line) }
 .seg label:last-child { border-right: 0 }
@@ -102,23 +117,27 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
   <section class="card" id="setup">
     <h2>照合するファイル</h2>
     <div class="steps">
-      <div class="step"><div class="t"><span>1</span>初校PDF（朱書き前）</div>
-        <input type="file" id="fOld" accept=".pdf,application/pdf"><div class="fname" id="nOld"></div></div>
-      <div class="step"><div class="t"><span>2</span>修正後PDF</div>
-        <input type="file" id="fNew" accept=".pdf,application/pdf"><div class="fname" id="nNew"></div></div>
-      <div class="step"><div class="t"><span>3</span>朱書き</div>
+      <div class="step" data-kind="old"><div class="t"><span>1</span>初校PDF（朱書き前）</div>
+        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fOld" accept=".pdf,application/pdf" multiple></label>
+        <ol class="flist" id="lOld"></ol><div class="ftot" id="tOld"></div></div>
+      <div class="step" data-kind="nw"><div class="t"><span>2</span>修正後PDF</div>
+        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label>
+        <ol class="flist" id="lNew"></ol><div class="ftot" id="tNew"></div></div>
+      <div class="step" data-kind="marks"><div class="t"><span>3</span>朱書き</div>
         <div class="seg" role="radiogroup" aria-label="朱書きの種類">
           <label><input type="radio" name="mode" value="scan" checked><span>紙のスキャン</span></label>
           <label><input type="radio" name="mode" value="digital"><span>PDFへの注釈</span></label>
           <label><input type="radio" name="mode" value="none"><span>なし</span></label>
         </div>
-        <input type="file" id="fMarks" accept=".pdf,application/pdf,image/*" multiple><div class="fname" id="nMarks"></div>
+        <div><label class="btn small pick" id="pMarks">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*" multiple></label></div>
+        <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div>
         <div class="hint" id="modeHint">カラー・300dpiで、初校と同じページ順にスキャンしたPDF（または画像）</div></div>
       <div class="step rules"><div class="t"><span>4</span>全体指示（任意）</div>
         <div id="rules"></div>
         <button class="btn small" id="addRule">＋ 全体指示を追加</button>
         <div class="hint">紙の「全体的に〜に統一」は読み取れないため、ここに登録してください。PDFの注釈なら「全体的に「A」→「B」」の書き方で自動で読み取ります。</div></div>
     </div>
+    <div class="hint" style="margin-top:8px">各欄に複数のファイルを入れられます（まとめて選ぶ・何回かに分けて追加する・ドラッグ＆ドロップ、のどれでも可）。ページはリストの上から順につなげて照合します。追加したファイルは名前の順に並ぶので、違うときは ↑↓ で並べ替えてください。</div>
     <div class="runbar">
       <button class="btn primary" id="run" disabled>照合を開始</button>
       <div class="progress"><div class="bar"><div id="pbar"></div></div><div class="msg" id="pmsg">初校PDFと修正後PDFを選んでください</div></div>
@@ -127,8 +146,9 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
     <details class="help">
       <summary>使い方と注意点</summary>
       <ol>
-        <li><b>初校PDF</b>（朱書きする前のデータ）と<b>修正後PDF</b>を選びます。ページの順番は同じにしてください。</li>
-        <li><b>朱書き</b>を選びます。紙の場合は、カラー・300dpiでスキャンしたPDF（または画像）。PDFに注釈で朱入れした場合は「PDFへの注釈」を選び、そのPDFを指定します。</li>
+        <li><b>初校PDF</b>（朱書きする前のデータ）と<b>修正後PDF</b>を選びます。どちらも複数のファイルに分かれていてかまいません。リストの順にページをつなげて照合するので、初校と修正後でページの並びがそろうようにしてください（ファイルの分け方は違っていてもかまいません）。</li>
+        <li><b>朱書き</b>を選びます。紙の場合は、カラー・300dpiでスキャンしたPDF（または画像）。PDFに注釈で朱入れした場合は「PDFへの注釈」を選び、そのPDFを指定します。こちらも複数のファイルを入れられます。</li>
+        <li>ファイルは選んだときに読み込みます。あとでファイルを直したときは、リストから外して入れ直してください（同じ名前のファイルを追加すると、新しいほうに置き換わります）。</li>
         <li>紙の「全体的に〜に統一」は読み取れないため、<b>全体指示</b>に「変更前 → 変更後」を登録します。</li>
         <li>「照合を開始」を押すと、確認が必要な箇所が重要な順に一覧になります。左右の切り抜き（初校＋朱書き／修正後）を見比べて、<b>OK・要修正・保留</b>を付けてください（このパソコンのブラウザに自動で保存されます）。</li>
         <li>結果は「CSVで保存」「印刷・PDFで保存」で残せます。</li>
@@ -151,6 +171,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
       <div class="list" id="list"></div>
       <div class="viewer" id="viewer">
         <div class="tabs" id="tabs"></div>
+        <div class="hint" id="pinfo"></div>
         <div class="cap"><div>初校＋朱書き</div><div>修正後</div></div>
         <div class="scroll" id="vscroll"><canvas id="vcanvas"></canvas></div>
         <div class="legend" id="legend"></div>

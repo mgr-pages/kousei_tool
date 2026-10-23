@@ -1,5 +1,6 @@
 // 自動テスト: ビルドしたHTMLをfile://で開き、画面と同じ処理で照合して結果をJSONに書き出す
 //   node test/run.js 初校.pdf 修正後.pdf モード(scan|digital|none) 朱書きファイル|- 出力.json [全体指示JSON]
+//   ファイルが複数あるときは , でつなぐ(画面と同じく、名前の順に並べて追加される)
 'use strict';
 const { chromium } = require('playwright'), path = require('path'), fs = require('fs');
 (async () => {
@@ -10,14 +11,14 @@ const { chromium } = require('playwright'), path = require('path'), fs = require
   p.on('pageerror', e => logs.push('pageerror: ' + e.message));
   await p.goto('file://' + path.resolve(__dirname, '../dist/朱書き照合ツール.html'));
   await p.waitForFunction(() => window.PC && PC.libsReady, null, { timeout: 120000 });
-  await p.setInputFiles('#fOld', path.resolve(oldPdf)); await p.setInputFiles('#fNew', path.resolve(newPdf));
+  const many = s => s.split(',').map(x => path.resolve(x));
+  await p.setInputFiles('#fOld', many(oldPdf)); await p.setInputFiles('#fNew', many(newPdf));
   await p.check(`input[name=mode][value=${mode}]`, { force: true });
-  if (marks && marks !== '-') await p.setInputFiles('#fMarks', marks.split(',').map(x => path.resolve(x)));
+  if (marks && marks !== '-') await p.setInputFiles('#fMarks', many(marks));
   const rules = rulesJson ? JSON.parse(fs.readFileSync(rulesJson, 'utf8')) : [];
   const t0 = Date.now();
   const res = await p.evaluate(async rules => {
-    const g = id => document.getElementById(id);
-    const r = await window.__pc.run({ old: g('fOld').files[0], nw: g('fNew').files[0], marks: [...g('fMarks').files], mode: document.querySelector('input[name=mode]:checked').value }, rules);
+    const r = await window.__pc.run(null, rules);   // 画面で選んだファイル(リストの順)で照合する
     return { findings: r.findings, seconds: r.seconds, warn: r.warn };
   }, rules);
   fs.writeFileSync(out, JSON.stringify(res.findings, null, 1));
