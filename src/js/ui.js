@@ -3,22 +3,98 @@
 (function () {
   const $ = id => document.getElementById(id), esc = PC.esc;
   const COLOR = { A: 'A', A_IMG: 'A', M: 'M', B: 'B', B2: 'B2', C1: 'C1', C2: 'C', C3: 'C', D: 'D', E: 'E', F: 'F', F2: 'F', G: 'F' };
-  const TAG = { A: '赤字どおり変更', A_IMG: '赤字どおり変更（画像）', B: '修正漏れの疑い', B2: '続きの赤字（軽）', C1: '全体指示・以下同様', C2: '指示外の変更',
-    C3: '指示外の変更（画像・色・位置）', E: '文字データだけの差し替え', F: '人が読む赤字', F2: '引き出し線・注記', G: '全体指示の注記', M: 'ママ・イキ' };
   const isLeak = f => f.cat === 'D' && (f.check.includes('漏れ') || f.check === '未統一');
-  // 確認が必要なものほど上に出す
+  const isLight = f => f.cat === 'B2' || (f.how || '').includes('引き出し線の可能性');
+  // 確認が必要なものほど上に出す。need: 直す必要がありそうなもの
   const GROUPS = [
-    { key: 'B', label: '修正漏れの疑い', test: f => f.cat === 'B' || f.cat === 'B2', c: 'B', major: true },
-    { key: 'C', label: '指示外の変更', test: f => f.cat === 'C2' || f.cat === 'C3', c: 'C', major: true },
-    { key: 'D', label: '全体指示・以下同様の展開漏れ', test: isLeak, c: 'D', major: true },
-    { key: 'E', label: '文字データだけの差し替え', test: f => f.cat === 'E', c: 'E', major: true },
-    { key: 'A', label: '赤字どおり変更あり（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG', c: 'A' },
-    { key: 'F', label: '指示箇所に結びつかない赤字', test: f => f.cat === 'F', c: 'F' },
-    { key: 'C1', label: '全体指示・以下同様で説明できる変更', test: f => f.cat === 'C1', c: 'C1' },
-    { key: 'minor', label: '参考（軽い指摘・展開済み・ママ等）', test: () => true, c: 'F', minor: true },
+    { key: 'B', label: '直っていない', test: f => f.cat === 'B' || f.cat === 'B2', c: 'B', need: true },
+    { key: 'C', label: '指示にない変更', test: f => f.cat === 'C2' || f.cat === 'C3', c: 'C', need: true },
+    { key: 'D', label: '直し忘れ（全体指示・以下同様）', test: isLeak, c: 'D', need: true },
+    { key: 'E', label: '文字だけ違う（見た目は同じ）', test: f => f.cat === 'E', c: 'E', need: true },
+    { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG', c: 'A' },
+    { key: 'F', label: '読み取れない赤字（人が読む）', test: f => f.cat === 'F', c: 'F' },
+    { key: 'C1', label: '全体指示どおり変わった', test: f => f.cat === 'C1', c: 'C1' },
+    { key: 'minor', label: '参考', test: () => true, c: 'F', minor: true },
   ];
   const groupOf = f => GROUPS.find(g => g.test(f));
-  const tagOf = f => f.cat === 'D' ? (f.check === '未統一' ? '修正後に残っている' : f.check.includes('漏れ') ? (f.how === '同じ語の他の箇所（以下同様の候補）' ? '同じ語が他に（以下同様？）' : '展開漏れの候補') : '展開' + (f.check ? '：' + f.check : '')) : TAG[f.cat];
+  // 一言の結論と、何をすればよいか
+  function verdictOf(f) {
+    if (f.cat === 'B' || f.cat === 'B2') return isLight(f) ? ['直っていない？', (f.how || '').includes('引き出し線') ? '細い線なので、引き出し線かもしれません' : '前の赤字の続き（行の折り返しなど）の可能性。念のため確認'] : ['直っていない', '赤字が修正後に反映されていません'];
+    if (f.cat === 'C2') return f.kind === 'layout' ? ['指示にない変更', '赤字がないのに、改行・段落が変わっています'] : ['指示にない変更', '赤字がないのに変わっています。意図した変更か確認'];
+    if (f.cat === 'C3') return ['指示にない変更', '赤字がないのに、画像・色・位置が変わっています'];
+    if (f.cat === 'E') return ['文字だけ違う', '見た目は同じですが、文字データが違います（検索・テキストに影響）'];
+    if (f.cat === 'A' || f.cat === 'A_IMG') return ['赤字どおり変わった', f.cat === 'A_IMG' ? '画像・図版の中身を確認' : '指示どおりの中身か確認'];
+    if (f.cat === 'F') return ['読み取れない赤字', 'どの文字への指示か読み取れませんでした。赤字を読んで確認'];
+    if (f.cat === 'C1') return ['全体指示どおり', '全体指示・以下同様として変わっています'];
+    if (f.cat === 'M') return ['ママ・イキ', '変更しない指示どおり、変わっていません'];
+    if (f.cat === 'G') return ['全体指示の注記', ''];
+    if (f.cat === 'F2') return ['引き出し線・注記', ''];
+    if (f.cat === 'D') {
+      if (f.check === '未統一') return ['直し忘れ', `修正後に「${f.frm}」が残っています`];
+      if (f.check.includes('漏れ')) return f.how === '同じ語の他の箇所（以下同様の候補）' ? ['同じ語が他にもある', '以下同様の指示なら、ここも直す'] : ['直し忘れ', '全体指示・以下同様がここに反映されていません'];
+      return f.check.startsWith('展開済み') ? ['全体指示どおり', '全体指示・以下同様として変わっています'] : ['要確認', '全体指示・以下同様の語が、別の形に変わっています'];
+    }
+    return [f.label || f.cat, ''];
+  }
+
+  // ---- 違う字だけを色で示す(同じ部分は前後の数字だけ残して省く) ----
+  const CUT = 6, LONG = 40, MAXG = 4;
+  const clipHead = s => { const a = [...s]; return a.length > CUT ? '…' + a.slice(-CUT).join('') : s; };
+  const clipTail = s => { const a = [...s]; return a.length > CUT ? a.slice(0, CUT).join('') + '…' : s; };
+  const clipMid = s => { const a = [...s]; return a.length > CUT * 2 + 1 ? a.slice(0, CUT).join('') + '…' + a.slice(-CUT).join('') : s; };
+  const longCut = s => { const a = [...s]; return a.length > LONG ? `${a.slice(0, 16).join('')}…（${a.length}字）…${a.slice(-16).join('')}` : s; };
+  // segs → [{t:'=', s} | {t:'x', del, ins}]
+  function groupsOf(segs) {
+    const G = [];
+    for (const [t, s] of segs) {
+      const g = G[G.length - 1];
+      if (t === '=') { if (g && g.t === '=') g.s += s; else G.push({ t: '=', s }); }
+      else { const h = g && g.t === 'x' ? g : (G.push({ t: 'x', del: '', ins: '' }), G[G.length - 1]); if (t === '-') h.del += s; else h.ins += s; }
+    }
+    return G;
+  }
+  function diffRows(segs) {
+    const G = groupsOf(segs), nx = G.filter(g => g.t === 'x').length;
+    let o = '', n = '', shown = 0;
+    for (let i = 0; i < G.length; i++) {
+      const g = G[i];
+      if (g.t === '=') { const t = esc(i === 0 ? clipHead(g.s) : i === G.length - 1 || shown === MAXG ? clipTail(g.s) : clipMid(g.s)); o += t; n += t; continue; }
+      if (shown === MAXG) { const more = `<span class="more">…ほか${nx - MAXG}か所</span>`; o += more; n += more; break; }
+      o += g.del ? `<del>${esc(longCut(g.del))}</del>` : '<span class="mk" title="ここに入った">∧</span>';
+      n += g.ins ? `<ins>${esc(longCut(g.ins))}</ins>` : '<span class="gap" title="ここにあった字が消えた"></span>';
+      shown++;
+    }
+    return `<div class="rows"><span class="lb">初校</span><span class="tx">${o}</span><span class="lb">修正後</span><span class="tx">${n}</span></div>`;
+  }
+  // 項目の中身: 何が違うか(どの種類でも、なるべく短く)
+  function whatHtml(f) {
+    const q = s => `「${esc(clipMid(s || ''))}」`;
+    if (f.segs && !f.same) return diffRows(f.segs);
+    if (f.same) return `<div class="what">文字は同じで、${f.color ? '色' : '見た目（書体・太さ・位置・色など）'}だけが違います</div>`;
+    if (f.cat === 'B' || f.cat === 'B2') return f.ins ? `<div class="what">${q(f.ins[0])}と${q(f.ins[1])}の間に入れる赤字 → 修正後も何も入っていません</div>` : `<div class="what">${f.show ? '赤字の箇所 ' + q(f.show) : 'この位置の赤字'} → 修正後も変わっていません</div>`;
+    if (f.cat === 'D') {   // 指示(全体指示・以下同様)と、修正後の状態を分けて示す
+      const now = f.check === '未統一' || f.check.includes('漏れ') ? `<span class="tx ng">${q(f.frm)}のまま</span>` : f.check.startsWith('展開済み') ? `<span class="tx okc">${q(f.to)}に直っている</span>` : '<span class="tx">別の形に変わっている（切り抜きで確認）</span>';
+      return `<div class="rows"><span class="lb">指示</span><span class="tx"><del>${esc(f.frm)}</del> → <ins>${esc(f.to || '')}</ins>${f.how ? `<span class="more">（${esc(f.how === '同じ語の他の箇所（以下同様の候補）' ? '別の箇所の赤字' : f.how)}）</span>` : ''}</span><span class="lb">修正後</span>${now}</div>`;
+    }
+    if (f.cat === 'M') return `<div class="what">${q(f.show)}</div>`;
+    if (f.kind === 'layout' || f.kind === 'image') return `<div class="what">${esc(f.show.replace(/[（）]/g, ''))}</div>`;
+    if (f.cat === 'C2' || f.cat === 'A' || f.cat === 'C1') return '<div class="what">見た目が変わっています（文字データがないため、切り抜きで確認）</div>';
+    return f.show ? `<div class="what">${esc(clipMid(f.show))}</div>` : '';
+  }
+  // CSV用の短い文: 「旧→新」をか所ごとに
+  function diffText(f) {
+    if (f.segs && !f.same) return groupsOf(f.segs).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
+    if (f.same) return '見た目だけの違い';
+    if (f.cat === 'D') return `${f.frm}→${f.to}`;
+    if (f.ins) return `${f.ins[0]}｜${f.ins[1]}の間に挿入`;
+    return f.show || '';
+  }
+  const markOf = f => {   // 指示文(注釈のコメント)と、自動確認の結果
+    if (!f.note) return '';
+    const c = f.check || '', cls = c.includes('OK') ? 'okc' : c.includes('見当たらない') || c.includes('されていない') ? 'ng' : '';
+    const res = c.includes('OK') ? '✔ 修正後にある' : c.includes('見当たらない') ? '✖ 修正後に見当たらない' : c.includes('されていない') ? '✖ 削除されていない' : c ? c.replace(/（.*）/, '') : '';
+    return `<div class="meta">指示：「${esc(f.note)}」${res ? ` <span class="${cls}">${esc(res)}</span>` : ''}</div>`;
+  };
 
   const S = { res: null, imgs: [], sel: null, page: 0, off: new Set(), verdict: {}, key: '', lists: { old: [], nw: [], marks: [] }, loading: new Set() };
 
@@ -145,14 +221,17 @@
     $('results').classList.remove('hidden');
     const F = res.findings, ruleNote = res.rules.length ? `／全体指示 ${res.rules.length}件を適用` : '';
     $('sumNote').textContent = `${res.pages.length}ページ・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '');
-    $('summary').innerHTML = GROUPS.filter(g => !g.minor).map(g => {
-      const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && (f.cat === 'B2' || (f.how || '').includes('引き出し線の可能性'))).length;
-      return `<div class="sum ${S.off.has(g.key) ? 'off' : ''}" data-g="${g.key}" style="--c: var(--c-${g.c})"><div class="n">${n}</div><div class="l">${esc(g.label)}${light ? `<br>（うち軽い指摘 ${light}）` : ''}</div></div>`;
-    }).join('');
+    const card = g => {
+      const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && isLight(f)).length;
+      return `<div class="sum ${S.off.has(g.key) ? 'off' : ''} ${n ? '' : 'zero'}" data-g="${g.key}" style="--c: var(--c-${g.c})"><div class="n">${n}</div><div class="l">${esc(g.label)}${light ? `<br>（うち念のため ${light}）` : ''}</div></div>`;
+    };
+    const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nNeed = F.filter(f => groupOf(f).need).length;
+    $('summary').innerHTML = `<div class="sumgrp need"><div class="sumhd">直す必要がありそう <b>${nNeed}件</b></div><div class="sumcards">${need.map(card).join('')}</div></div>` +
+      `<div class="sumgrp"><div class="sumhd">確認だけ <b>${F.filter(f => look.includes(groupOf(f))).length}件</b></div><div class="sumcards">${look.map(card).join('')}</div></div>`;
     $('summary').querySelectorAll('.sum').forEach(el => el.onclick = () => { const k = el.dataset.g; S.off.has(k) ? S.off.delete(k) : S.off.add(k); el.classList.toggle('off'); renderList(); drawPage(); });
     $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
     $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; drawPage(); });
-    $('legend').innerHTML = [['B', '修正漏れの疑い'], ['C', '指示外の変更'], ['D', '展開漏れ'], ['E', '文字データだけ'], ['A', '赤字どおり'], ['C1', '全体指示で説明'], ['F', '人が読む赤字']].map(([c, l]) => `<span style="--c: var(--c-${c})"><i></i>${l}</span>`).join('');
+    $('legend').innerHTML = [['B', '直っていない'], ['C', '指示にない変更'], ['D', '直し忘れ'], ['E', '文字だけ違う'], ['A', '赤字どおり'], ['C1', '全体指示どおり'], ['F', '読み取れない赤字']].map(([c, l]) => `<span style="--c: var(--c-${c})"><i></i>${l}</span>`).join('');
     renderList(); drawPage();
   }
 
@@ -178,13 +257,13 @@
     if (observer) observer.disconnect();
     if (!F.length) { list.innerHTML = '<div class="empty">表示する項目はありません</div>'; return; }
     list.innerHTML = F.map(f => {
-      const v = S.verdict[f.id] || {}, chk = f.check ? `<span class="${f.check.includes('OK') ? 'okc' : f.check.includes('見当たらない') || f.check.includes('漏れ') || f.check === '未統一' ? 'ng' : ''}">${esc(f.check)}</span>` : '';
-      const meta = [f.how && '読み取り：' + esc(f.how), f.note && '指示文：「' + esc(f.note) + '」', chk].filter(Boolean).join('　');
-      return `<div class="item ${S.sel === f.id ? 'sel' : ''}" data-id="${f.id}" style="--c: var(--c-${COLOR[f.cat]})">
-        <div class="hd"><span class="tag">${esc(tagOf(f))}</span><span class="pg">${esc(pageLabel(f.page))}</span><span class="show">${esc(f.show || '')}</span></div>
-        ${meta ? `<div class="meta">${meta}</div>` : ''}
+      const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
+      const more = [f.how && '読み取り方：' + esc(f.how), '判定：' + esc(f.label), f.check && !f.note ? '確認：' + esc(f.check) : ''].filter(Boolean).join('<br>');
+      return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${f.id}" style="--c: var(--c-${COLOR[f.cat]})">
+        <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}</span></div>
+        ${whatHtml(f)}${markOf(f)}
         <div class="crops"><figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>初校＋朱書き</figcaption></figure><figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>修正後</figcaption></figure></div>
-        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"></div>
+        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"><details class="more"><summary>詳しく</summary>${more}</details></div>
       </div>`;
     }).join('');
     // 切り抜きは画面に入ったものから描く
@@ -199,20 +278,30 @@
   }
   const save = () => { try { localStorage.setItem(S.key, JSON.stringify(S.verdict)); } catch (e) { /* 保存できない環境でも動作は続ける */ } };
 
+  // 枠: 違う字が分かっていればその位置だけ(最大4か所)、なければ変わった範囲
+  const marks = (f, side) => {
+    if (side === 'L') return f.onNew ? [] : (f.pboxes && f.pboxes.length && !f.same ? f.pboxes.slice(0, MAXG) : [f.box]);
+    return f.pnboxes && f.pnboxes.length && !f.same ? f.pnboxes.slice(0, MAXG) : f.nbox ? [f.nbox] : [];
+  };
   function cropBox(f, side) {
-    const b = side === 'R' && f.nbox ? f.nbox : f.box, m = 70;
-    return [b[0] - m, b[1] - m, b[2] + m, b[3] + m];
+    const bs = marks(f, side), b = bs.length ? PC.union(bs) : (side === 'R' && f.nbox ? f.nbox : f.box), m = 60;
+    let [x0, y0, x1, y1] = [b[0] - m, b[1] - m, b[2] + m, b[3] + m];
+    if (x1 - x0 < 360) { const c = (x0 + x1) / 2; x0 = c - 180; x1 = c + 180; }   // 小さい違いは少し広めに(前後の文脈が見えるように)
+    return [x0, y0, x1, y1];
   }
   function drawCrops(el) {
-    const f = S.res.findings[+el.dataset.id], im = S.imgs[f.page - 1];
+    const f = S.res.findings[+el.dataset.id], im = S.imgs[f.page - 1], col = getComputedStyle(document.documentElement).getPropertyValue('--c-' + COLOR[f.cat]).trim();
     el.querySelectorAll('canvas').forEach(c => {
       const side = c.dataset.side, [x0, y0, x1, y1] = cropBox(f, side), w = x1 - x0, h = y1 - y0, ctx = c.getContext('2d');
       const W = c.width = 360, H = c.height = Math.max(60, Math.min(220, Math.round(W * h / w)));
       const s = Math.min(W / w, H / h), ox = (W - w * s) / 2, oy = (H - h * s) / 2;
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
       ctx.drawImage(side === 'L' ? im.L : im.R, x0, y0, w, h, ox, oy, w * s, h * s);
-      const b = side === 'R' ? f.nbox : f.box;
-      if (b) { ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--c-' + COLOR[f.cat]); ctx.lineWidth = 2; ctx.strokeRect(ox + (b[0] - x0 - 5) * s, oy + (b[1] - y0 - 5) * s, (b[2] - b[0] + 10) * s, (b[3] - b[1] + 10) * s); }
+      for (const b of marks(f, side)) {
+        const r = [ox + (b[0] - x0 - 3) * s, oy + (b[1] - y0 - 3) * s, (b[2] - b[0] + 6) * s, (b[3] - b[1] + 6) * s];
+        ctx.globalAlpha = 0.18; ctx.fillStyle = col; ctx.fillRect(...r); ctx.globalAlpha = 1;
+        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.strokeRect(...r);
+      }
     });
   }
 
@@ -239,8 +328,8 @@
     for (const f of S.res.findings) {
       if (f.page !== S.page + 1 || !visible(f) || f.cat === 'F2') continue;
       const sel = f.id === S.sel; ctx.strokeStyle = css.getPropertyValue('--c-' + COLOR[f.cat]); ctx.lineWidth = sel ? 10 : 4;
-      const b = f.box; ctx.strokeRect(b[0] - 6, b[1] - 6, b[2] - b[0] + 12, b[3] - b[1] + 12); boxes.push([f.id, b[0] - 6, b[1] - 6, b[2] + 6, b[3] + 6]);
-      if (f.nbox) { const n = f.nbox; ctx.strokeRect(im.w + gap + n[0] - 6, n[1] - 6, n[2] - n[0] + 12, n[3] - n[1] + 12); boxes.push([f.id, im.w + gap + n[0] - 6, n[1] - 6, im.w + gap + n[2] + 6, n[3] + 6]); }
+      for (const b of marks(f, 'L')) { ctx.strokeRect(b[0] - 6, b[1] - 6, b[2] - b[0] + 12, b[3] - b[1] + 12); boxes.push([f.id, b[0] - 6, b[1] - 6, b[2] + 6, b[3] + 6]); }
+      for (const n of marks(f, 'R')) { ctx.strokeRect(im.w + gap + n[0] - 6, n[1] - 6, n[2] - n[0] + 12, n[3] - n[1] + 12); boxes.push([f.id, im.w + gap + n[0] - 6, n[1] - 6, im.w + gap + n[2] + 6, n[3] + 6]); }
     }
     geo = { s, boxes };
     if (scrollToSel && S.sel !== null) { const f = S.res.findings[S.sel]; $('vscroll').scrollTo({ top: Math.max(0, f.box[1] * s - 150), behavior: 'smooth' }); }
@@ -258,10 +347,10 @@
   // ---- 出力 ----
   $('csv').onclick = () => {
     const V = { ok: 'OK', fix: '要修正', hold: '保留' }, q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
-    const rows = [['No.', 'ページ', '初校のファイル', '初校のページ', '修正後のファイル', '修正後のページ', '区分', '種類', '内容', '読み取り', '指示文', '自動確認', '確認', 'メモ', '位置（初校・200dpi）']];
+    const rows = [['No.', 'ページ', '初校のファイル', '初校のページ', '修正後のファイル', '修正後のページ', '区分', '結論', 'すること', '違い（初校→修正後）', '指示文', '自動確認', '確認', 'メモ', '読み取り方', '位置（初校・200dpi）']];
     S.res.findings.filter(f => f.cat !== 'F2').sort(cmp).forEach((f, i) => {
-      const v = S.verdict[f.id] || {}, o = PC.pageOf(S.res.oldParts, f.page - 1) || {}, n = PC.pageOf(S.res.newParts, f.page - 1) || {};
-      rows.push([i + 1, f.page, o.name, o.page, n.name, n.page, groupOf(f).label, tagOf(f), f.show, f.how, f.note, f.check, V[v.v] || '', v.memo || '', f.box.join(' ')]);
+      const v = S.verdict[f.id] || {}, o = PC.pageOf(S.res.oldParts, f.page - 1) || {}, n = PC.pageOf(S.res.newParts, f.page - 1) || {}, [title, todo] = verdictOf(f);
+      rows.push([i + 1, f.page, o.name, o.page, n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f), f.note, f.check, V[v.v] || '', v.memo || '', f.how, f.box.join(' ')]);
     });
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '照合結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);

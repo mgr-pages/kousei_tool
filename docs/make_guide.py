@@ -12,13 +12,13 @@ FONTS = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / 'test-kit/src/node_mo
 if not (FONTS / 'noto-sans-jp/400.css').exists(): sys.exit(f'フォントが見つかりません: {FONTS}')
 shot = base64.b64encode(open(DOCS / '画面例.png', 'rb').read()).decode()
 F = FONTS.resolve().as_uri()
-CAT = [('#d1343b', '修正漏れの疑い', '赤字があるのに変わっていない。左右の切り抜きを見比べ、直っていなければ「要修正」。「続きの赤字（軽）」は、行の折り返しで続く取り消し線などです。'),
-       ('#d9730d', '指示外の変更', '赤字がないのに変わっている。意図した変更か、確認してください（文字・組み・画像・図版・色・位置）。'),
-       ('#9b3fa0', '展開漏れ', '全体指示・以下同様が反映されていない箇所。「同じ語が他に（以下同様？）」は、赤字の語と同じ語が他にも残っている箇所です。'),
-       ('#1c7ed6', '文字データだけの差し替え', '見た目ではほぼ同じだが、文字が違う（長音「ー」→漢数字「一」など）。'),
-       ('#1f8f4e', '赤字どおり変更あり', '赤字の箇所が変わっている。中身が指示どおりかを確認。PDFの注釈なら指示文と自動で照合し、「見当たらない」と出たものは要確認です。'),
-       ('#6b7280', '指示箇所に結びつかない赤字', '欄外の注記・印鑑など。読んで、指示であれば該当箇所を確認してください。'),
-       ('#8a8600', '全体指示・以下同様で説明できる変更', '赤字の箇所ではないが、全体指示・以下同様として説明がつく変更。')]
+CAT = [('#d1343b', '直っていない', '赤字があるのに、修正後で変わっていません。→ 赤字を反映する。点線の枠で「直っていない？」と出るものは、行の折り返しで続く線や引き出し線の可能性があるもの（念のため確認）。'),
+       ('#d9730d', '指示にない変更', '赤字がないのに、修正後で変わっています（文字・改行・画像・図版・色・位置）。→ 意図した変更か確認し、不要なら元に戻す。'),
+       ('#9b3fa0', '直し忘れ', '全体指示・以下同様が、ここに反映されていません。「同じ語が他にもある」は、赤字の語と同じ語が別の箇所にも残っているもの。→ 以下同様の指示なら、ここも直す。'),
+       ('#1c7ed6', '文字だけ違う', '見た目は同じですが、文字データが違います（長音「ー」と漢数字「一」など）。→ 文字データを直す（検索やテキストの書き出しに影響します）。'),
+       ('#1f8f4e', '赤字どおり変わった', '赤字の箇所が変わっています。→ 中身が指示どおりか確認。PDFの注釈なら指示文と自動で照合し、「✔ 修正後にある」「✖ 修正後に見当たらない」と出ます。'),
+       ('#6b7280', '読み取れない赤字', '欄外の注記・印鑑など、どの文字への指示か読み取れなかった赤字。→ 読んで、指示であれば該当箇所を確認。'),
+       ('#8a8600', '全体指示どおり', '赤字の箇所ではないが、全体指示・以下同様として変わっています（確認だけ）。')]
 cats = ''.join(f'<tr><td><span class="sw" style="background:{c}"></span>{a}</td><td>{b}</td></tr>' for c, a, b in CAT)
 html = f'''<!doctype html><html lang="ja"><meta charset="utf-8"><style>
 @import url("{F}/noto-sans-jp/400.css"); @import url("{F}/noto-sans-jp/700.css");
@@ -31,7 +31,7 @@ th {{ background: #eef4fb }} td:first-child {{ white-space: nowrap; font-weight:
 .box {{ border: 0.4mm solid #0b6bcb; background: #f3f8fe; padding: 2.5mm 4mm; border-radius: 1.5mm }}
 .warn {{ border: 0.4mm solid #c77700; background: #fff7ea; padding: 2.5mm 4mm; border-radius: 1.5mm }}
 ol, ul {{ margin: 1mm 0; padding-left: 6mm }} img {{ width: 100%; border: 0.3mm solid #bbb; border-radius: 1mm }} .cap {{ font-size: 8pt; color: #666; text-align: center }}
-.pb {{ break-before: page }} table, .warn, .fig {{ break-inside: avoid }} li {{ break-inside: avoid }}
+.pb {{ break-before: page }} .ex {{ border: 0.3mm solid #ddd; border-radius: 1mm; padding: 2mm 3mm; margin: 2mm 0; font-size: 10pt }} .ex .lb {{ font-size: 7.5pt; color: #666; margin-right: 1.5mm }} del {{ background: #fde2e2; color: #a3151b; text-decoration: line-through }} ins {{ background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 700 }} .mk {{ color: #d1343b; font-weight: 700 }} .gap {{ display: inline-block; width: 0.7mm; height: 3.5mm; background: #d1343b; vertical-align: -0.6mm; margin: 0 0.6mm }} table, .warn, .fig {{ break-inside: avoid }} li {{ break-inside: avoid }}
 </style><body>
 <h1>朱書き照合ツール　利用ガイド</h1>
 <div class="sub">初校・朱書き・修正後を照合し、確認が必要な箇所を一覧にします</div>
@@ -54,9 +54,13 @@ ol, ul {{ margin: 1mm 0; padding-left: 6mm }} img {{ width: 100%; border: 0.3mm 
 <li>確認が必要な順に一覧が出ます。各項目の左右の切り抜き（初校＋朱書き／修正後）を見比べ、<b>OK・要修正・保留</b>とメモを付けます。項目を押すと右側にページ全体が表示され、ページ上の枠を押すと該当する項目に移ります。ファイルが複数のときは「初校 ○○.pdf の2ページ目」のように、どのファイルの何ページ目かも表示されます。</li>
 <li>「CSVで保存」「印刷・PDFで保存」で結果を残します。確認の状態は、同じファイルを開き直したときに復元されます（このパソコンのブラウザに保存）。</li>
 </ol>
-<div class="fig"><img src="data:image/png;base64,{shot}"><div class="cap">照合後の画面（上：ファイルの指定と結果の概要／下左：確認が必要な項目と切り抜き、下右：ページ全体）<br>※ ボタンの表記はブラウザの言語設定によって「ファイルを選択」などになります</div></div>
+<div class="fig"><img src="data:image/png;base64,{shot}"><div class="cap">照合後の画面（左：違う字に色を付けた一覧と切り抜き、右：ページ全体）<br>※ ボタンの表記はブラウザの言語設定によって「ファイルを選択」などになります</div></div>
 
-<h2>3. 判定の見方（上から順に確認してください）</h2>
+<h2>3. 結果の見方</h2>
+<p>結果は<b>「直す必要がありそう」</b>（直っていない・指示にない変更・直し忘れ・文字だけ違う）と<b>「確認だけ」</b>（赤字どおり変わった・読み取れない赤字・全体指示どおり）に分かれ、直す必要がありそうなものから順に並びます。各項目には、先頭に<b>一言の結論</b>と<b>すること</b>が出ます。</p>
+<p>何が違うかは、初校と修正後を2段に並べ、<b>違う字だけに色</b>を付けて示します。同じ部分は前後の数字だけ残して「…」で省きます。</p>
+<div class="ex"><span class="lb">初校</span>ご利用<del>いただけ</del>ます　　<span class="lb">修正後</span>ご利用<ins>になれ</ins>ます　　（<del>赤の取り消し線</del>＝消えた字、<ins>緑</ins>＝入った字、<span class="mk">∧</span>＝字が入った位置、<span class="gap"></span>＝字が消えた位置）</div>
+<p>切り抜きとページ全体の枠も、<b>違う字の位置だけ</b>を囲みます。</p>
 <table>{cats}</table>
 
 <h2>4. 精度を上げる朱書き・スキャンのコツ</h2>

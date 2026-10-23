@@ -60,9 +60,16 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .progress .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s }
 .progress .msg { font-size: 12px; color: var(--sub); margin-top: 4px }
 .err { color: var(--c-B); font-size: 13px; white-space: pre-wrap }
-.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px }
+.summary { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px }
+@media (max-width: 1000px) { .summary { grid-template-columns: 1fr } }
+.sumgrp { border-radius: 10px; padding: 10px; background: #f6f7f9 }
+.sumgrp.need { background: #fff3f3 }
+.sumhd { font-size: 13px; font-weight: 700; margin-bottom: 8px }
+.sumgrp.need .sumhd b { color: var(--c-B); font-size: 18px }
+.sumcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px }
 .sum { border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 8px; padding: 8px 10px; cursor: pointer; background: #fff }
-.sum.off { opacity: .45 }
+.sum.zero { opacity: .55 }
+.sum.off { opacity: .35 }
 .sum .n { font-size: 22px; font-weight: 700 }
 .sum .l { font-size: 12px; color: var(--sub) }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 }
@@ -74,8 +81,22 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .item { background: #fff; border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 8px; padding: 10px 12px; cursor: pointer }
 .item.sel { outline: 2px solid var(--accent); outline-offset: 1px }
 .item .hd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
-.tag { font-size: 11px; font-weight: 700; color: #fff; background: var(--c); border-radius: 4px; padding: 1px 6px }
-.pg { font-size: 12px; color: var(--sub) }
+.item.light { border-left-style: dashed }
+.tag { font-size: 13px; font-weight: 700; color: #fff; background: var(--c); border-radius: 4px; padding: 1px 8px }
+.todo { font-size: 13px; font-weight: 700 }
+.pg { font-size: 12px; color: var(--sub); margin-left: auto }
+.rows { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin-top: 8px; font-size: 16px; line-height: 1.7; align-items: baseline }
+.rows .lb { font-size: 11px; color: var(--sub); white-space: nowrap }
+.rows .tx { word-break: break-all }
+.rows .tx.ng { color: var(--c-B); font-weight: 700 } .rows .tx.okc { color: var(--c-A); font-weight: 700 }
+del { background: #fde2e2; color: #a3151b; text-decoration: line-through; text-decoration-thickness: 2px; padding: 0 2px; border-radius: 3px }
+ins { background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 700; padding: 0 2px; border-radius: 3px }
+.mk { color: var(--c-B); font-weight: 700; font-size: 13px }
+.gap { display: inline-block; width: 3px; height: 1.1em; background: var(--c-B); vertical-align: -3px; margin: 0 3px; border-radius: 2px }
+.more { color: var(--sub); font-size: 12px }
+.what { margin-top: 8px; font-size: 15px }
+.what.ng { color: var(--c-B); font-weight: 700; font-size: 13px; margin-top: 2px }
+details.more { flex-basis: 100%; font-size: 12px; color: var(--sub) } details.more summary { cursor: pointer; width: max-content }
 .show { font-weight: 700; word-break: break-all }
 .meta { font-size: 12px; color: var(--sub); margin-top: 2px }
 .meta .ng { color: var(--c-B); font-weight: 700 }
@@ -101,7 +122,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .help { margin-top: 12px; font-size: 13px; color: var(--ink) } .help summary { cursor: pointer; color: var(--accent); font-weight: 700 } .help ol { padding-left: 20px; margin: 6px 0 } .help p { margin: 6px 0 }
 .hidden { display: none !important }
 @media print {
-  header .badge, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on) { display: none !important }
+  header .badge, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on), details.more { display: none !important }
   body { background: #fff } main { padding: 0 } .work { display: block } .item { break-inside: avoid; border-left-width: 4px; margin-bottom: 4mm }
   .summary { grid-template-columns: repeat(4, 1fr) } .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb }
 }
@@ -153,7 +174,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
         <li>「照合を開始」を押すと、確認が必要な箇所が重要な順に一覧になります。左右の切り抜き（初校＋朱書き／修正後）を見比べて、<b>OK・要修正・保留</b>を付けてください（このパソコンのブラウザに自動で保存されます）。</li>
         <li>結果は「CSVで保存」「印刷・PDFで保存」で残せます。</li>
       </ol>
-      <p><b>判定の見方</b>：「修正漏れの疑い」＝赤字があるのに変わっていない／「指示外の変更」＝赤字がないのに変わっている／「展開漏れ」＝全体指示・以下同様が反映されていない箇所／「文字データだけの差し替え」＝見た目ではほぼ同じだが文字が違う（ー と 一 など）／「赤字どおり変更あり」＝変わっているが、中身が指示どおりかは人が確認（PDFの注釈なら指示文と自動で照合）。</p>
+      <p><b>結果の見方</b>：上の「直す必要がありそう」から順に確認します。各項目では、初校と修正後を2段に並べ、<del>消えた字</del>・<ins>入った字</ins>だけに色を付けています（同じ部分は「…」で省略、<span class="mk">∧</span>は字が入った位置）。切り抜きとページの枠も、違う字の位置だけを囲みます。「直っていない」＝赤字があるのに変わっていない／「指示にない変更」＝赤字がないのに変わっている／「直し忘れ」＝全体指示・以下同様が反映されていない／「文字だけ違う」＝見た目は同じだが文字データが違う（ー と 一 など）／「赤字どおり変わった」＝中身が指示どおりかを確認（PDFの注釈なら指示文と自動で照合）。</p>
       <p><b>注意</b>：このツールは見落としを減らすための補助です。<b>判定がないことは「問題がない」ことの保証ではありません</b>。最終確認は必ず人が行ってください。紙の「ママ」「イキ」は読めないため「修正漏れの疑い」と出ます。引き出し線が文字の行の真ん中を通ると、取り消し線と見分けられないことがあります。ファイルはこのパソコンの中だけで処理され、外部には送信されません。</p>
     </details>
   </section>

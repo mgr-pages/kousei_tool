@@ -33,6 +33,43 @@
     return best && Math.abs((best[1][0] + best[1][2]) / 2 - cx) < 40 && Math.abs((best[1][1] + best[1][3]) / 2 - cy) < 40 ? best[0] : '';
   }
 
+  // 字形(トークン)の範囲 [a, b) に対応する文字を、位置つきで読み順に取り出す(tokText と同じ選び方)
+  function tokChars(cs, T, a, b) {
+    const out = [], seen = new Set();
+    for (let k = Math.max(0, a); k < Math.min(T.length, b); k++) {
+      const [x0, y0, x1, y1] = T[k].box;
+      const inside = cs.filter(c => !seen.has(c) && x0 - 2 <= (c[1][0] + c[1][2]) / 2 && (c[1][0] + c[1][2]) / 2 <= x1 + 2 && y0 - 2 <= (c[1][1] + c[1][3]) / 2 && (c[1][1] + c[1][3]) / 2 <= y1 + 2);
+      if (inside.length) { inside.forEach(c => seen.add(c)); out.push(...inside); continue; }
+      const t = tokText(cs, T[k].box);
+      if (t) out.push([t, T[k].box]);
+    }
+    return out;
+  }
+  // 挿入・削除の位置を示す細い枠(隣の字の境目)
+  function caret(A, i) {
+    const p = A[i - 1], q = A[i];
+    if (!p && !q) return null;
+    const vert = p && q ? Math.abs((q[1][1] + q[1][3]) - (p[1][1] + p[1][3])) > Math.abs((q[1][0] + q[1][2]) - (p[1][0] + p[1][2])) : false;
+    if (p) { const b = p[1]; return vert ? [b[0], b[3] - 2, b[2], b[3] + 2] : [b[2] - 2, b[1], b[2] + 2, b[3]]; }
+    const b = q[1]; return vert ? [b[0], b[1] - 2, b[2], b[1] + 2] : [b[0] - 2, b[1], b[0] + 2, b[3]];
+  }
+  // ピンポイントの違い: 変わった範囲の文字データを比べ、違う字だけを取り出す(表示用の並びと、違う字の位置)
+  //   segs: [['=', 同じ字], ['-', 初校だけの字], ['+', 修正後だけの字], ...]。前後の字(ctx)も添える
+  function pinDiff(A, B, pre, post) {
+    const ops = PC.opcodes(A.map(c => c[0]), B.map(c => c[0])), segs = [], ob = [], nb = [];
+    const str = (X, i, j) => X.slice(i, j).map(c => c[0]).join('');
+    if (pre.length) segs.push(['=', str(pre, 0, pre.length)]);
+    for (const [tag, i1, i2, j1, j2] of ops) {
+      if (tag === 'equal') { segs.push(['=', str(A, i1, i2)]); continue; }
+      if (i2 > i1) segs.push(['-', str(A, i1, i2)]);
+      if (j2 > j1) segs.push(['+', str(B, j1, j2)]);
+      ob.push(i2 > i1 ? union(A.slice(i1, i2).map(c => c[1])) : caret(A, i1));
+      nb.push(j2 > j1 ? union(B.slice(j1, j2).map(c => c[1])) : caret(B, j1));
+    }
+    if (post.length) segs.push(['=', str(post, 0, post.length)]);
+    return { segs, same: !ops.some(o => o[0] !== 'equal'), ob: ob.filter(Boolean).map(b => b.map(Math.trunc)), nb: nb.filter(Boolean).map(b => b.map(Math.trunc)) };
+  }
+
   // 文字の並び(コードポイント単位)の中から、文字列sの出現位置をすべて探す
   function findAll(cs, s) {
     const target = [...s], n = target.length, out = [];
@@ -121,6 +158,8 @@
         c.before = tt(oc, ot, c.oi[0], c.oi[1]); c.after = tt(nc, nt, c.nj[0], c.nj[1]);
         c.show = `${tt(oc, ot, c.oi[0] - 1, c.oi[1] + 1)}→${tt(nc, nt, c.nj[0] - 1, c.nj[1] + 1)}`;
         c.nline = nl.filter(l => l.toks.length && c.nbox && ov(l.box, c.nbox)).map(l => tt(nc, nt, l.toks[0], l.toks[l.toks.length - 1] + 1)).join('');
+        const A = tokChars(oc, ot, c.oi[0], c.oi[1]), B = tokChars(nc, nt, c.nj[0], c.nj[1]);
+        if (A.length || B.length) c.diff = pinDiff(A, B, tokChars(oc, ot, c.oi[0] - 6, c.oi[0]), tokChars(oc, ot, c.oi[1], c.oi[1] + 6));   // 文字データがなければ作らない
       }
       merged.push(...layoutChanges(ot, ol, nt, nl, pairs));
       const im = PC.imageChanges(old, nw, ob, nb);
@@ -228,7 +267,7 @@
     const remain = [];
     for (const r of rules) {
       if (!r.frm) continue;
-      P.forEach((d, q) => { for (const [i, e] of findAll(d.nc, r.frm)) remain.push({ page: q + 1, frm: r.frm, box: union(d.nc.slice(i, e).map(c => c[1])).map(Math.trunc) }); });
+      P.forEach((d, q) => { for (const [i, e] of findAll(d.nc, r.frm)) remain.push({ page: q + 1, frm: r.frm, to: r.to, box: union(d.nc.slice(i, e).map(c => c[1])).map(Math.trunc) }); });
     }
 
     // 文字データでの裏取り: 見た目で「同じ」と対応づいた字形どうしで、文字データが違うもの
@@ -273,6 +312,10 @@
           else { const ctx = c.nbox ? around(d.nc, c.nbox, [...want].length + 3) : ''; chk = want && ctx.includes(want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
         }
         add(p + 1, st, c.obox, c.show + (c.look === 'color' ? '（色のみ）' : ''), a.how || c.why || '', a.note || '', chk, c.nbox);
+        if (c.diff) Object.assign(F[F.length - 1], { segs: c.diff.segs, same: c.diff.same, pboxes: c.diff.ob, pnboxes: c.diff.nb });
+        if (c.tag === 'layout') F[F.length - 1].kind = 'layout';
+        if (c.kind !== 'text') F[F.length - 1].kind = 'image';
+        if (c.look === 'color') F[F.length - 1].color = true;
       }
       const done = new Set(d.an.filter(a => a.hit.length).map(a => a.stroke)), f0 = F.length;
       const along = (b, v) => v ? [b[1], b[3]] : [b[0], b[2]];   // 行の向きに沿った範囲
@@ -296,6 +339,7 @@
           show = `${pre}｜${post}（挿入位置）`; nb = union([tokBox(d, at - 1), tokBox(d, at)].filter(Boolean));
         } else { show = textIn(d.oc, a.box); nb = mapBox(d, a.box); }
         add(p + 1, cat, a.box, show, a.how, a.note || '', '', nb);
+        if (a.kind === 'insert') F[F.length - 1].ins = show.replace('（挿入位置）', '').split('｜');
         Object.assign(F[F.length - 1], { stroke: a.stroke, thin: !!a.thin, li: a.li, vert: a.vert, span: a.span, lh: a.h });
       }
       // まとめたあとで行のほぼ全長(かつ字2つ分より長く)にわたる細い線は、引き出し線の可能性として示す
@@ -305,9 +349,9 @@
         add(p + 1, d.an.some(a => ov(b, a.box, 30)) ? 'F2' : 'F', b);
       }
     });
-    for (const e of expansions) add(e.page, 'D', e.box, `${e.frm}→${e.to}`, e.origin, '', e.status, mapBox(P[e.page - 1], e.box));
-    for (const r of remain) add(r.page, 'D', r.box, `${r.frm}（修正後に残っている）`, '全体指示', '', '未統一');
-    for (const l of lookalike) add(l.page, 'E', l.box, l.show, '', '', '', mapBox(P[l.page - 1], l.box));
+    for (const e of expansions) { add(e.page, 'D', e.box, `${e.frm}→${e.to}`, e.origin, '', e.status, mapBox(P[e.page - 1], e.box)); Object.assign(F[F.length - 1], { frm: e.frm, to: e.to }); }
+    for (const r of remain) { add(r.page, 'D', r.box, `${r.frm}（修正後に残っている）`, '全体指示', '', '未統一'); Object.assign(F[F.length - 1], { frm: r.frm, to: r.to, nbox: r.box, onNew: true }); }
+    for (const l of lookalike) { const [x, y] = l.show.split('→'); add(l.page, 'E', l.box, l.show, '', '', '', mapBox(P[l.page - 1], l.box)); F[F.length - 1].segs = [['-', x], ['+', y]]; }
     prog('完了', 1);
     return { findings: F, pages: P.map(d => d.thumbs), rules };
   };
