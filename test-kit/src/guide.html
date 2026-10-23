@@ -1,0 +1,73 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><style>
+@import url("node_modules/@fontsource/noto-sans-jp/400.css"); @import url("node_modules/@fontsource/noto-sans-jp/700.css");
+@page { size: A4; margin: 15mm } body { font-family: "Noto Sans JP"; font-size: 9.5pt; color: #222; line-height: 1.65 }
+h1 { font-size: 16pt; margin: 0 0 2mm } h2 { font-size: 11.5pt; margin: 6mm 0 2mm; border-left: 1.2mm solid #0078dc; padding-left: 2mm; break-after: avoid }
+table { border-collapse: collapse; width: 100%; margin: 1mm 0 } td, th { border: 0.3mm solid #999; padding: 1.2mm 2mm; vertical-align: top }
+th { background: #eef4fb } td.c { font-weight: 700; white-space: nowrap } ol, ul { margin: 1mm 0; padding-left: 6mm }
+.box { border: 0.4mm solid #0078dc; background: #f3f8fe; padding: 2.5mm 4mm; border-radius: 1.5mm }
+.warn { border: 0.4mm solid #c77700; background: #fff7ea; padding: 2.5mm 4mm; border-radius: 1.5mm }
+code { font-family: monospace; background: #f2f2f2; padding: 0 1mm; font-size: 8.8pt } pre { background: #f2f2f2; padding: 2mm 3mm; font-size: 8.5pt; white-space: pre-wrap }
+</style><body>
+<h1>校正テスト　実施手順書（主催者向け）</h1>
+<div class="box">目的：朱書き照合ツールの試作が、<b>実際の校正者の筆跡と書き方</b>で正しく働くかを確かめます。
+これまでの検証は模擬の筆跡だけで行っており、ここが最大の不確定要素です。結果をもとに、静的なブラウザ版（社外送信なし）の開発に進むかを判断します。</div>
+
+<h2>1. キットの中身</h2>
+<table><tr><th>ファイル</th><th>使う人</th><th>内容</th></tr>
+<tr><td>01_初校ダミー.pdf</td><td>校正者</td><td>朱書きしてもらう4ページの原稿（チラシ／縦組み／カタログと表／2段組み。内容は架空）</td></tr>
+<tr><td>02_赤字指示書.pdf</td><td>校正者</td><td>朱書きしてもらう26項目と、その位置の図</td></tr>
+<tr><td>03_修正後ダミー.pdf</td><td>主催者のみ</td><td>指示を反映した「修正後」。わざと修正漏れ・指示外の変更・展開漏れを混ぜてある</td></tr>
+<tr><td>04_正解表.csv</td><td>主催者のみ</td><td>全41項目の正解（どの箇所をツールがどう判定すべきか）</td></tr>
+<tr><td>tool フォルダ</td><td>採点する人</td><td>照合ツールの試作と採点スクリプト（Python）。使い方は tool/README.md</td></tr>
+<tr><td>sample_result フォルダ</td><td>参考</td><td>模擬の朱書きで予行演習したときの判定結果の画像と採点表</td></tr></table>
+<div class="warn">「03_修正後ダミー.pdf」と「04_正解表.csv」は、校正者に見せないでください（普段どおりの朱書きにならなくなるため）。</div>
+
+<h2>2. 準備</h2>
+<ul><li><b>参加者：3〜5名</b>。書き方の違いを集めるのが目的なので、経験年数や癖が違う人を混ぜてください。</li>
+<li><b>記入者ID</b>：T1、T2…のように記号を割り当ててください（氏名は書かせない）。</li>
+<li><b>印刷</b>：01_初校ダミー.pdf を<b>A4・実際のサイズ（拡大縮小なし）・カラー</b>で人数分。02_赤字指示書.pdf も人数分。</li></ul>
+
+<h2>3. 当日の流れ（目安30分）</h2>
+<ol><li>指示書の1ページ目を読んでもらう（5分）。「腕前のテストではない」「普段どおりの書き方で」を口頭でも伝えてください。</li>
+<li>朱書き（15〜25分）。指示の順番は自由。分からない箇所は指示書の位置図を見てもらう。</li>
+<li>回収し、スキャンする（次項）。</li></ol>
+
+<h2>4. スキャンの方法</h2>
+<ul><li><b>カラー・300dpi</b>、4ページを1つのPDFに（ファイル名：<code>T1_scan.pdf</code>）。原稿台でも自動給紙でも可。</li>
+<li>「白紙除去」「文字くっきり」「傾き補正」などの自動補正は、可能なら切る。</li>
+<li>（任意）1ページ目をスマートフォンで真上から撮影（<code>T1_photo.jpg</code>）。撮影で使えるかの確認用です。</li></ul>
+
+<h2>5. デジタル朱入れ（任意・できる人だけ）</h2>
+<ul><li>Acrobat などで、同じ指示を「01_初校ダミー.pdf」に<b>注釈</b>で入れて保存（<code>T1_digital.pdf</code>）。</li>
+<li>使う機能は普段どおりで構いません（取り消し線、テキストの置換・挿入、ノート、フリーハンドなど）。</li>
+<li>全体指示（No.04）は、テキストボックスなどに「全体的に「お問い合わせ」→「お問合せ」」のように書くと自動で読み取れます。</li></ul>
+
+<h2>6. 回収したファイルの扱い</h2>
+<p>ダミー原稿なので、社外秘の内容は含まれません（記入者IDも記号です）。次のどちらかで採点します。</p>
+<ul><li><b>Claudeに渡す</b>：スキャンしたファイルを会話に添付してもらえれば、採点と、失敗した書き方の分析・ルールの改良まで行います。</li>
+<li><b>自分で採点する</b>：tool/README.md の手順で実行します（Python 3.10以上が必要）。</li></ul>
+<pre>python3 proofcheck.py ../01_初校ダミー.pdf ../03_修正後ダミー.pdf --scan T1_scan.pdf --rules rules.json --out T1_結果
+python3 evaluate.py gt.json T1_結果/findings.json --rules-given --csv T1_採点.csv</pre>
+
+<h2>7. ツールの判定の種類</h2>
+<table><tr><th>記号</th><th>判定</th><th>意味</th></tr><tr><td class="c">A</td><td>赤字あり・変更あり</td><td>指示した箇所が変わっている。中身が指示どおりかは人が確認（デジタル朱入れは指示文と自動照合）</td></tr><tr><td class="c">B</td><td>赤字あり・変更なし</td><td>修正漏れの疑い</td></tr><tr><td class="c">B2</td><td>同じ赤字が隣の字にもかかる</td><td>軽い確認</td></tr><tr><td class="c">C1</td><td>全体指示・以下同様で説明できる変更</td><td>指示外に見えるが、全体指示や以下同様の展開として説明がつく</td></tr><tr><td class="c">C2 / C3</td><td>指示外の変更</td><td>赤字がないのに変わっている（文字・組み／画像・図版・色・位置）</td></tr><tr><td class="c">D</td><td>全体指示・以下同様の展開</td><td>同じ語の他の箇所が「展開済み」か「展開漏れの候補」か</td></tr><tr><td class="c">E</td><td>見た目では差が出ない文字の差し替え</td><td>例：長音「ー」→漢数字「一」。文字データで検出</td></tr><tr><td class="c">F</td><td>指示箇所に結びつかない赤字</td><td>欄外の注記・印鑑など。人が読む</td></tr><tr><td class="c">G</td><td>全体指示として読み取った注記</td><td>デジタル朱入れのみ</td></tr><tr><td class="c">M</td><td>ママ・イキどおり変更なし</td><td>デジタル朱入れのみ（紙は読み取れない）</td></tr></table>
+
+<h2>8. 合格の目安（提案）</h2>
+<ul><li><b>重大な見逃しが0件</b>（必須）：修正漏れ・指示外の変更・展開漏れを、ツールが「問題なし」と扱ったもの。</li>
+<li>指示の読み取り（26項目）で<b>9割以上</b>が正しく対応づく。</li>
+<li>誤検出が1人あたり2件程度まで（多いと現場で使われなくなるため）。</li></ul>
+<p>満たせば静的なブラウザ版の開発へ進み、満たさなければ失敗した書き方を分析してルールを改良し、再テストします。</p>
+
+<h2>9. 予行演習の結果（模擬の朱書き）</h2>
+<p>手ぶれ・傾き・ノイズの条件を変えた模擬スキャン8通りと、デジタル注釈1通りで採点した結果です。</p>
+<table><tr><th>模擬スキャン</th><th>合格</th><th>重大な見逃し</th><th>既知の限界</th><th>誤検出</th></tr><tr><td>1</td><td>41 / 41</td><td>0</td><td>0</td><td>0</td></tr><tr><td>2</td><td>40 / 41</td><td>0</td><td>0</td><td>0</td></tr><tr><td>3</td><td>41 / 41</td><td>0</td><td>0</td><td>2</td></tr><tr><td>4</td><td>41 / 41</td><td>0</td><td>0</td><td>0</td></tr><tr><td>5</td><td>38 / 41</td><td>0</td><td>1</td><td>1</td></tr><tr><td>6</td><td>40 / 41</td><td>0</td><td>0</td><td>0</td></tr><tr><td>7</td><td>40 / 41</td><td>0</td><td>0</td><td>1</td></tr><tr><td>8</td><td>41 / 41</td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>デジタル注釈</td><td>41 / 41</td><td>0</td><td>0</td><td>0</td></tr></table>
+<div class="warn">模擬の筆跡は、フォントで書いた文字と、ぶれを加えた直線でできています。<b>判定ルールはこのデータを見ながら調整した</b>ため、本物の筆跡では結果が下がる可能性が高いです。それを確かめるのがこのテストです。</div>
+
+<h2>10. 分かっている限界</h2>
+<ul><li>紙の「ママ」「イキ」（変更しない指示）は文字を読めないため、「修正漏れの疑い」と出ます（デジタル朱入れなら読み取れます）。</li>
+<li>引き出し線が<b>文字の行の真ん中を、行に沿って長く</b>走ると、取り消し線と区別できません。行間や欄外を通る線は区別できます。</li>
+<li>手書きの注記が本文に重なっていたり、斜線が字の端をかすめるだけだったりすると、「修正漏れの疑い」と「指示外の変更」の両方が出ることがあります（人に確認を求める安全側の誤り）。</li>
+<li>見た目でほとんど差のない差し替え（長音「ー」→漢数字「一」など）は、PDFの文字データで補って検出します。文字データがない（アウトライン化した）PDFでは検出できません。</li>
+<li>処理時間は4ページで約17秒（試作・Python）。ブラウザ版での速度は未検証です。</li></ul>
+</body></html>

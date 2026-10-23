@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>朱書き照合ツール</title>
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #fff; --ink: #1d2330; --sub: #5b6475; --line: #dde1e8; --accent: #0b6bcb; --accent-ink: #fff;
+  --c-A: #1f8f4e; --c-B: #d1343b; --c-B2: #e48a8e; --c-C1: #8a8600; --c-C: #d9730d; --c-D: #9b3fa0; --c-E: #1c7ed6; --c-F: #6b7280; --c-M: #1f8f4e;
+}
+* { box-sizing: border-box }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif; font-size: 14px; line-height: 1.6 }
+button, input, select { font: inherit }
+header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap }
+header h1 { font-size: 18px; margin: 0 }
+header .lead { color: var(--sub); font-size: 13px }
+header .badge { margin-left: auto; font-size: 12px; color: #0f5132; background: #e3f4ea; border: 1px solid #b7e1c7; border-radius: 999px; padding: 3px 10px }
+main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px }
+.card h2 { font-size: 15px; margin: 0 0 12px }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px }
+.step { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px }
+.step .t { font-weight: 700; font-size: 13px; margin-bottom: 6px }
+.step .t span { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px }
+.step .fname { color: var(--sub); font-size: 12px; word-break: break-all; min-height: 18px }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px }
+.seg label { padding: 4px 10px; cursor: pointer; font-size: 13px; border-right: 1px solid var(--line) }
+.seg label:last-child { border-right: 0 }
+.seg { position: relative }
+.seg input { position: absolute; opacity: 0; width: 1px; height: 1px }
+.seg label:focus-within { outline: 2px solid var(--accent); outline-offset: -2px }
+.seg input:checked + span { color: var(--accent); font-weight: 700 }
+.hint { color: var(--sub); font-size: 12px }
+.rules .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px }
+.rules input { width: 0; flex: 1; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px }
+.btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer }
+.btn:hover { border-color: #b9c1cf }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; padding: 8px 18px }
+.btn.primary:disabled { opacity: .5; cursor: not-allowed }
+.btn.small { padding: 2px 8px; font-size: 12px }
+.runbar { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap }
+.progress { flex: 1; min-width: 200px }
+.progress .bar { height: 8px; background: #e8ebf0; border-radius: 99px; overflow: hidden }
+.progress .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s }
+.progress .msg { font-size: 12px; color: var(--sub); margin-top: 4px }
+.err { color: var(--c-B); font-size: 13px; white-space: pre-wrap }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px }
+.sum { border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 8px; padding: 8px 10px; cursor: pointer; background: #fff }
+.sum.off { opacity: .45 }
+.sum .n { font-size: 22px; font-weight: 700 }
+.sum .l { font-size: 12px; color: var(--sub) }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 }
+.toolbar .sp { flex: 1 }
+.work { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(420px, 1.25fr); gap: 16px; align-items: start }
+@media (max-width: 1000px) { .work { grid-template-columns: 1fr } .viewer { position: static !important } }
+.work > * { min-width: 0 }
+.list { display: flex; flex-direction: column; gap: 10px }
+.item { background: #fff; border: 1px solid var(--line); border-left: 5px solid var(--c); border-radius: 8px; padding: 10px 12px; cursor: pointer }
+.item.sel { outline: 2px solid var(--accent); outline-offset: 1px }
+.item .hd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.tag { font-size: 11px; font-weight: 700; color: #fff; background: var(--c); border-radius: 4px; padding: 1px 6px }
+.pg { font-size: 12px; color: var(--sub) }
+.show { font-weight: 700; word-break: break-all }
+.meta { font-size: 12px; color: var(--sub); margin-top: 2px }
+.meta .ng { color: var(--c-B); font-weight: 700 }
+.meta .okc { color: var(--c-A); font-weight: 700 }
+.crops { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px }
+.crops figure { margin: 0 }
+.crops canvas { width: 100%; border: 1px solid var(--line); border-radius: 4px; background: #fff }
+.crops figcaption { font-size: 11px; color: var(--sub) }
+.judge { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap }
+.judge button.on[data-v="ok"] { background: #e3f4ea; border-color: var(--c-A); color: #0f5132; font-weight: 700 }
+.judge button.on[data-v="fix"] { background: #fde8e8; border-color: var(--c-B); color: #8a1c21; font-weight: 700 }
+.judge button.on[data-v="hold"] { background: #fff4e0; border-color: var(--c-C); color: #7a4300; font-weight: 700 }
+.judge input { flex: 1; min-width: 120px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px }
+.viewer { position: sticky; top: 10px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px }
+.viewer .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; align-items: center }
+.viewer .tabs .btn.on { background: var(--accent); color: #fff; border-color: var(--accent) }
+.viewer .cap { display: grid; grid-template-columns: 1fr 1fr; font-size: 12px; color: var(--sub); text-align: center }
+.viewer .scroll { max-height: calc(100vh - 120px); overflow: auto; border-radius: 6px; background: #e9ecf1 }
+.viewer canvas { display: block; cursor: crosshair }
+.legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--sub); margin-top: 6px }
+.legend i { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--c); margin-right: 3px; vertical-align: -1px }
+.empty { color: var(--sub); text-align: center; padding: 30px }
+.help { margin-top: 12px; font-size: 13px; color: var(--ink) } .help summary { cursor: pointer; color: var(--accent); font-weight: 700 } .help ol { padding-left: 20px; margin: 6px 0 } .help p { margin: 6px 0 }
+.hidden { display: none !important }
+@media print {
+  header .badge, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on) { display: none !important }
+  body { background: #fff } main { padding: 0 } .work { display: block } .item { break-inside: avoid; border-left-width: 4px; margin-bottom: 4mm }
+  .summary { grid-template-columns: repeat(4, 1fr) } .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>朱書き照合ツール</h1>
+  <div class="lead">初校・朱書き・修正後を照合し、確認が必要な箇所を一覧にします</div>
+  <div class="badge" id="libstate">読み込み中…</div>
+</header>
+<main>
+  <section class="card" id="setup">
+    <h2>照合するファイル</h2>
+    <div class="steps">
+      <div class="step"><div class="t"><span>1</span>初校PDF（朱書き前）</div>
+        <input type="file" id="fOld" accept=".pdf,application/pdf"><div class="fname" id="nOld"></div></div>
+      <div class="step"><div class="t"><span>2</span>修正後PDF</div>
+        <input type="file" id="fNew" accept=".pdf,application/pdf"><div class="fname" id="nNew"></div></div>
+      <div class="step"><div class="t"><span>3</span>朱書き</div>
+        <div class="seg" role="radiogroup" aria-label="朱書きの種類">
+          <label><input type="radio" name="mode" value="scan" checked><span>紙のスキャン</span></label>
+          <label><input type="radio" name="mode" value="digital"><span>PDFへの注釈</span></label>
+          <label><input type="radio" name="mode" value="none"><span>なし</span></label>
+        </div>
+        <input type="file" id="fMarks" accept=".pdf,application/pdf,image/*" multiple><div class="fname" id="nMarks"></div>
+        <div class="hint" id="modeHint">カラー・300dpiで、初校と同じページ順にスキャンしたPDF（または画像）</div></div>
+      <div class="step rules"><div class="t"><span>4</span>全体指示（任意）</div>
+        <div id="rules"></div>
+        <button class="btn small" id="addRule">＋ 全体指示を追加</button>
+        <div class="hint">紙の「全体的に〜に統一」は読み取れないため、ここに登録してください。PDFの注釈なら「全体的に「A」→「B」」の書き方で自動で読み取ります。</div></div>
+    </div>
+    <div class="runbar">
+      <button class="btn primary" id="run" disabled>照合を開始</button>
+      <div class="progress"><div class="bar"><div id="pbar"></div></div><div class="msg" id="pmsg">初校PDFと修正後PDFを選んでください</div></div>
+    </div>
+    <div class="err" id="err"></div>
+    <details class="help">
+      <summary>使い方と注意点</summary>
+      <ol>
+        <li><b>初校PDF</b>（朱書きする前のデータ）と<b>修正後PDF</b>を選びます。ページの順番は同じにしてください。</li>
+        <li><b>朱書き</b>を選びます。紙の場合は、カラー・300dpiでスキャンしたPDF（または画像）。PDFに注釈で朱入れした場合は「PDFへの注釈」を選び、そのPDFを指定します。</li>
+        <li>紙の「全体的に〜に統一」は読み取れないため、<b>全体指示</b>に「変更前 → 変更後」を登録します。</li>
+        <li>「照合を開始」を押すと、確認が必要な箇所が重要な順に一覧になります。左右の切り抜き（初校＋朱書き／修正後）を見比べて、<b>OK・要修正・保留</b>を付けてください（このパソコンのブラウザに自動で保存されます）。</li>
+        <li>結果は「CSVで保存」「印刷・PDFで保存」で残せます。</li>
+      </ol>
+      <p><b>判定の見方</b>：「修正漏れの疑い」＝赤字があるのに変わっていない／「指示外の変更」＝赤字がないのに変わっている／「展開漏れ」＝全体指示・以下同様が反映されていない箇所／「文字データだけの差し替え」＝見た目ではほぼ同じだが文字が違う（ー と 一 など）／「赤字どおり変更あり」＝変わっているが、中身が指示どおりかは人が確認（PDFの注釈なら指示文と自動で照合）。</p>
+      <p><b>注意</b>：このツールは見落としを減らすための補助です。<b>判定がないことは「問題がない」ことの保証ではありません</b>。最終確認は必ず人が行ってください。紙の「ママ」「イキ」は読めないため「修正漏れの疑い」と出ます。引き出し線が文字の行の真ん中を通ると、取り消し線と見分けられないことがあります。ファイルはこのパソコンの中だけで処理され、外部には送信されません。</p>
+    </details>
+  </section>
+
+  <section id="results" class="hidden">
+    <div class="card"><h2>結果の概要 <span class="hint" id="sumNote"></span></h2><div class="summary" id="summary"></div></div>
+    <div class="toolbar">
+      <label><input type="checkbox" id="hideDone"> 確認済み（OK）を隠す</label>
+      <label><input type="checkbox" id="showMinor"> 参考情報も表示</label>
+      <span class="sp"></span>
+      <button class="btn" id="csv">CSVで保存</button>
+      <button class="btn" id="print">印刷・PDFで保存</button>
+    </div>
+    <div class="work">
+      <div class="list" id="list"></div>
+      <div class="viewer" id="viewer">
+        <div class="tabs" id="tabs"></div>
+        <div class="cap"><div>初校＋朱書き</div><div>修正後</div></div>
+        <div class="scroll" id="vscroll"><canvas id="vcanvas"></canvas></div>
+        <div class="legend" id="legend"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<!--ASSETS-->
+</body>
+</html>

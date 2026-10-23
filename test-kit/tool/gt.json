@@ -1,0 +1,715 @@
+[
+ {
+  "id": "01",
+  "page": 1,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「めざし」を「目指し」に直す。以下同様（このあとに出てくる「めざし」も同じく直す）と指示する",
+  "where": "本文1段落目「快適にすることをめざし」",
+  "boxes": [
+   [
+    1031,
+    305,
+    1090,
+    347
+   ],
+   [
+    157,
+    362,
+    187,
+    404
+   ]
+  ]
+ },
+ {
+  "id": "02",
+  "page": 1,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「本年10月より」のあとに「全国の店舗で」を挿入する",
+  "where": "本文1段落目「本年10月より新製品フェア」",
+  "boxes": [
+   [
+    336,
+    362,
+    393,
+    404
+   ]
+  ]
+ },
+ {
+  "id": "03",
+  "page": 1,
+  "kind": "instr",
+  "result": "missed",
+  "expected": "B",
+  "instruction": "「使い方の説明」を「使い方のご説明」にする（「ご」を挿入）",
+  "where": "本文1段落目の終わり",
+  "boxes": [
+   [
+    536,
+    476,
+    594,
+    518
+   ]
+  ]
+ },
+ {
+  "id": "04",
+  "page": 1,
+  "kind": "instr",
+  "result": "note",
+  "expected": "G",
+  "instruction": "全体指示：「お問い合わせ」をすべて「お問合せ」に統一する（欄外の好きな場所に、普段の全体指示の書き方で）",
+  "where": "1ページ目の欄外(場所は自由)",
+  "boxes": []
+ },
+ {
+  "id": "05",
+  "page": 1,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「なお、」を削除する（トル）",
+  "where": "本文2段落目「なお、記念品は」",
+  "boxes": [
+   [
+    157,
+    725,
+    245,
+    766
+   ]
+  ]
+ },
+ {
+  "id": "06",
+  "page": 1,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "価格「12,800」を「11,800」に直す",
+  "where": "価格の枠「フェア特別価格」",
+  "boxes": [
+   [
+    191,
+    998,
+    391,
+    1086
+   ]
+  ]
+ },
+ {
+  "id": "07",
+  "page": 1,
+  "kind": "instr",
+  "result": "wrong",
+  "expected": "A",
+  "instruction": "「10月1日（水）」の曜日を「（木）」に直す",
+  "where": "開催期間の行",
+  "boxes": [
+   [
+    410,
+    866,
+    498,
+    908
+   ]
+  ]
+ },
+ {
+  "id": "08",
+  "page": 1,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "左下の写真を差し替える（「写真差し替え」と指示）",
+  "where": "左下の写真",
+  "boxes": [
+   [
+    157,
+    1197,
+    709,
+    1591
+   ]
+  ]
+ },
+ {
+  "id": "09",
+  "page": 2,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「はじめる」を「始める」に直す",
+  "where": "縦組み本文1行目「新しいことをはじめる」",
+  "boxes": [
+   [
+    1264,
+    522,
+    1312,
+    656
+   ]
+  ]
+ },
+ {
+  "id": "10",
+  "page": 2,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「春」を「夏」に直す",
+  "where": "縦組み本文「春に実施した講座」",
+  "boxes": [
+   [
+    1194,
+    1256,
+    1242,
+    1289
+   ]
+  ]
+ },
+ {
+  "id": "11",
+  "page": 2,
+  "kind": "instr",
+  "result": "missed",
+  "expected": "B",
+  "instruction": "「店頭」を「各店舗」に直す",
+  "where": "縦組み本文「店頭の申込用紙」",
+  "boxes": [
+   [
+    1055,
+    389,
+    1102,
+    456
+   ]
+  ]
+ },
+ {
+  "id": "12",
+  "page": 2,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "L",
+  "instruction": "「企画しています。」のあとで改行し、次の文を新しい段落にする",
+  "where": "縦組み本文「企画しています。今年は」",
+  "boxes": [
+   [
+    1194,
+    1122,
+    1242,
+    1222
+   ]
+  ]
+ },
+ {
+  "id": "13",
+  "page": 2,
+  "kind": "instr",
+  "result": "nochange",
+  "expected": "M",
+  "instruction": "「みなさま」はこのままでよい、と指示する（ママ）",
+  "where": "縦組み本文「地域のみなさま」",
+  "boxes": [
+   [
+    1264,
+    1256,
+    1312,
+    1356
+   ],
+   [
+    1194,
+    189,
+    1242,
+    222
+   ]
+  ]
+ },
+ {
+  "id": "14",
+  "page": 3,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "コードレス掃除機の価格「19,800」を「18,800」に直す",
+  "where": "商品2（上段中央）の価格",
+  "boxes": [
+   [
+    614,
+    622,
+    751,
+    682
+   ]
+  ]
+ },
+ {
+  "id": "15",
+  "page": 3,
+  "kind": "instr",
+  "result": "missed",
+  "expected": "B",
+  "instruction": "LEDデスクライトの品番「LD-55」を「LD-56」に直す",
+  "where": "商品4（下段左）の品番",
+  "boxes": [
+   [
+    224,
+    1205,
+    284,
+    1236
+   ]
+  ]
+ },
+ {
+  "id": "16",
+  "page": 3,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "ミニ空気清浄機の写真を差し替える",
+  "where": "商品5（下段中央）の写真",
+  "boxes": [
+   [
+    614,
+    882,
+    1024,
+    1150
+   ]
+  ]
+ },
+ {
+  "id": "17",
+  "page": 3,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「電気ケトル」のあとに「（0.8L）」を挿入する",
+  "where": "商品3（上段右）の商品名",
+  "boxes": [
+   [
+    1124,
+    551,
+    1203,
+    591
+   ]
+  ]
+ },
+ {
+  "id": "18",
+  "page": 3,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "表のコードレス掃除機の保証期間「1年」を「2年」に直す",
+  "where": "仕様表の2行目",
+  "boxes": [
+   [
+    1093,
+    1668,
+    1132,
+    1703
+   ]
+  ]
+ },
+ {
+  "id": "19",
+  "page": 4,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「ご利用いただけます」を「ご利用になれます」に直す",
+  "where": "2段組み・左段「会員登録について」",
+  "boxes": [
+   [
+    500,
+    321,
+    713,
+    360
+   ],
+   [
+    157,
+    370,
+    182,
+    409
+   ]
+  ]
+ },
+ {
+  "id": "20",
+  "page": 4,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「会員カードは、登録完了後にご自宅へ郵送いたします。」の1文を削除する",
+  "where": "2段組み・左段「会員登録について」",
+  "boxes": [
+   [
+    242,
+    418,
+    713,
+    458
+   ],
+   [
+    157,
+    467,
+    368,
+    507
+   ]
+  ]
+ },
+ {
+  "id": "21",
+  "page": 4,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "見出し「■配送について」を太字にする",
+  "where": "2段組み・右段の最後の見出し",
+  "boxes": [
+   [
+    783,
+    436,
+    982,
+    475
+   ]
+  ]
+ },
+ {
+  "id": "22",
+  "page": 4,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「保障」を「保証」に直す",
+  "where": "2段組み「保証とアフターサービス」の本文",
+  "boxes": [
+   [
+    475,
+    990,
+    527,
+    1030
+   ]
+  ]
+ },
+ {
+  "id": "23",
+  "page": 4,
+  "kind": "instr",
+  "result": "applied",
+  "expected": "A",
+  "instruction": "「ご用意のうえ」のあとに読点「、」を入れる",
+  "where": "2段組み「保証とアフターサービス」の本文",
+  "boxes": [
+   [
+    633,
+    1137,
+    713,
+    1176
+   ],
+   [
+    157,
+    1185,
+    184,
+    1225
+   ]
+  ]
+ },
+ {
+  "id": "P1",
+  "page": 1,
+  "kind": "instr",
+  "result": "nochange",
+  "expected": "N",
+  "instruction": "【鉛筆で】「約30%」に疑問出し（例：「数値の根拠を確認」）",
+  "where": "本文1段落目「約30%の軽量化」",
+  "boxes": [
+   [
+    215,
+    419,
+    303,
+    461
+   ]
+  ]
+ },
+ {
+  "id": "P2",
+  "page": 4,
+  "kind": "instr",
+  "result": "nochange",
+  "expected": "N",
+  "instruction": "【鉛筆で】「8日以内」に疑問出し（例：「7日では？」）",
+  "where": "2段組み「返品・交換について」",
+  "boxes": [
+   [
+    590,
+    1300,
+    686,
+    1340
+   ]
+  ]
+ },
+ {
+  "id": "S1",
+  "page": 4,
+  "kind": "instr",
+  "result": "nochange",
+  "expected": "N",
+  "instruction": "普段使っている校了印・担当印があれば、4ページ目の下の余白に押す（なければ省略）",
+  "where": "4ページ目の下の余白",
+  "boxes": []
+ },
+ {
+  "id": "G04a",
+  "page": 1,
+  "kind": "global",
+  "result": "applied",
+  "expected": "C1",
+  "instruction": "",
+  "where": "",
+  "boxes": [
+   [
+    912,
+    725,
+    1087,
+    766
+   ]
+  ]
+ },
+ {
+  "id": "G04b",
+  "page": 1,
+  "kind": "global",
+  "result": "applied",
+  "expected": "C1",
+  "instruction": "",
+  "where": "",
+  "boxes": [
+   [
+    274,
+    781,
+    449,
+    823
+   ]
+  ]
+ },
+ {
+  "id": "G04c",
+  "page": 3,
+  "kind": "global",
+  "result": "applied",
+  "expected": "C1",
+  "instruction": "",
+  "where": "",
+  "boxes": [
+   [
+    619,
+    1862,
+    752,
+    1894
+   ]
+  ]
+ },
+ {
+  "id": "G04d",
+  "page": 3,
+  "kind": "global",
+  "result": "missed",
+  "expected": "D",
+  "instruction": "",
+  "where": "",
+  "boxes": [
+   [
+    157,
+    1902,
+    291,
+    1934
+   ]
+  ]
+ },
+ {
+  "id": "G01a",
+  "page": 2,
+  "kind": "global",
+  "result": "applied",
+  "expected": "C1",
+  "instruction": "",
+  "where": "",
+  "boxes": [
+   [
+    1194,
+    389,
+    1242,
+    489
+   ]
+  ]
+ },
+ {
+  "id": "G01b",
+  "page": 2,
+  "kind": "global",
+  "result": "missed",
+  "expected": "D",
+  "instruction": "",
+  "where": "",
+  "boxes": [
+   [
+    985,
+    922,
+    1032,
+    1022
+   ]
+  ]
+ },
+ {
+  "id": "U1",
+  "page": 1,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "C",
+  "instruction": "",
+  "where": "「ご来場」→「ご来店」",
+  "boxes": [
+   [
+    361,
+    668,
+    449,
+    709
+   ]
+  ]
+ },
+ {
+  "id": "U2",
+  "page": 1,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "C",
+  "instruction": "",
+  "where": "グラフの棒(11月)の高さ",
+  "boxes": [
+   [
+    787,
+    1181,
+    1339,
+    1622
+   ]
+  ]
+ },
+ {
+  "id": "U3",
+  "page": 1,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "C",
+  "instruction": "",
+  "where": "ロゴの位置",
+  "boxes": [
+   [
+    1260,
+    1968,
+    1433,
+    2142
+   ]
+  ]
+ },
+ {
+  "id": "U4",
+  "page": 1,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "E",
+  "instruction": "",
+  "where": "「サービス」の長音「ー」→漢数字「一」",
+  "boxes": [
+   [
+    432,
+    2157,
+    532,
+    2193
+   ]
+  ]
+ },
+ {
+  "id": "U5",
+  "page": 2,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "C",
+  "instruction": "",
+  "where": "「拡充」→「充実」",
+  "boxes": [
+   [
+    1125,
+    889,
+    1172,
+    956
+   ]
+  ]
+ },
+ {
+  "id": "U6",
+  "page": 3,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "C",
+  "instruction": "",
+  "where": "トースターの価格「6,480」→「6,980」",
+  "boxes": [
+   [
+    1071,
+    1236,
+    1183,
+    1297
+   ]
+  ]
+ },
+ {
+  "id": "U7",
+  "page": 3,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "C",
+  "instruction": "",
+  "where": "「加湿器」→「加温器」",
+  "boxes": [
+   [
+    289,
+    551,
+    368,
+    591
+   ]
+  ]
+ },
+ {
+  "id": "U8",
+  "page": 3,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "C",
+  "instruction": "",
+  "where": "表の重さ「1.2kg」→「1.5kg」",
+  "boxes": [
+   [
+    898,
+    1611,
+    960,
+    1647
+   ]
+  ]
+ },
+ {
+  "id": "U9",
+  "page": 4,
+  "kind": "unins",
+  "result": "changed",
+  "expected": "C",
+  "instruction": "",
+  "where": "「ただし、セール品は対象外となります。」が消えている",
+  "boxes": [
+   [
+    209,
+    1398,
+    686,
+    1438
+   ]
+  ]
+ }
+]
