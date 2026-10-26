@@ -79,7 +79,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .rows .lb { font-size: 11px; color: var(--sub); white-space: nowrap }
 .rows .tx { word-break: break-all }
 .rows .tx.ng { color: var(--c-B); font-weight: 700 } .rows .tx.okc { color: var(--c-A); font-weight: 700 }
-del { background: #fde2e2; color: #a3151b; text-decoration: line-through; text-decoration-thickness: 2px; padding: 0 2px; border-radius: 3px }
+del { background: #fde2e2; color: #a3151b; text-decoration: none; font-weight: 700; padding: 0 2px; border-radius: 3px }
 ins { background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 700; padding: 0 2px; border-radius: 3px }
 .mk { color: var(--c-B); font-weight: 700; font-size: 13px }
 .gap { display: inline-block; width: 3px; height: 1.1em; background: var(--c-B); vertical-align: -3px; margin: 0 3px; border-radius: 2px }
@@ -1838,10 +1838,14 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       const st = tc.styles[it.fontName] || {}, [a, b, c, d, e, f] = it.transform;
       const size = Math.hypot(c, d) || Math.hypot(a, b) || 1, chs = [...it.str], n = chs.length, vert = !!st.vertical;
       const asc = st.ascent ? Math.min(st.ascent, 1) : 0.88, desc = st.descent ? Math.min(-st.descent, 0.3) : 0.12;
+      // 文字データにはまとまりの幅しかないため、全角1・半角0.55・空白0.3の割合で字に割り振る(半角の字が混じっても位置がずれないように)
+      const wt = chs.map(ch => (!ch.trim() ? 0.3 : /^[\u0020-\u007e\uff61-\uff9f]$/.test(ch) ? 0.55 : 1)), tot = wt.reduce((x, y) => x + y, 0) || 1;
+      let acc = 0;
       const rects = chs.map((_, i) => {
+        const a0 = acc / tot; acc += wt[i]; const a1 = acc / tot;
         let r;
-        if (vert) { const adv = (it.height || size * n) / n; r = [e, f - (i + 1) * adv, e + (it.width || size), f - i * adv]; }
-        else { const adv = it.width / n; r = [e + i * adv, f - desc * size, e + (i + 1) * adv, f + asc * size]; }
+        if (vert) { const H = it.height || size * n; r = [e, f - a1 * H, e + (it.width || size), f - a0 * H]; }
+        else { r = [e + a0 * it.width, f - desc * size, e + a1 * it.width, f + asc * size]; }
         const p = vp.convertToViewportRectangle(r);
         return [Math.min(p[0], p[2]), Math.min(p[1], p[3]), Math.max(p[0], p[2]), Math.max(p[1], p[3])];
       });
@@ -1854,6 +1858,48 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       chs.forEach((ch, i) => { if (!ch.trim()) { ws += ch; return; } chars.push({ c: ch, k: PC.fold(ch), box: rects[i], it: idx, brk: wide || /\u3000|\s{2,}/.test(ws) }); ws = ''; wide = false; });
     }
     return { w: vp.width, h: vp.height, items, chars };
+  };
+
+  // ---- 字の枠を、描画した画像の字の形(インク)に合わせる(表示の枠がずれないように) ----
+  //   字と字の境目を、近くのインクのない(少ない)列へ寄せ、枠を字の形まで縮める。地の色と違う色をインクとみなす(白抜きの字・色地の上の字も)
+  //   写真の上の字など、地の色が一様でないまとまりは、そのままにする。img: ページの描画、k: pt → 画素の倍率
+  PC.snapChars = (T, img, k) => {
+    const { w, h, d } = img, byItem = new Map();
+    T.chars.forEach(c => { let l = byItem.get(c.it); if (!l) byItem.set(c.it, l = []); l.push(c); });
+    for (const [idx, cs] of byItem) {
+      const it = T.items[idx];
+      if (it.vert) continue;
+      const y0 = Math.max(0, Math.floor(it.box[1] * k)), y1 = Math.min(h, Math.ceil(it.box[3] * k)), x0 = Math.max(0, Math.floor(it.box[0] * k) - 2), x1 = Math.min(w, Math.ceil(it.box[2] * k) + 2);
+      const W = x1 - x0, H = y1 - y0;
+      if (W < 3 || H < 3) continue;
+      const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)], med = [0, 0, 0];
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const j = (y * w + x) * 4; hist[0][d[j]]++; hist[1][d[j + 1]]++; hist[2][d[j + 2]]++; }
+      for (let ch = 0; ch < 3; ch++) { let a = 0, n = 0; while (a < 255 && n + hist[ch][a] < W * H / 2) { n += hist[ch][a]; a++; } med[ch] = a; }
+      const ink = new Uint8Array(W * H), col = new Int32Array(W);
+      let plain = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const j = (y * w + x) * 4, dd = Math.max(Math.abs(d[j] - med[0]), Math.abs(d[j + 1] - med[1]), Math.abs(d[j + 2] - med[2]));
+        if (dd <= 40) plain++;
+        if (dd > 60) { ink[(y - y0) * W + x - x0] = 1; col[x - x0]++; }
+      }
+      if (plain < 0.5 * W * H) continue;
+      // 隣り合う字の境目を、前後0.4字の範囲でいちばんインクの少ない列(同じなら推定に近い列)へ
+      for (let i = 0; i + 1 < cs.length; i++) {
+        const a = cs[i].box, b = cs[i + 1].box;
+        if (Math.abs(a[2] - b[0]) > 0.05 * it.size) continue;   // 空白をはさむ字どうしは、そのまま
+        const e = a[2] * k - x0, cw = 0.4 * Math.min(a[2] - a[0], b[2] - b[0]) * k;
+        let best = Math.round(e), bc = Infinity;
+        for (let x = Math.max(0, Math.ceil(e - cw)); x <= Math.min(W - 1, Math.floor(e + cw)); x++) { const c = col[x] * 1000 + Math.abs(x - e); if (c < bc) { bc = c; best = x; } }
+        a[2] = b[0] = (best + x0) / k;
+      }
+      // 字の枠を、その範囲のインクまで縮める(インクがなければそのまま)
+      for (const c of cs) {
+        const l = Math.max(0, Math.floor(c.box[0] * k) - x0), r = Math.min(W, Math.ceil(c.box[2] * k) - x0);
+        let cl = -1, cr = -1, rt = -1, rb = -1;
+        for (let y = 0; y < H; y++) for (let x = l; x < r; x++) if (ink[y * W + x]) { if (cl < 0 || x < cl) cl = x; if (x > cr) cr = x; if (rt < 0) rt = y; rb = y; }
+        if (cl >= 0) c.box = [(cl + x0) / k, (rt + y0) / k, (cr + 1 + x0) / k, (rb + 1 + y0) / k];
+      }
+    }
   };
 
   // ---- まとまり(段落・テキストボックス): 字の並び(描かれた順)を、続きでない所で切る ----
@@ -2662,12 +2708,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const { doc, i } = src.page(p);
     step('文字データを読み取り', 0.1); await PC.tick();
     const A = await PC.pageText(doc, i), annots = await PC.annotations(doc, i, 72), imgs = await PC.imageBoxes(doc, i);
+    const left = await PC.renderPage(doc, i, PC.DPI, true), k = PC.S;
+    PC.snapChars(A, left, k);   // 字の枠を、描画した字の形に合わせる(違う字を示す枠がずれないように)
     step('文字を照合', 0.3); await PC.tick();
     // 成果物の文字データがほとんどない(文字がアウトライン化・画像化されている)ページは、文字では比べない(すべて「ない」と出てしまうため)
     const noText = nq.B.chars.length < Math.max(10, 0.2 * A.chars.length);
     const blocks = noText ? [] : PC.collatePage(A, nq.B, pr, nq.used, nq.notes);
     step('表示用の画像を作成', 0.8); await PC.tick();
-    const left = await PC.renderPage(doc, i, PC.DPI, true), k = PC.S;
     return {
       kind: 'content', q: pr.q, pr, A, annots, imgs, blocks, nq, extra: [], noText,
       ch: [], im: [], an: [], notes: annots.map(n => ({ ...n, box: n.box.map(v => v * k) })), restBoxes: [], ot: [], nt: [], pairs: [], nc: [],
@@ -2701,7 +2748,9 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         const isNote = notes.has(idx);
         if (!js.length || (!isNote && !js.some(j => /[\p{L}\p{N}]/u.test(B.chars[j].c)))) return;
         const box = PC.union(js.map(j => B.chars[j].box)), g = groups[groups.length - 1];
-        const close = g && g.note === isNote && PC.gap(box, g.box) < 1.2 * Math.max(it.size, g.size);
+        // 同じ行なら全角の空白をはさむくらいまで(2.5字)、別の行なら行の間くらいまで(1.2字)離れていても1件にまとめる
+        const size = g ? Math.max(it.size, g.size) : it.size, sameLine = g && Math.min(box[3], g.box[3]) - Math.max(box[1], g.box[1]) > 0.5 * Math.min(box[3] - box[1], g.box[3] - g.box[1]);
+        const close = g && g.note === isNote && PC.gap(box, g.box) < (sameLine ? 2.5 : 1.2) * size;
         if (close) { g.js.push(...js); g.box = PC.union([g.box, box]); g.size = Math.max(g.size, it.size); }
         else groups.push({ js, box, note: isNote, size: it.size });
       });
@@ -2804,6 +2853,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const newPage = async q => {
       if (NQ.has(q)) return NQ.get(q);
       const img = await PC.renderPage(newDoc, q, PC.DPI, false), B = await PC.pageText(newDoc, q);
+      PC.snapChars(B, img, PC.S);
       const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
       NQ.set(q, v);
       return v;
@@ -3351,10 +3401,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     if (side === 'L') return f.onNew ? [] : (f.pboxes && f.pboxes.length && !f.same ? f.pboxes.slice(0, MAXG) : [f.box]);
     return f.pnboxes && f.pnboxes.length && !f.same ? f.pnboxes.slice(0, MAXG) : f.nbox ? [f.nbox] : [];
   };
+  // 切り抜きの範囲: 違う字のまわりに、字の大きさに合わせた余白を付ける(小さい字は大きく写るように、狭めに切る)
   function cropBox(f, side) {
-    const bs = marks(f, side), b = bs.length ? PC.union(bs) : (side === 'R' && f.nbox ? f.nbox : f.box), m = 60;
+    const bs = marks(f, side), b = bs.length ? PC.union(bs) : (side === 'R' && f.nbox ? f.nbox : f.box);
+    const hs = (bs.length ? bs : [b]).map(x => x[3] - x[1]).sort((p, q) => p - q), ch = Math.max(10, hs[hs.length >> 1]);
+    const m = Math.min(60, Math.max(12, 1.5 * ch)), minW = Math.min(360, Math.max(160, 14 * ch));
     let [x0, y0, x1, y1] = [b[0] - m, b[1] - m, b[2] + m, b[3] + m];
-    if (x1 - x0 < 360) { const c = (x0 + x1) / 2; x0 = c - 180; x1 = c + 180; }   // 小さい違いは少し広めに(前後の文脈が見えるように)
+    if (x1 - x0 < minW) { const c = (x0 + x1) / 2; x0 = c - minW / 2; x1 = c + minW / 2; }   // 小さい違いは少し広めに(前後の文脈が見えるように)
     return [x0, y0, x1, y1];
   }
   function drawCrops(el) {

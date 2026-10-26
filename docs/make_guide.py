@@ -35,7 +35,7 @@ td:first-child {{ white-space: nowrap; font-weight: 700 }}
 .warn {{ border: 0.4mm solid #c77700; background: #fff7ea; padding: 2.5mm 4mm; border-radius: 1.5mm }}
 ol, ul {{ margin: 1mm 0; padding-left: 6mm }} img {{ width: 100%; border: 0.3mm solid #bbb; border-radius: 1mm }}
 .ex {{ border: 0.3mm solid #ddd; border-radius: 1mm; padding: 2mm 3mm; margin: 2mm 0; font-size: 10.5pt }} .ex .lb {{ font-size: 7.5pt; color: #666; margin-right: 1.5mm }}
-del {{ background: #fde2e2; color: #a3151b; text-decoration: line-through }} ins {{ background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 700 }}
+del {{ background: #fde2e2; color: #a3151b; text-decoration: none; font-weight: 700 }} ins {{ background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 700 }}
 table, .warn, .fig {{ break-inside: avoid }}
 </style><body>
 <h1>朱書き照合ツール</h1>

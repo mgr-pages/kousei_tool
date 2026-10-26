@@ -29,10 +29,14 @@
       const st = tc.styles[it.fontName] || {}, [a, b, c, d, e, f] = it.transform;
       const size = Math.hypot(c, d) || Math.hypot(a, b) || 1, chs = [...it.str], n = chs.length, vert = !!st.vertical;
       const asc = st.ascent ? Math.min(st.ascent, 1) : 0.88, desc = st.descent ? Math.min(-st.descent, 0.3) : 0.12;
+      // 文字データにはまとまりの幅しかないため、全角1・半角0.55・空白0.3の割合で字に割り振る(半角の字が混じっても位置がずれないように)
+      const wt = chs.map(ch => (!ch.trim() ? 0.3 : /^[\u0020-\u007e\uff61-\uff9f]$/.test(ch) ? 0.55 : 1)), tot = wt.reduce((x, y) => x + y, 0) || 1;
+      let acc = 0;
       const rects = chs.map((_, i) => {
+        const a0 = acc / tot; acc += wt[i]; const a1 = acc / tot;
         let r;
-        if (vert) { const adv = (it.height || size * n) / n; r = [e, f - (i + 1) * adv, e + (it.width || size), f - i * adv]; }
-        else { const adv = it.width / n; r = [e + i * adv, f - desc * size, e + (i + 1) * adv, f + asc * size]; }
+        if (vert) { const H = it.height || size * n; r = [e, f - a1 * H, e + (it.width || size), f - a0 * H]; }
+        else { r = [e + a0 * it.width, f - desc * size, e + a1 * it.width, f + asc * size]; }
         const p = vp.convertToViewportRectangle(r);
         return [Math.min(p[0], p[2]), Math.min(p[1], p[3]), Math.max(p[0], p[2]), Math.max(p[1], p[3])];
       });
@@ -45,6 +49,48 @@
       chs.forEach((ch, i) => { if (!ch.trim()) { ws += ch; return; } chars.push({ c: ch, k: PC.fold(ch), box: rects[i], it: idx, brk: wide || /\u3000|\s{2,}/.test(ws) }); ws = ''; wide = false; });
     }
     return { w: vp.width, h: vp.height, items, chars };
+  };
+
+  // ---- 字の枠を、描画した画像の字の形(インク)に合わせる(表示の枠がずれないように) ----
+  //   字と字の境目を、近くのインクのない(少ない)列へ寄せ、枠を字の形まで縮める。地の色と違う色をインクとみなす(白抜きの字・色地の上の字も)
+  //   写真の上の字など、地の色が一様でないまとまりは、そのままにする。img: ページの描画、k: pt → 画素の倍率
+  PC.snapChars = (T, img, k) => {
+    const { w, h, d } = img, byItem = new Map();
+    T.chars.forEach(c => { let l = byItem.get(c.it); if (!l) byItem.set(c.it, l = []); l.push(c); });
+    for (const [idx, cs] of byItem) {
+      const it = T.items[idx];
+      if (it.vert) continue;
+      const y0 = Math.max(0, Math.floor(it.box[1] * k)), y1 = Math.min(h, Math.ceil(it.box[3] * k)), x0 = Math.max(0, Math.floor(it.box[0] * k) - 2), x1 = Math.min(w, Math.ceil(it.box[2] * k) + 2);
+      const W = x1 - x0, H = y1 - y0;
+      if (W < 3 || H < 3) continue;
+      const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)], med = [0, 0, 0];
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const j = (y * w + x) * 4; hist[0][d[j]]++; hist[1][d[j + 1]]++; hist[2][d[j + 2]]++; }
+      for (let ch = 0; ch < 3; ch++) { let a = 0, n = 0; while (a < 255 && n + hist[ch][a] < W * H / 2) { n += hist[ch][a]; a++; } med[ch] = a; }
+      const ink = new Uint8Array(W * H), col = new Int32Array(W);
+      let plain = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const j = (y * w + x) * 4, dd = Math.max(Math.abs(d[j] - med[0]), Math.abs(d[j + 1] - med[1]), Math.abs(d[j + 2] - med[2]));
+        if (dd <= 40) plain++;
+        if (dd > 60) { ink[(y - y0) * W + x - x0] = 1; col[x - x0]++; }
+      }
+      if (plain < 0.5 * W * H) continue;
+      // 隣り合う字の境目を、前後0.4字の範囲でいちばんインクの少ない列(同じなら推定に近い列)へ
+      for (let i = 0; i + 1 < cs.length; i++) {
+        const a = cs[i].box, b = cs[i + 1].box;
+        if (Math.abs(a[2] - b[0]) > 0.05 * it.size) continue;   // 空白をはさむ字どうしは、そのまま
+        const e = a[2] * k - x0, cw = 0.4 * Math.min(a[2] - a[0], b[2] - b[0]) * k;
+        let best = Math.round(e), bc = Infinity;
+        for (let x = Math.max(0, Math.ceil(e - cw)); x <= Math.min(W - 1, Math.floor(e + cw)); x++) { const c = col[x] * 1000 + Math.abs(x - e); if (c < bc) { bc = c; best = x; } }
+        a[2] = b[0] = (best + x0) / k;
+      }
+      // 字の枠を、その範囲のインクまで縮める(インクがなければそのまま)
+      for (const c of cs) {
+        const l = Math.max(0, Math.floor(c.box[0] * k) - x0), r = Math.min(W, Math.ceil(c.box[2] * k) - x0);
+        let cl = -1, cr = -1, rt = -1, rb = -1;
+        for (let y = 0; y < H; y++) for (let x = l; x < r; x++) if (ink[y * W + x]) { if (cl < 0 || x < cl) cl = x; if (x > cr) cr = x; if (rt < 0) rt = y; rb = y; }
+        if (cl >= 0) c.box = [(cl + x0) / k, (rt + y0) / k, (cr + 1 + x0) / k, (rb + 1 + y0) / k];
+      }
+    }
   };
 
   // ---- まとまり(段落・テキストボックス): 字の並び(描かれた順)を、続きでない所で切る ----

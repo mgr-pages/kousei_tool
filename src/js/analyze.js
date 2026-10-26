@@ -353,12 +353,13 @@
     const { doc, i } = src.page(p);
     step('文字データを読み取り', 0.1); await PC.tick();
     const A = await PC.pageText(doc, i), annots = await PC.annotations(doc, i, 72), imgs = await PC.imageBoxes(doc, i);
+    const left = await PC.renderPage(doc, i, PC.DPI, true), k = PC.S;
+    PC.snapChars(A, left, k);   // 字の枠を、描画した字の形に合わせる(違う字を示す枠がずれないように)
     step('文字を照合', 0.3); await PC.tick();
     // 成果物の文字データがほとんどない(文字がアウトライン化・画像化されている)ページは、文字では比べない(すべて「ない」と出てしまうため)
     const noText = nq.B.chars.length < Math.max(10, 0.2 * A.chars.length);
     const blocks = noText ? [] : PC.collatePage(A, nq.B, pr, nq.used, nq.notes);
     step('表示用の画像を作成', 0.8); await PC.tick();
-    const left = await PC.renderPage(doc, i, PC.DPI, true), k = PC.S;
     return {
       kind: 'content', q: pr.q, pr, A, annots, imgs, blocks, nq, extra: [], noText,
       ch: [], im: [], an: [], notes: annots.map(n => ({ ...n, box: n.box.map(v => v * k) })), restBoxes: [], ot: [], nt: [], pairs: [], nc: [],
@@ -392,7 +393,9 @@
         const isNote = notes.has(idx);
         if (!js.length || (!isNote && !js.some(j => /[\p{L}\p{N}]/u.test(B.chars[j].c)))) return;
         const box = PC.union(js.map(j => B.chars[j].box)), g = groups[groups.length - 1];
-        const close = g && g.note === isNote && PC.gap(box, g.box) < 1.2 * Math.max(it.size, g.size);
+        // 同じ行なら全角の空白をはさむくらいまで(2.5字)、別の行なら行の間くらいまで(1.2字)離れていても1件にまとめる
+        const size = g ? Math.max(it.size, g.size) : it.size, sameLine = g && Math.min(box[3], g.box[3]) - Math.max(box[1], g.box[1]) > 0.5 * Math.min(box[3] - box[1], g.box[3] - g.box[1]);
+        const close = g && g.note === isNote && PC.gap(box, g.box) < (sameLine ? 2.5 : 1.2) * size;
         if (close) { g.js.push(...js); g.box = PC.union([g.box, box]); g.size = Math.max(g.size, it.size); }
         else groups.push({ js, box, note: isNote, size: it.size });
       });
@@ -495,6 +498,7 @@
     const newPage = async q => {
       if (NQ.has(q)) return NQ.get(q);
       const img = await PC.renderPage(newDoc, q, PC.DPI, false), B = await PC.pageText(newDoc, q);
+      PC.snapChars(B, img, PC.S);
       const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
       NQ.set(q, v);
       return v;

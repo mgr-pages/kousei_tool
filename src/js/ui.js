@@ -301,10 +301,13 @@
     if (side === 'L') return f.onNew ? [] : (f.pboxes && f.pboxes.length && !f.same ? f.pboxes.slice(0, MAXG) : [f.box]);
     return f.pnboxes && f.pnboxes.length && !f.same ? f.pnboxes.slice(0, MAXG) : f.nbox ? [f.nbox] : [];
   };
+  // 切り抜きの範囲: 違う字のまわりに、字の大きさに合わせた余白を付ける(小さい字は大きく写るように、狭めに切る)
   function cropBox(f, side) {
-    const bs = marks(f, side), b = bs.length ? PC.union(bs) : (side === 'R' && f.nbox ? f.nbox : f.box), m = 60;
+    const bs = marks(f, side), b = bs.length ? PC.union(bs) : (side === 'R' && f.nbox ? f.nbox : f.box);
+    const hs = (bs.length ? bs : [b]).map(x => x[3] - x[1]).sort((p, q) => p - q), ch = Math.max(10, hs[hs.length >> 1]);
+    const m = Math.min(60, Math.max(12, 1.5 * ch)), minW = Math.min(360, Math.max(160, 14 * ch));
     let [x0, y0, x1, y1] = [b[0] - m, b[1] - m, b[2] + m, b[3] + m];
-    if (x1 - x0 < 360) { const c = (x0 + x1) / 2; x0 = c - 180; x1 = c + 180; }   // 小さい違いは少し広めに(前後の文脈が見えるように)
+    if (x1 - x0 < minW) { const c = (x0 + x1) / 2; x0 = c - minW / 2; x1 = c + minW / 2; }   // 小さい違いは少し広めに(前後の文脈が見えるように)
     return [x0, y0, x1, y1];
   }
   function drawCrops(el) {
