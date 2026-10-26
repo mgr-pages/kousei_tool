@@ -132,6 +132,10 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
       <div class="step" data-kind="nw"><div class="t"><span>2</span>成果物（PDF）</div>
         <label class="btn small pick">＋ ファイルを追加<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label>
         <ol class="flist" id="lNew"></ol><div class="ftot" id="tNew"></div></div>
+      <div class="step" data-kind="old"><div class="t"><span>3</span>旧版（任意・PDF）</div>
+        <div class="hint">前回の成果物。入れると、前回からの変化が指示どおりかも確かめます</div>
+        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fOld" accept=".pdf,application/pdf" multiple></label>
+        <ol class="flist" id="lOld"></ol><div class="ftot" id="tOld"></div></div>
     </div>
     <div class="runbar">
       <button class="btn primary" id="run" disabled>照合</button>

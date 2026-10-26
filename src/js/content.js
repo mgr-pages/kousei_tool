@@ -399,8 +399,9 @@
   //   返り値 blocks: [{ s, e, ops, instr, found }] (s, e は原稿の字の番号、ops は PC.collate の結果。字の番号はまとまりの中での番号)
   //   A.blocks があれば、まとまりはそれを使う(データファイル: 段落 'para'・表の行 'row')。pr.free(位置の手がかりがない原稿)のときは位置を問わない
   //   A.loose(Excel・CSV): 数字の桁区切りの「,」は、あってもなくても同じとみなす
+  //   pr.noInstr: 指示(欄外の書き込み)を見分けない、pr.strict: データファイルと同じく厳しめに対応づける(旧版と成果物を比べるとき)
   PC.collatePage = (A, B, pr, used, skip) => {
-    const free = !!pr.free, T = free ? null : pr.Tt || pr.T, R = pr.region, D = 0.5 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+    const free = !!pr.free, strict = free || !!pr.strict, T = free ? null : pr.Tt || pr.T, R = pr.region, D = 0.5 * Math.hypot(R[2] - R[0], R[3] - R[1]);
     const Bk = B.chars.map(c => (skip.has(c.it) ? { c: c.c, k: '\uFFFF', box: c.box, it: c.it } : c));   // 書き込みの字は、どの字とも一致しない字に置き換える
     const ctr = B.items.map(it => PC.center(it.box));
     const dist = (p, b) => Math.hypot(Math.max(b[0] - p[0], 0, p[0] - b[2]), Math.max(b[1] - p[1], 0, p[1] - b[3]));
@@ -422,7 +423,7 @@
     const blocks = (A.blocks || PC.blocksOf(A.chars, A.items).map(([s, e]) => [s, e, 'para'])).map(([s, e, kind]) => {
       const cs = A.chars.slice(s, e), text = cs.map(c => c.c).join('');
       let inside = 0, hit = 0; for (let k = s; k < e; k++) { if (inSrc(A.chars[k])) inside++; if (cov[k]) hit++; }
-      return { s, e, cs, text, kind, margin: !free && inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
+      return { s, e, cs, text, kind, margin: !free && !pr.noInstr && inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
     });
     // 桁区切りの「,」を除いた並びで対応づけ、字の番号を元に戻す(A.loose のとき)
     const comma = (X, j) => (X[j].k === ',' || X[j].k === '，') && j > 0 && j + 1 < X.length && /\d/.test(X[j - 1].k) && /\d/.test(X[j + 1].k);
@@ -444,9 +445,9 @@
     };
     const coll = (cs, near, u = used) => units(collRaw(cs, near, u), u);
     const collRaw = (cs, near, u) => {
-      if (!bmap) return PC.collate(cs, Bk, { jump: 3, near, used: u, strict: free, keepEdge });
+      if (!bmap) return PC.collate(cs, Bk, { jump: 3, near, used: u, strict, keepEdge });
       const amap = cs.map((_, i) => i).filter(i => !comma(cs, i));
-      const ops = PC.collate(amap.map(i => cs[i]), Bf, { jump: 3, near: near ? Float32Array.from(bmap, j => near[j]) : null, used: Uint8Array.from(bmap, j => u[j]), strict: free, keepEdge: keepEdge && (j => keepEdge(bmap[j])) });
+      const ops = PC.collate(amap.map(i => cs[i]), Bf, { jump: 3, near: near ? Float32Array.from(bmap, j => near[j]) : null, used: Uint8Array.from(bmap, j => u[j]), strict, keepEdge: keepEdge && (j => keepEdge(bmap[j])) });
       return ops.map(o => (o[0] === '|' ? o : o[0] === '-' ? ['-', amap[o[1]]] : o[0] === '+' ? ['+', bmap[o[1]]] : [o[0], amap[o[1]], bmap[o[2]]]));
     };
     // 表の行: いちばん長く一致した区間の成果物での行(上下に字の高さの1.6倍まで)から外れた所から始める手間を大きくする
@@ -500,9 +501,9 @@
       reanchor(b.ops, b.cs);
       const low = hits(b.ops) < 0.5 * b.cs.length;
       // 成果物に見当たらない短い書き込みで、指示の言い方のもの → 指示として扱い直す
-      if (low && b.kind !== 'row' && PC.isInstr(b.text)) { b.instr = true; continue; }
+      if (low && b.kind !== 'row' && !pr.noInstr && PC.isInstr(b.text)) { b.instr = true; continue; }
       // データファイルの原稿: 半分も一致しないまとまりは、成果物に載っていないとみなす(似た別の行・文の字を取らないように)
-      if (low && free) { b.ops = b.cs.map((_, i) => ['-', i]); continue; }
+      if (low && strict) { b.ops = b.cs.map((_, i) => ['-', i]); continue; }
       mark(b.ops);
     }
     // 2) 指示(欄外の書き込み・指示の言い方の書き込み): 残りの成果物の字から探す(新しく入れる文の指示なら、成果物にあるはず)

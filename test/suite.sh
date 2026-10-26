@@ -20,6 +20,8 @@ run "$S/scan-2.pdf,$S/scan-1.pdf" "$S/new-b.pdf,$S/new-a.pdf" split_scan &
 run "$S/digital-2.pdf,$S/digital-1.pdf" "$S/new-a.pdf,$S/new-b.pdf" split_digital &
 # レイアウトが違う原稿(ラフ)と成果物(見開き): ページの対応と内容の照合(test/content/make.py で作った模擬データ)
 run "$DATA/content/rough.pdf" "$DATA/content/final.pdf" content &
+#   旧版(任意)も渡したとき: 原稿のない部分の旧版からの変化・前回のまま・旧版のまま(直っていない)の見分け
+OLD="$DATA/content/old.pdf" run "$DATA/content/rough.pdf" "$DATA/content/final.pdf" content_old &
 # データファイルの原稿(Excel・Word・PowerPoint・テキスト・CSV)と成果物PDF(test/office/make.py で作った模擬データ)
 O=$DATA/office
 run "$O/1_price.xlsx,$O/2_notice.docx,$O/3_set.pptx,$O/4_contact.txt,$O/5_shops.csv" "$O/final.pdf" office &
@@ -40,6 +42,8 @@ python3 "$EVAL" "$GT" "$OUT/digital.json" --digital | tail -n +2
 same() { python3 -c "import json,sys; a,b=(json.load(open(f)) for f in sys.argv[1:3]); print('一致' if a==b else '差あり（%d件と%d件）' % (len(a), len(b)))" "$1" "$2" 2>&1; }
 echo "レイアウト違い: $(tail -1 "$OUT/content.log" | cut -c1-40) | $(python3 test/content/evaluate.py test/content/gt.json "$OUT/content.json" | sed -n 1p)"
 python3 test/content/evaluate.py test/content/gt.json "$OUT/content.json" | tail -n +2
+echo "レイアウト違い＋旧版: $(tail -1 "$OUT/content_old.log" | cut -c1-40) | $(python3 test/content/evaluate.py test/content/gt_old.json "$OUT/content_old.json" | sed -n 1p)"
+python3 test/content/evaluate.py test/content/gt_old.json "$OUT/content_old.json" | tail -n +2
 echo "データ原稿: $(tail -1 "$OUT/office.log" | cut -c1-40) | $(python3 test/office/evaluate.py test/office/gt.json "$OUT/office.json" | sed -n 1p)"
 python3 test/office/evaluate.py test/office/gt.json "$OUT/office.json" | tail -n +2
 for k in yen master; do echo "データ原稿（$k）: $(python3 test/office/variants.py check $k "$OUT/office_$k.json")"; done

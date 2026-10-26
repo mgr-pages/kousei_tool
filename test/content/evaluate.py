@@ -1,5 +1,5 @@
 # 内容で照合する処理(レイアウトが違う原稿×成果物)の採点: test/run.js の出力を正解(gt.json)と比べる
-#   python3 test/content/evaluate.py test/content/gt.json 出力.json
+#   python3 test/content/evaluate.py test/content/gt.json 出力.json   (旧版を渡したときは test/content/gt_old.json)
 #   1行目に「合格 / 見逃し / 余分な検出 / ページの対応」の件数、2行目以降に不合格の内訳
 import json, sys
 gt = json.load(open(sys.argv[1], encoding='utf-8'))
@@ -27,6 +27,8 @@ for e in gt['expect']:
             continue
         if 'auto' in e and (f.get('auto') or 'none') != e['auto']:   # 指示どおりかの自動判定(ok・ng・none=人が確認)
             continue
+        if any(k in e and f.get(k) != e[k] for k in ('vsOld', 'oldSame', 'fromOld')):   # 旧版との見分け(旧版を渡したとき)
+            continue
         hits.append(f)
     need = e.get('count', 1)
     for f in hits[:need]:
@@ -37,6 +39,10 @@ for e in gt['expect']:
         miss += 1
         lines.append(f"   {e['id']} p{e['page']} 見逃し（{len(hits)}/{need}件） {e['what']}")
 extra = [f for f in F if f['cat'] in gt['strict'] and f['id'] not in used]
+for w in gt.get('absent', []):   # 出てはいけない文字(旧版から原稿どおりに直った所など)
+    for f in F:
+        if f['cat'] in ('T', 'N', 'C2') and w in ''.join(t for _, t in (f.get('segs') or [])):
+            lines.append(f"   出てはいけない項目 p{f['page']} {f['cat']}「{w}」"); extra.append(f)
 for f in extra:
     d, i, o = texts(f)
     lines.append(f"   余分な検出 p{f['page']} {f['cat']} 原稿「{d}」→成果物「{i or o}」")

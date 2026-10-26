@@ -1,6 +1,6 @@
 // 自動テスト: ビルドしたHTMLをfile://で開き、画面と同じ処理で照合して結果をJSONに書き出す
 //   node test/run.js 赤字原稿 修正後.pdf 出力.json
-//   ファイルが複数あるときは , でつなぐ(画面と同じく、名前の順に並べて追加される)
+//   ファイルが複数あるときは , でつなぐ(画面と同じく、名前の順に並べて追加される)。旧版(任意)は環境変数 OLD=旧版.pdf で渡す
 //   出力.pages.json に、原稿の各ページが成果物のどのページ・範囲に当たったかを書き出す
 //   環境変数 DEBUG=1 で、ページごとの字形の数・差分の数なども 出力.json と同じ場所に書き出す
 'use strict';
@@ -15,6 +15,7 @@ const { chromium } = require('playwright'), path = require('path'), fs = require
   await p.waitForFunction(() => window.PC && PC.libsReady, null, { timeout: 120000 });
   const many = s => s.split(',').map(x => path.resolve(x));
   await p.setInputFiles('#fMarks', many(marks)); await p.setInputFiles('#fNew', many(newPdf));
+  if (process.env.OLD) await p.setInputFiles('#fOld', many(process.env.OLD));   // 旧版(任意)は環境変数 OLD で渡す
   const t0 = Date.now();
   const res = await p.evaluate(async debug => {
     window.__pcDebug = debug;
