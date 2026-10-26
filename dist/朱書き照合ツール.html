@@ -8,7 +8,7 @@
 :root {
   --bg: #f5f6f8; --panel: #fff; --ink: #1d2330; --sub: #5b6475; --line: #dde1e8; --accent: #0b6bcb; --accent-ink: #fff;
   --c-A: #1f8f4e; --c-B: #d1343b; --c-B2: #e48a8e; --c-C1: #8a8600; --c-C: #d9730d; --c-D: #9b3fa0; --c-E: #1c7ed6; --c-F: #6b7280; --c-M: #1f8f4e;
-  --c-T: #d9730d; --c-K: #1f8f4e; --c-W: #c2185b; --c-V: #5b7cba; --c-I: #8a8f99;
+  --c-T: #d9730d; --c-K: #1f8f4e; --c-W: #c2185b; --c-V: #5b7cba; --c-I: #8a8f99; --c-J: #0f7b8a;
 }
 * { box-sizing: border-box }
 html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif; font-size: 14px; line-height: 1.6 }
@@ -2403,7 +2403,12 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       let ws = '';
       chs.forEach((ch, i) => { if (!ch.trim()) { ws += ch; return; } chars.push({ c: ch, k: PC.fold(ch), box: rects[i], it: idx, brk: wide || /\u3000|\s{2,}/.test(ws) }); ws = ''; wide = false; });
     }
-    return { w: vp.width, h: vp.height, items, chars };
+    // 少しずらして重ねて描いた文字(影・縁取り)で、ほかの文字列の一部だけが重なって描かれたものも除く
+    const key = s => s.replace(/\s/g, '');
+    const drop = items.map((it, k) => { const t = key(it.s); return !!t && items.some((o, j) => j !== k && key(o.s).length > t.length && key(o.s).includes(t) && inter(o.box, it.box) >= 0.6 * Math.min(area(o.box), area(it.box))); });
+    if (!drop.some(Boolean)) return { w: vp.width, h: vp.height, items, chars };
+    const map = []; let n = 0; drop.forEach((x, k) => { map[k] = x ? -1 : n++; });
+    return { w: vp.width, h: vp.height, items: items.filter((_, k) => !drop[k]), chars: chars.filter(c => !drop[c.it]).map(c => ({ ...c, it: map[c.it] })) };
   };
 
   // ---- 字の枠を、描画した画像の字の形(インク)に合わせる(表示の枠がずれないように) ----
@@ -2864,6 +2869,194 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   };
 })();
 
+// ---- jcheck.js ----
+// 成果物だけを読んで、日本語として問題がありそうな所を挙げる(原稿とは照らし合わせない。決まったルールだけで判定する)
+//   日付と曜日の食い違い・かっこの閉じ忘れ・同じ字の重なり・よくある誤用・電話番号と郵便番号の形(直す必要がありそう)
+//   表記ゆれ・ら抜き言葉・二重敬語・重複表現・半角カナ(確認だけ)
+'use strict';
+(function () {
+  const WD = ['日', '月', '火', '水', '木', '金', '土'];
+
+  // ページの文字を、まとまり(段落・行のつながり)ごとの文字列にする。at: 文字列の位置 → 文字の番号、ls: 行の始めの位置
+  //   (飾りのために重ねて描いた文字は、文字データを読むとき(PC.pageText)に除いてある)
+  function textOf(B) {
+    let s = ''; const at = [], ls = new Set();
+    for (const [a, e] of PC.blocksOf(B.chars, B.items)) {
+      let n0 = s.length;
+      for (let i = a; i < e; i++) {
+        const c = B.chars[i].c, p = B.chars[i - 1];
+        if (s.length === n0 || (p.it !== B.chars[i].it && B.chars[i].box[1] > p.box[3] - 0.3 * (p.box[3] - p.box[1]))) ls.add(s.length);
+        for (let k = 0; k < c.length; k++) { s += c[k]; at.push(i); }
+      }
+      if (s.length === n0) continue;
+      s += '\u0000'; at.push(-1);
+    }
+    return { s, at, ls };
+  }
+  const boxOf = (B, at, i, n) => PC.union(at.slice(i, i + n).filter(j => j >= 0).map(j => B.chars[j].box));
+  const ctxOf = (s, i, n) => [s.slice(Math.max(0, i - 8), i).replace(/^.*\u0000/, ''), s.slice(i + n, i + n + 8).replace(/\u0000.*$/, '')];
+  // 1字ずつ NFKC にする(全角の数字・かっこを半角にそろえる。字の数が変わる字はそのまま: 文字列の位置がずれないように)
+  const nfkc = s => [...s].map(c => { const k = c.normalize('NFKC'); return k.length === 1 && c.length === 1 ? k : c; }).join('');
+
+  // ---- 日付と曜日 ----
+  //   年がない日付は、成果物にいちばん多く出てくる年(なければ今年と来年のどちらでも合わないとき)で調べる。「〜22日（月）」のように月がない日付は前の日付の月
+  function dates(pages) {
+    const years = new Map();
+    for (const { s } of pages) for (const m of nfkc(s).matchAll(/(\d{4})年|令和(\d{1,2}|元)年/g)) { const y = m[1] ? +m[1] : 2018 + (m[2] === '元' ? 1 : +m[2]); if (y > 1900 && y < 2200) years.set(y, (years.get(y) || 0) + 1); }
+    const yDoc = [...years].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
+    const now = new Date().getFullYear(), yGuess = yDoc ? [yDoc[0]] : [now, now + 1];
+    const out = [];
+    for (const pg of pages) {
+      const t = nfkc(pg.s);
+      let lastY = null, lastM = null;
+      const W = '[(]([日月火水木金土])(?:曜日?)?(?:[・･/][祝休]日?)?[)]';
+      const re = new RegExp(`(?:(\\d{4})年|令和(\\d{1,2}|元)年)?\\s*(?:(\\d{1,2})月)?(\\d{1,2})日\\s*${W}|(?:(\\d{4})[./])?(\\d{1,2})[./](\\d{1,2})\\s*${W}`, 'g');
+      for (const m of t.matchAll(re)) {
+        let y, mo, d, w;
+        if (m[4]) { y = m[1] ? +m[1] : m[2] ? 2018 + (m[2] === '元' ? 1 : +m[2]) : null; mo = m[3] ? +m[3] : lastM; d = +m[4]; w = m[5]; }
+        else { y = m[6] ? +m[6] : null; mo = +m[7]; d = +m[8]; w = m[9]; }
+        if (!mo || mo > 12 || d < 1 || d > 31) continue;
+        if (y) lastY = y;
+        lastM = mo;
+        const ys = y ? [y] : lastY ? [lastY] : yGuess;
+        const ok = ys.some(yy => { const dt = new Date(Date.UTC(yy, mo - 1, d)); return dt.getUTCMonth() === mo - 1 && WD[dt.getUTCDay()] === w; });
+        if (ok) continue;
+        const yy = ys[0], dt = new Date(Date.UTC(yy, mo - 1, d));
+        if (dt.getUTCMonth() !== mo - 1) { out.push({ pg, i: m.index, n: m[0].length, kind: 'date', level: 'need', want: '', msg: `${mo}月${d}日という日付はありません` }); continue; }
+        const real = WD[dt.getUTCDay()], wi = m.index + m[0].lastIndexOf(w);
+        out.push({ pg, i: wi, n: 1, kind: 'date', level: 'need', want: real, msg: `${y || lastY ? '' : '（年の書いていない日付は' + yy + '年として計算）'}${yy}年${mo}月${d}日は${real}曜日です` });
+      }
+    }
+    return out;
+  }
+
+  // ---- かっこの対応 ----
+  //   全角と半角のかっこは組にしてよい(書き方の混在は別に見る)。「1）」「a)」のような番号の閉じかっこは数えない
+  const OPEN = '（(「『【〔［[｛{〈《', CLOSE = '）)」』】〕］]｝}〉》';
+  const KIND = c => { const k = OPEN.indexOf(c) >= 0 ? OPEN.indexOf(c) : CLOSE.indexOf(c); return k <= 1 ? 0 : k === 7 || k === 6 ? 6 : k === 9 || k === 8 ? 8 : k; };
+  const NUM = /[\dA-Za-z０-９Ａ-Ｚａ-ｚ①-⑳]/;
+  //   まとまりは「見出し　中身」の空白でも分かれるため、閉じていないかっこは次のまとまりまで続けて探す
+  function parens(pg) {
+    const out = [], s = pg.s, miss = x => out.push({ pg, i: x, n: 1, kind: 'paren', level: 'need', want: '', msg: `「${s[x]}」に対応する閉じかっこがありません` });
+    let b0 = 0, carry = [];
+    for (let e = s.indexOf('\u0000'); e >= 0; b0 = e + 1, e = s.indexOf('\u0000', b0)) {
+      const st = carry.slice();
+      for (let i = b0; i < e; i++) {
+        const c = s[i];
+        if (OPEN.includes(c)) { st.push(i); continue; }
+        if (!CLOSE.includes(c)) continue;
+        // 番号の閉じかっこ: 行の始め・空白・句読点のあとの1〜2字の英数字に続く「)」(「（1）」のように開きかっこがすぐ前にあるものは除く)
+        let k = i; while (k > b0 && i - k < 2 && NUM.test(s[k - 1])) k--;
+        if (/[)）]/.test(c) && k < i && (k === b0 || pg.ls.has(k) || /[\s、。・　]/.test(s[k - 1])) && !(st.length && st[st.length - 1] === k - 1)) continue;
+        const top = st.length ? st[st.length - 1] : -1;
+        if (top >= 0 && KIND(s[top]) === KIND(c)) { st.pop(); continue; }
+        const j = st.map(x => KIND(s[x])).lastIndexOf(KIND(c));
+        if (j >= 0) { st.splice(j + 1).forEach(miss); st.pop(); continue; }
+        out.push({ pg, i, n: 1, kind: 'paren', level: 'need', want: '', msg: `「${c}」に対応する開きかっこがありません` });
+      }
+      // 前のまとまりから続けて探したかっこで、このまとまりでも閉じなかったものは閉じ忘れ。このまとまりのかっこは次のまとまりへ
+      const prev = new Set(carry);
+      st.filter(x => prev.has(x)).forEach(miss);
+      carry = st.filter(x => !prev.has(x));
+    }
+    carry.forEach(miss);
+    return out;
+  }
+
+  // ---- 同じ字の重なり・よくある誤用・ら抜き言葉・二重敬語・重複表現・半角カナ(決まった言い方の一覧) ----
+  //   [正規表現, 種類, 直す候補(なければ ''), 説明, 直す必要がありそうか]
+  const RULES = [
+    [/をを|がが|にに|でで|へへ|のの(?!し)/g, 'dup', '', '助詞が重なっています', true],
+    [/([。、，．])\1/g, 'dup', '', '句読点が重なっています', true],
+    [/、。|。、/g, 'dup', '', '句読点が重なっています', true],
+    [/的を得/g, 'misuse', '的を射', '「的を射る」が本来の言い方です', true],
+    [/汚名挽回/g, 'misuse', '汚名返上', '「汚名返上」または「名誉挽回」です', true],
+    [/取り付く暇|取りつく暇/g, 'misuse', '取り付く島', '「取り付く島もない」です', true],
+    [/一同に会/g, 'misuse', '一堂に会', '「一堂に会する」です', true],
+    [/采配を振るう/g, 'misuse', '采配を振る', '「采配を振る」が本来の言い方です', true],
+    [/押しも押されぬ/g, 'misuse', '押しも押されもせぬ', '「押しも押されもせぬ」です', true],
+    [/熱にうなされ/g, 'misuse', '熱に浮かされ', '「熱に浮かされる」です', true],
+    [/怒り心頭に達/g, 'misuse', '怒り心頭に発', '「怒り心頭に発する」です', true],
+    [/(?:見|来|寝|着|出|起き|食べ|考え|決め|投げ|受け|変え|答え|教え|覚え|借り|信じ|感じ|閉じ|伸び|生き|落ち|降り|居)れ(?:る|ます|ません|ない|た|て)/g, 'ranuki', '', 'ら抜き言葉の可能性があります（「〜られる」）', false],
+    [/おっしゃられ|お越しになられ|ご覧になられ|お召し上がりになられ|お見えになられ|お帰りになられ|おいでになられ|拝見させていただ/g, 'keigo', '', '二重敬語の可能性があります', false],
+    [/頭痛が痛|一番最初|まず最初に|後で後悔|あとで後悔|必ず必要|違和感を感じ|被害を被|過半数を超え|返事を返|今現在|日本に来日|製造メーカー|約[\d０-９,，.]+[^\s。、]{0,6}(?:程度|ほど|前後)/g, 'redund', '', '同じ意味の言葉が重なっています', false],
+    [/[ｦ-ﾟ]+/g, 'hankana', '', '半角カナです', false],
+  ];
+  function rules(pg) {
+    const out = [];
+    for (const [re, kind, want, msg, need] of RULES) for (const m of pg.s.matchAll(re)) {
+      if (m[0].includes('\u0000')) continue;
+      out.push({ pg, i: m.index, n: m[0].length, kind, level: need ? 'need' : 'check', want, msg });
+    }
+    // 同じ語(漢字2字以上・カタカナ3字以上)がすぐ続けてくり返す
+    for (const m of pg.s.matchAll(/(\p{Script=Han}{2,}|\p{Script=Katakana}{3,})\1/gu)) out.push({ pg, i: m.index, n: m[0].length, kind: 'dup', level: 'check', want: m[1], msg: `「${m[1]}」が2回続いています` });
+    return out;
+  }
+
+  // ---- 電話番号・郵便番号の形 ----
+  function numbers(pg) {
+    const out = [], t = nfkc(pg.s);
+    for (const m of t.matchAll(/(?<![\d-])0[1-9]\d{0,3}-\d{1,4}-\d{1,4}(?![\d-])/g)) {   // 00 で始まる番号(国際電話)・架空の 000 は見ない
+      const n = m[0].replace(/-/g, '').length, mobile = /^0[5789]0/.test(m[0].replace(/-/g, '')), free = /^0120|^0800/.test(m[0].replace(/-/g, ''));
+      const ok = free ? (m[0].startsWith('0120') ? n === 10 : n === 11) : mobile ? n === 11 : n === 10;
+      if (!ok) out.push({ pg, i: m.index, n: m[0].length, kind: 'phone', level: 'need', want: '', msg: `電話番号の桁数が合いません（${n}桁）` });
+    }
+    for (const m of t.matchAll(/〒\s*(\d+)-?(\d*)/g)) if (!((m[1].length === 3 && m[2].length === 4) || (m[1].length === 7 && !m[2]))) out.push({ pg, i: m.index, n: m[0].length, kind: 'zip', level: 'need', want: '', msg: '郵便番号の形が合いません（3桁-4桁）' });
+    return out;
+  }
+
+  // ---- 表記ゆれ(成果物全体で、同じ語の書き方が混ざっているもの) ----
+  //   送りがなを省いた書き方(「申込」など)は、うしろに漢字が続くとき(「申込書」「取扱店」など、複合語の決まった書き方)は数えない
+  const YURE = [
+    ['問い合わせ', '問合せ', '問い合せ', '問合わせ'], ['申し込み', '申込み', '申込'], ['受け付け', '受付け'], ['取り扱い', '取扱い', '取扱'],
+    ['売り切れ', '売切れ', '売切'], ['引き換え', '引換え', '引換'], ['振り込み', '振込み', '振込'], ['お届け', 'お届け'],
+    ['ください', '下さい'], ['いたします', '致します'], ['できる', '出来る'], ['および', '及び'], ['または', '又は'], ['ならびに', '並びに'], ['すべて', '全て'],
+  ].map(g => [...new Set(g)]);
+  function yure(pages) {
+    const out = [];
+    const hits = w => pages.flatMap(pg => [...pg.s.matchAll(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/\p{Script=Han}$/u.test(w) ? '(?!\\p{Script=Han})' : ''), 'gu'))].map(m => ({ pg, i: m.index, n: w.length })));
+    for (const g of YURE) {
+      const found = g.map(w => ({ w, xs: hits(w) })).filter(x => x.xs.length);
+      if (found.length < 2) continue;
+      // 長い書き方に含まれる短い書き方は数えない(「申し込み」の中の「申込」はない、「問い合わせ」の中の「問合せ」はない、など)
+      const xs = found.map(x => ({ ...x, xs: x.xs.filter(h => !found.some(y => y.w.length > x.w.length && y.w.includes(x.w) && y.xs.some(z => z.pg === h.pg && z.i <= h.i && h.i < z.i + z.n))) })).filter(x => x.xs.length);
+      if (xs.length < 2) continue;
+      const minor = xs.slice().sort((a, b) => a.xs.length - b.xs.length);
+      out.push({ multi: minor.flatMap(x => x.xs), kind: 'yure', level: 'check', want: minor[minor.length - 1].w, msg: `書き方が混ざっています：${xs.map(x => `「${x.w}」${x.xs.length}か所`).join('・')}` });
+    }
+    // カタカナ語の長音のあるなし(「サーバ」と「サーバー」)
+    const kata = new Map();
+    pages.forEach(pg => { for (const m of pg.s.matchAll(/\p{Script=Katakana}[\p{Script=Katakana}ー]{2,}/gu)) { const k = m[0]; if (!kata.has(k)) kata.set(k, []); kata.get(k).push({ pg, i: m.index, n: k.length }); } });
+    for (const [k, xs] of kata) if (k.endsWith('ー') && kata.has(k.slice(0, -1)) && !/ー{2}/.test(k)) {
+      const ys = kata.get(k.slice(0, -1)).filter(h => h.pg.s[h.i + h.n] !== 'ー');
+      if (ys.length) out.push({ multi: [...ys, ...xs], kind: 'yure', level: 'check', want: k, msg: `書き方が混ざっています：「${k.slice(0, -1)}」${ys.length}か所・「${k}」${xs.length}か所` });
+    }
+    // 全角と半角の数字・英字(同じ書き方の語が、全角と半角で混ざっているもの)
+    const words = new Map();
+    pages.forEach(pg => { for (const m of pg.s.matchAll(/[0-9A-Za-z０-９Ａ-Ｚａ-ｚ][0-9A-Za-z０-９Ａ-Ｚａ-ｚ,，.．]*/g)) { const k = nfkc(m[0]); if (!/[A-Za-z]{2,}|\d{2,}/.test(k)) continue; if (!words.has(k)) words.set(k, new Map()); const v = words.get(k); if (!v.has(m[0])) v.set(m[0], []); v.get(m[0]).push({ pg, i: m.index, n: m[0].length }); } });
+    for (const [k, v] of words) if (v.size >= 2) out.push({ multi: [...v.values()].flat(), kind: 'yure', level: 'check', want: k, msg: `全角と半角が混ざっています：${[...v].map(([w, xs]) => `「${w}」${xs.length}か所`).join('・')}` });
+    return out;
+  }
+
+  // pages: [{ q: 成果物のページ番号, B: 文字データ(PC.pageText) }] → 項目 [{ q, box(pt), boxes, kind, level, show, want, msg, ctx }]
+  PC.jcheck = pages => {
+    const P = pages.map(({ q, B }) => ({ q, B, ...textOf(B) }));
+    const raw = [...dates(P), ...P.flatMap(parens), ...P.flatMap(rules), ...P.flatMap(numbers), ...yure(P)];
+    const out = [];
+    for (const r of raw) {
+      if (r.multi) {   // 表記ゆれ: 少ないほうの書き方の最初の所を代表にし、すべての位置を添える
+        const x = r.multi[0], byQ = new Map();
+        for (const h of r.multi) { if (!byQ.has(h.pg.q)) byQ.set(h.pg.q, []); byQ.get(h.pg.q).push(boxOf(h.pg.B, h.pg.at, h.i, h.n)); }
+        out.push({ q: x.pg.q, box: boxOf(x.pg.B, x.pg.at, x.i, x.n), boxes: byQ, kind: r.kind, level: r.level, show: x.pg.s.substr(x.i, x.n), want: r.want, msg: r.msg, ctx: ctxOf(x.pg.s, x.i, x.n), count: r.multi.length });
+        continue;
+      }
+      const { pg, i, n } = r;
+      out.push({ q: pg.q, box: boxOf(pg.B, pg.at, i, n), kind: r.kind, level: r.level, show: pg.s.substr(i, n), want: r.want, msg: r.msg, ctx: ctxOf(pg.s, i, n) });
+    }
+    return out.filter(x => x.box);
+  };
+})();
+
 // ---- pairing.js ----
 // 原稿のページが、成果物のどのページのどの範囲に当たるかを求める(ページの順番・数・大きさが違ってもよい)
 //   手がかり: 画像の特徴点(ORB)の対応と、文字データの長い一致。位置の関係(拡大縮小・平行移動)がそろうものだけを数える
@@ -3076,7 +3269,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     D: '全体・以下同様の直し忘れの候補', E: '見た目では分からない文字の違い',
     F: '指示箇所に結びつかない赤字（人が読む）', F2: '引き出し線・注記（指示箇所に付随）', G: '全体指示として読み取った注記',
     M: 'ママ・イキ（変更しない指示）どおり変更なし', H: '赤以外の書き込み（鉛筆・黒など）',
-    T: '原稿と違う文字', V: '書き方だけの違い（全角・半角など）', N: '原稿にない文字', I: '原稿が画像の部分（文字では比べられない）',
+    T: '原稿と違う文字', V: '書き方だけの違い（全角・半角など）', N: '原稿にない文字', I: '原稿が画像の部分（文字では比べられない）', J: '日本語の確認（成果物だけで判定）',
     K: '原稿の指示（書き込み・コメント）', W: '成果物の書き込み（アタリ・確認事項）',
   };
   const KEEP = /ママ|イキ/;
@@ -3770,6 +3963,25 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const usedQ = new Set(P.map(d => d.q).filter(q => q >= 0)), lost = [];
     for (let q = 0; q < newDoc.numPages; q++) if (!usedQ.has(q)) lost.push(q + 1);
     if (lost.length) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
+    // 3) 成果物だけを読んで、日本語として問題がありそうな所(原稿とは照らし合わせない)。項目は、その成果物のページを表示している結果のページに付ける
+    //   (見開きの片側だけを照合したページは、その側にある項目だけ。どこにも表示していない成果物のページは「成果物だけ」のページを足す)
+    prog('成果物の日本語を確認', 0.985); await PC.tick();
+    const JP = [];
+    for (let q = 0; q < newDoc.numPages; q++) JP.push({ q, B: NQ.has(q) ? NQ.get(q).B : await PC.pageText(newDoc, q) });
+    for (const x of PC.jcheck(JP)) {
+      const c = PC.center(x.box), ds = P.filter(d => d.q === x.q && d.kind !== 'none');
+      let d = ds.find(d => d.crop && c[0] >= d.crop[0] && c[0] <= d.crop[2] && c[1] >= d.crop[1] && c[1] <= d.crop[3]) || ds.find(d => !d.crop);
+      if (!d) {
+        d = P.find(e => e.kind === 'newonly' && e.q === x.q);
+        if (!d) {
+          const img = await PC.renderPage(newDoc, x.q, PC.DPI, false);
+          d = { kind: 'newonly', q: x.q, src: null, label: null, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], thumbs: { left: null, right: NQ.has(x.q) ? NQ.get(x.q).thumb : await toThumb(img) } };
+          P.push(d);
+        }
+      }
+      const o = d.crop ? [d.crop[0], d.crop[1]] : [0, 0], px = b => [(b[0] - o[0]) * PC.S, (b[1] - o[1]) * PC.S, (b[2] - o[0]) * PC.S, (b[3] - o[1]) * PC.S];
+      (d.jf || (d.jf = [])).push({ ...x, nbox: px(x.box), more: x.boxes ? (x.boxes.get(x.q) || []).slice(1).filter(b => !d.crop || (PC.center(b)[0] >= d.crop[0] && PC.center(b)[0] <= d.crop[2])).map(px) : [] });
+    }
 
     if (window.__pcDebug) PC._last = P;   // 自動テストでの調査用
     prog('照合', 0.97); await PC.tick();
@@ -3891,6 +4103,10 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const add = (page, cat, box, show = '', how = '', note = '', check = '', nbox = null) => { const f = { id: F.length, page, cat, label: PC.CAT[cat], box: box.map(Math.trunc), nbox: nbox ? nbox.map(Math.trunc) : null, show, how, note, check }; F.push(f); return f; };
     P.forEach((d, p) => {
       if (d.kind === 'content') contentFindings(d, p, add);
+      for (const x of d.jf || []) {   // 成果物だけで見た日本語の問題
+        const f = add(p + 1, 'J', x.nbox, x.show, '', '', '', x.nbox);
+        Object.assign(f, { onNew: true, newOnly: true, level: x.level, j: { kind: x.kind, want: x.want, msg: x.msg, ctx: x.ctx, count: x.count || 0 }, moreNboxes: x.more, pnboxes: [x.nbox] });
+      }
       for (const c of [...d.ch, ...d.im]) {
         const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
         let chk = '', wantUsed = '';
@@ -3985,7 +4201,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 'use strict';
 (function () {
   const $ = id => document.getElementById(id), esc = PC.esc;
-  const COLOR = { A: 'A', A_IMG: 'A', M: 'M', B: 'B', B2: 'B2', C1: 'C1', C2: 'C', C3: 'C', D: 'D', E: 'E', F: 'F', F2: 'F', G: 'F', H: 'F', T: 'T', N: 'T', V: 'V', I: 'I', K: 'K', W: 'W' };
+  const COLOR = { A: 'A', A_IMG: 'A', M: 'M', B: 'B', B2: 'B2', C1: 'C1', C2: 'C', C3: 'C', D: 'D', E: 'E', F: 'F', F2: 'F', G: 'F', H: 'F', T: 'T', N: 'T', V: 'V', I: 'I', K: 'K', W: 'W', J: 'J' };
   const isLeak = f => f.cat === 'D' && (f.check.includes('漏れ') || f.check === '未統一');
   const isLight = f => f.cat === 'B2' || (f.how || '').includes('引き出し線の可能性');
   // 確認が必要なものほど上に出す。need: 直す必要がありそうなもの
@@ -3998,17 +4214,21 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', c: 'T', need: true },
     { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, c: 'D', need: true },
     { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', c: 'E', need: true },
+    { key: 'J', label: '日本語の誤り（成果物だけで確認）', test: f => f.cat === 'J' && f.level === 'need', c: 'J', need: true },
     { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG', c: 'A' },
     { key: 'K', label: '指示・書き込みの確認（人が判断）', test: f => f.cat === 'K' || f.cat === 'W', c: 'K' },
     { key: 'F', label: '読み取れない赤字', test: f => f.cat === 'F', c: 'F' },
     { key: 'C1', label: '全体・以下同様どおり', test: f => f.cat === 'C1', c: 'C1' },
     { key: 'V', label: '全角・半角などの違い', test: f => f.cat === 'V', c: 'V' },
     { key: 'I', label: '原稿が画像の部分（目で確認）', test: f => f.cat === 'I', c: 'I' },
+    { key: 'J2', label: '日本語の確認（表記ゆれなど）', test: f => f.cat === 'J', c: 'J' },
     { key: 'minor', label: '参考', test: () => true, c: 'F', minor: true },
   ];
   const groupOf = f => GROUPS.find(g => g.test(f));
   // 一言の結論と、何をすればよいか
+  const JT = { date: '日付と曜日が合わない', paren: 'かっこの閉じ忘れ', dup: '字の重なり', misuse: 'よくある誤用', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', ranuki: 'ら抜き言葉？', keigo: '二重敬語？', redund: '重複表現？', hankana: '半角カナ' };
   function verdictOf(f) {
+    if (f.cat === 'J') return [JT[f.j.kind] || '日本語の確認', f.j.msg];
     if (f.auto === 'ok') return f.byInstr ? ['指示どおりの違い', `原稿の指示「${f.byInstr.replace(/\s+/g, ' ')}」のとおりに変わっています（自動で確認済み）`] : ['指示どおり', (f.check || '').includes('削除') ? '指示どおり消えています（自動で確認済み）' : '指示の文字が成果物にあります（自動で確認済み）'];
     if (f.auto === 'ng') return ['指示どおりになっていない？', (f.check || '').includes('削除') ? '消す指示の文字が、成果物に残っている可能性があります' : '指示の文字が、成果物の該当箇所に見当たりません'];
     if (f.cat === 'B' || f.cat === 'B2') return isLight(f) ? ['直っていない？', (f.how || '').includes('引き出し線') ? '細い線なので、引き出し線かもしれません' : '前の赤字の続き（行の折り返しなど）の可能性。念のため確認'] : ['直っていない', '赤字が修正後に反映されていません'];
@@ -4069,6 +4289,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // 項目の中身: 何が違うか(どの種類でも、なるべく短く)
   function whatHtml(f) {
     const q = s => `「${esc(clipMid(s || ''))}」`;
+    if (f.cat === 'J') { const [a, z] = f.j.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.show)}</mark>${z}</span>${f.j.want ? `<span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.j.want)}</ins>${z}</span>` : ''}</div>`; }
     if (f.lint) { const [a, z] = f.lint.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.lint.c)}</mark>${z}</span><span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.lint.want)}</ins>${z}</span></div>`; }
     if (f.segs && !f.same) return diffRows(f.segs);
     if (f.same) return `<div class="what">文字は同じで、${f.color ? '色' : '見た目（書体・太さ・位置・色など）'}だけが違います</div>`;
@@ -4088,6 +4309,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // CSV用の短い文: 「旧→新」をか所ごとに
   function diffText(f) {
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
+    if (f.cat === 'J') return `${f.j.ctx[0]}【${f.show}】${f.j.ctx[1]}：${f.j.msg}${f.j.want ? `（候補「${f.j.want}」）` : ''}`;
     if (f.segs && !f.same) return groupsOf(f.segs).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
     if (f.same) return '見た目だけの違い';
     if (f.cat === 'D') return `${f.frm}→${f.to}`;
@@ -4207,7 +4429,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // ---- 結果の表示 ----
   async function show(res) {
     S.res = res; S.sel = null; S.page = 0;
-    S.imgs = res.pages.map(p => ({ L: null, R: null, Lurl: p.left.url, Rurl: p.right ? p.right.url : null, lw: p.left.w, lh: p.left.h, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
+    S.imgs = res.pages.map(p => ({ L: null, R: null, Lurl: p.left ? p.left.url : null, Rurl: p.right ? p.right.url : null, lw: p.left ? p.left.w : 0, lh: p.left ? p.left.h : 0, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
     S.cache = new Map();
     await ensure(0);
     $('results').classList.remove('hidden');
@@ -4234,8 +4456,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 
   // ページの画像は、表示するときに読み込む(大きなページが多いときに、一度に展開してメモリが足りなくならないように)
   const loadImg = url => { if (!url) return Promise.resolve(null); if (!S.cache.has(url)) { const im = new Image(); im.src = url; S.cache.set(url, im.decode().then(() => im)); } return S.cache.get(url); };
-  async function ensure(i) { const im = S.imgs[i]; if (!im.L) im.L = await loadImg(im.Lurl); if (im.Rurl && !im.R) im.R = await loadImg(im.Rurl); }
-  const ready = i => { const im = S.imgs[i]; return im.L && (!im.Rurl || im.R); };
+  async function ensure(i) { const im = S.imgs[i]; if (im.Lurl && !im.L) im.L = await loadImg(im.Lurl); if (im.Rurl && !im.R) im.R = await loadImg(im.Rurl); }
+  const ready = i => { const im = S.imgs[i]; return (!im.Lurl || im.L) && (!im.Rurl || im.R); };
 
   // ページの表示名: 原稿の何ページ目が、成果物のどのページ(のどちら側)に当たるか。ファイルが複数ならファイル名も示す
   const nm = (parts, x) => (parts || []).length > 1 ? `${x.name} の` : '';
@@ -4248,12 +4470,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   //   結果のページは原稿のページごと(データファイルのページは、載っている成果物のページごとに分かれることがある)
   const srcOf = p => { const pg = S.res.pages[p - 1]; return pg.src != null ? pg.src : p - 1; };
   const srcName = p => { const pg = S.res.pages[p - 1], o = PC.pageOf(S.res.markParts, srcOf(p)); return pg.label || (o ? nm(S.res.markParts, o) + o.page + 'ページ目' : ''); };
-  const pageLabel = p => `p.${p}（原稿 ${srcName(p)} → 成果物 ${newPlace(p) || 'なし'}）`;
+  const pageLabel = p => S.res.pages[p - 1].kind === 'newonly' ? `p.${p}（成果物 ${newPlace(p)} だけを確認）` : `p.${p}（原稿 ${srcName(p)} → 成果物 ${newPlace(p) || 'なし'}）`;
   // ページの対応の一覧(結果の概要に出す)。対応のない原稿のページが続くときはまとめる。同じデータファイルのページは1つにまとめる
   const mapSummary = () => {
     const out = [], P = S.res.pages;
     for (let p = 1; p <= P.length; p++) {
       const pg = P[p - 1], n = newPlace(p);
+      if (pg.kind === 'newonly') continue;
       if (pg.label) {
         const prev = out[out.length - 1];
         if (prev && prev.label === pg.label) { if (n) prev.to.push(n); } else out.push({ label: pg.label, to: n ? [n] : [] });
@@ -4283,7 +4506,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${f.id}" style="--c: var(--c-${COLOR[f.cat]})">
         <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
         ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
-        <div class="crops"><figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure><figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
+        <div class="crops">${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
         <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"></div>
       </div>`;
     }).join('');
@@ -4350,12 +4573,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.page));
     $('pinfo').textContent = pageLabel(S.page + 1);
     const im = S.imgs[S.page], gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = (cw - gap) / 2;
-    const sL = half / im.lw, sR = im.R ? half / im.rw : sL, ox = half + gap, H = Math.max(im.lh * sL, im.R ? im.rh * sR : 0);
+    const sR = im.R ? half / im.rw : 1, sL = im.L ? half / im.lw : sR, ox = half + gap, H = Math.max(im.L ? im.lh * sL : 60, im.R ? im.rh * sR : 0);
     const c = $('vcanvas'), ctx = c.getContext('2d');
     c.style.width = cw + 'px'; c.style.height = Math.round(H) + 'px'; c.width = Math.round(cw * dpr); c.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#e9ecf1'; ctx.fillRect(0, 0, cw, H);
-    ctx.drawImage(im.L, 0, 0, im.lw * sL, im.lh * sL);
+    if (im.L) ctx.drawImage(im.L, 0, 0, im.lw * sL, im.lh * sL);
+    else { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原稿なし（成果物だけを確認）', half / 2, 40); ctx.textAlign = 'start'; }
     if (im.R) ctx.drawImage(im.R, ox, 0, im.rw * sR, im.rh * sR);
     else { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('対応する成果物のページなし', ox + half / 2, 40); ctx.textAlign = 'start'; }
     const css = getComputedStyle(document.documentElement), boxes = [];
@@ -4363,7 +4587,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     for (const f of S.res.findings) {
       if (f.page !== S.page + 1 || !visible(f) || f.cat === 'F2') continue;
       const sel = f.id === S.sel; ctx.strokeStyle = css.getPropertyValue('--c-' + COLOR[f.cat]); ctx.lineWidth = sel ? 3 : 1.5;
-      for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
+      if (im.L) for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
       if (im.R) for (const n of [...marks(f, 'R'), ...(f.moreNboxes || [])]) { const r = [ox + n[0] * sR - 3, n[1] * sR - 3, (n[2] - n[0]) * sR + 6, (n[3] - n[1]) * sR + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
     }
     geo = { boxes };

@@ -2,6 +2,7 @@
 # 自動テスト一式: テストキットの修正後ダミー原稿と、模擬の赤字原稿(紙のスキャン8通り・注釈PDF1通り)をブラウザ版で照合し、正解表で採点する
 #   あわせて、レイアウトが違う原稿(ラフ)と成果物の模擬データ(testdata/content)を照合し、test/content/gt.json で採点する
 #   データファイルの原稿(Excel・Word など)の模擬データ(testdata/office)も照合し、test/office/gt.json で採点する
+#   成果物だけで見る日本語のチェックは、testdata/jcheck を照合し、test/jcheck/gt.json で採点する
 #   bash test/suite.sh テストデータのフォルダ 正解表(gt.json) 採点スクリプト(evaluate.py) 出力フォルダ
 set -u
 DATA=$1; GT=$2; EVAL=$3; OUT=$4
@@ -25,6 +26,8 @@ run "$O/1_price.xlsx,$O/2_notice.docx,$O/3_set.pptx,$O/4_contact.txt,$O/5_shops.
 #   確認が厳しくなりやすい場合(test/office/variants.py): 「¥1,280」×「1,280円」、商品マスターの一部だけを載せた表
 run "$O/variant_yen.xlsx" "$O/final.pdf" office_yen &
 run "$O/variant_master.xlsx" "$O/final.pdf" office_master &
+# 成果物だけで見る日本語のチェック(test/jcheck/make.py で作った模擬データ)
+run "$DATA/jcheck/genko.txt" "$DATA/jcheck/seika.pdf" jcheck &
 wait
 for s in 1 2 3 4 5 6 7 8; do
   echo "紙 s$s: $(tail -1 "$OUT/paper_s$s.log" | cut -c1-60) | $(python3 "$EVAL" "$GT" "$OUT/paper_s$s.json" --csv "$OUT/paper_s$s.csv" | sed -n 1p)"
@@ -38,5 +41,7 @@ python3 test/content/evaluate.py test/content/gt.json "$OUT/content.json" | tail
 echo "データ原稿: $(tail -1 "$OUT/office.log" | cut -c1-40) | $(python3 test/office/evaluate.py test/office/gt.json "$OUT/office.json" | sed -n 1p)"
 python3 test/office/evaluate.py test/office/gt.json "$OUT/office.json" | tail -n +2
 for k in yen master; do echo "データ原稿（$k）: $(python3 test/office/variants.py check $k "$OUT/office_$k.json")"; done
+echo "日本語チェック: $(tail -1 "$OUT/jcheck.log" | cut -c1-30) | $(python3 test/jcheck/evaluate.py test/jcheck/gt.json "$OUT/jcheck.json" | sed -n 1p)"
+python3 test/jcheck/evaluate.py test/jcheck/gt.json "$OUT/jcheck.json" | tail -n +2
 echo "複数ファイル（紙）: 1ファイルのときと$(same "$OUT/split_scan.json" "$OUT/paper_s1.json")"
 echo "複数ファイル（注釈）: 1ファイルのときと$(same "$OUT/split_digital.json" "$OUT/digital.json")"

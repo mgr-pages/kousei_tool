@@ -1,0 +1,16 @@
+{
+  "note": "test/jcheck/make.py で作る模擬データ(genko.txt × seika.pdf)の正解。成果物だけで見る日本語のチェック(区分 J)。kind は種類、has は項目の文字、level は need(直す必要がありそう)・check(確認だけ)",
+  "expect": [
+    { "id": "J1", "kind": "date", "has": "水", "want": "火", "level": "need", "what": "2027年6月1日（水）→火曜日" },
+    { "id": "J2", "kind": "paren", "has": "（", "level": "need", "what": "（平日10時〜17時 の閉じかっこがない" },
+    { "id": "J3", "kind": "dup", "has": "をを", "level": "need", "what": "助詞の重なり" },
+    { "id": "J4", "kind": "dup", "has": "。。", "level": "need", "what": "句点の重なり" },
+    { "id": "J5", "kind": "misuse", "has": "的を得", "want": "的を射", "level": "need", "what": "的を得る→的を射る" },
+    { "id": "J6", "kind": "ranuki", "has": "見れる", "level": "check", "what": "ら抜き言葉" },
+    { "id": "J7", "kind": "phone", "has": "03-1234-567", "level": "need", "what": "電話番号の桁が足りない" },
+    { "id": "J8", "kind": "zip", "has": "〒12-3456", "level": "need", "what": "郵便番号の形" },
+    { "id": "J9", "kind": "yure", "has": "申", "level": "check", "what": "お申し込み・申込み の混在" },
+    { "id": "J10", "kind": "yure", "has": "サーバ", "level": "check", "what": "サーバ・サーバー の混在" }
+  ],
+  "note2": "次は誤りではない(出たら余分な検出)：2027年5月8日（土）、5/10(月)〜5/14(金)、0120-123-456、（受付時間 9:00〜18:00）、1）2）（注）、〒123-4567、申込書・取扱説明書、重ねて描いた「myZ（マイゼット）」"
+}

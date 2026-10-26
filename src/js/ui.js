@@ -2,7 +2,7 @@
 'use strict';
 (function () {
   const $ = id => document.getElementById(id), esc = PC.esc;
-  const COLOR = { A: 'A', A_IMG: 'A', M: 'M', B: 'B', B2: 'B2', C1: 'C1', C2: 'C', C3: 'C', D: 'D', E: 'E', F: 'F', F2: 'F', G: 'F', H: 'F', T: 'T', N: 'T', V: 'V', I: 'I', K: 'K', W: 'W' };
+  const COLOR = { A: 'A', A_IMG: 'A', M: 'M', B: 'B', B2: 'B2', C1: 'C1', C2: 'C', C3: 'C', D: 'D', E: 'E', F: 'F', F2: 'F', G: 'F', H: 'F', T: 'T', N: 'T', V: 'V', I: 'I', K: 'K', W: 'W', J: 'J' };
   const isLeak = f => f.cat === 'D' && (f.check.includes('漏れ') || f.check === '未統一');
   const isLight = f => f.cat === 'B2' || (f.how || '').includes('引き出し線の可能性');
   // 確認が必要なものほど上に出す。need: 直す必要がありそうなもの
@@ -15,17 +15,21 @@
     { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', c: 'T', need: true },
     { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, c: 'D', need: true },
     { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', c: 'E', need: true },
+    { key: 'J', label: '日本語の誤り（成果物だけで確認）', test: f => f.cat === 'J' && f.level === 'need', c: 'J', need: true },
     { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG', c: 'A' },
     { key: 'K', label: '指示・書き込みの確認（人が判断）', test: f => f.cat === 'K' || f.cat === 'W', c: 'K' },
     { key: 'F', label: '読み取れない赤字', test: f => f.cat === 'F', c: 'F' },
     { key: 'C1', label: '全体・以下同様どおり', test: f => f.cat === 'C1', c: 'C1' },
     { key: 'V', label: '全角・半角などの違い', test: f => f.cat === 'V', c: 'V' },
     { key: 'I', label: '原稿が画像の部分（目で確認）', test: f => f.cat === 'I', c: 'I' },
+    { key: 'J2', label: '日本語の確認（表記ゆれなど）', test: f => f.cat === 'J', c: 'J' },
     { key: 'minor', label: '参考', test: () => true, c: 'F', minor: true },
   ];
   const groupOf = f => GROUPS.find(g => g.test(f));
   // 一言の結論と、何をすればよいか
+  const JT = { date: '日付と曜日が合わない', paren: 'かっこの閉じ忘れ', dup: '字の重なり', misuse: 'よくある誤用', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', ranuki: 'ら抜き言葉？', keigo: '二重敬語？', redund: '重複表現？', hankana: '半角カナ' };
   function verdictOf(f) {
+    if (f.cat === 'J') return [JT[f.j.kind] || '日本語の確認', f.j.msg];
     if (f.auto === 'ok') return f.byInstr ? ['指示どおりの違い', `原稿の指示「${f.byInstr.replace(/\s+/g, ' ')}」のとおりに変わっています（自動で確認済み）`] : ['指示どおり', (f.check || '').includes('削除') ? '指示どおり消えています（自動で確認済み）' : '指示の文字が成果物にあります（自動で確認済み）'];
     if (f.auto === 'ng') return ['指示どおりになっていない？', (f.check || '').includes('削除') ? '消す指示の文字が、成果物に残っている可能性があります' : '指示の文字が、成果物の該当箇所に見当たりません'];
     if (f.cat === 'B' || f.cat === 'B2') return isLight(f) ? ['直っていない？', (f.how || '').includes('引き出し線') ? '細い線なので、引き出し線かもしれません' : '前の赤字の続き（行の折り返しなど）の可能性。念のため確認'] : ['直っていない', '赤字が修正後に反映されていません'];
@@ -86,6 +90,7 @@
   // 項目の中身: 何が違うか(どの種類でも、なるべく短く)
   function whatHtml(f) {
     const q = s => `「${esc(clipMid(s || ''))}」`;
+    if (f.cat === 'J') { const [a, z] = f.j.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.show)}</mark>${z}</span>${f.j.want ? `<span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.j.want)}</ins>${z}</span>` : ''}</div>`; }
     if (f.lint) { const [a, z] = f.lint.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.lint.c)}</mark>${z}</span><span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.lint.want)}</ins>${z}</span></div>`; }
     if (f.segs && !f.same) return diffRows(f.segs);
     if (f.same) return `<div class="what">文字は同じで、${f.color ? '色' : '見た目（書体・太さ・位置・色など）'}だけが違います</div>`;
@@ -105,6 +110,7 @@
   // CSV用の短い文: 「旧→新」をか所ごとに
   function diffText(f) {
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
+    if (f.cat === 'J') return `${f.j.ctx[0]}【${f.show}】${f.j.ctx[1]}：${f.j.msg}${f.j.want ? `（候補「${f.j.want}」）` : ''}`;
     if (f.segs && !f.same) return groupsOf(f.segs).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
     if (f.same) return '見た目だけの違い';
     if (f.cat === 'D') return `${f.frm}→${f.to}`;
@@ -224,7 +230,7 @@
   // ---- 結果の表示 ----
   async function show(res) {
     S.res = res; S.sel = null; S.page = 0;
-    S.imgs = res.pages.map(p => ({ L: null, R: null, Lurl: p.left.url, Rurl: p.right ? p.right.url : null, lw: p.left.w, lh: p.left.h, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
+    S.imgs = res.pages.map(p => ({ L: null, R: null, Lurl: p.left ? p.left.url : null, Rurl: p.right ? p.right.url : null, lw: p.left ? p.left.w : 0, lh: p.left ? p.left.h : 0, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
     S.cache = new Map();
     await ensure(0);
     $('results').classList.remove('hidden');
@@ -251,8 +257,8 @@
 
   // ページの画像は、表示するときに読み込む(大きなページが多いときに、一度に展開してメモリが足りなくならないように)
   const loadImg = url => { if (!url) return Promise.resolve(null); if (!S.cache.has(url)) { const im = new Image(); im.src = url; S.cache.set(url, im.decode().then(() => im)); } return S.cache.get(url); };
-  async function ensure(i) { const im = S.imgs[i]; if (!im.L) im.L = await loadImg(im.Lurl); if (im.Rurl && !im.R) im.R = await loadImg(im.Rurl); }
-  const ready = i => { const im = S.imgs[i]; return im.L && (!im.Rurl || im.R); };
+  async function ensure(i) { const im = S.imgs[i]; if (im.Lurl && !im.L) im.L = await loadImg(im.Lurl); if (im.Rurl && !im.R) im.R = await loadImg(im.Rurl); }
+  const ready = i => { const im = S.imgs[i]; return (!im.Lurl || im.L) && (!im.Rurl || im.R); };
 
   // ページの表示名: 原稿の何ページ目が、成果物のどのページ(のどちら側)に当たるか。ファイルが複数ならファイル名も示す
   const nm = (parts, x) => (parts || []).length > 1 ? `${x.name} の` : '';
@@ -265,12 +271,13 @@
   //   結果のページは原稿のページごと(データファイルのページは、載っている成果物のページごとに分かれることがある)
   const srcOf = p => { const pg = S.res.pages[p - 1]; return pg.src != null ? pg.src : p - 1; };
   const srcName = p => { const pg = S.res.pages[p - 1], o = PC.pageOf(S.res.markParts, srcOf(p)); return pg.label || (o ? nm(S.res.markParts, o) + o.page + 'ページ目' : ''); };
-  const pageLabel = p => `p.${p}（原稿 ${srcName(p)} → 成果物 ${newPlace(p) || 'なし'}）`;
+  const pageLabel = p => S.res.pages[p - 1].kind === 'newonly' ? `p.${p}（成果物 ${newPlace(p)} だけを確認）` : `p.${p}（原稿 ${srcName(p)} → 成果物 ${newPlace(p) || 'なし'}）`;
   // ページの対応の一覧(結果の概要に出す)。対応のない原稿のページが続くときはまとめる。同じデータファイルのページは1つにまとめる
   const mapSummary = () => {
     const out = [], P = S.res.pages;
     for (let p = 1; p <= P.length; p++) {
       const pg = P[p - 1], n = newPlace(p);
+      if (pg.kind === 'newonly') continue;
       if (pg.label) {
         const prev = out[out.length - 1];
         if (prev && prev.label === pg.label) { if (n) prev.to.push(n); } else out.push({ label: pg.label, to: n ? [n] : [] });
@@ -300,7 +307,7 @@
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${f.id}" style="--c: var(--c-${COLOR[f.cat]})">
         <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
         ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
-        <div class="crops"><figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure><figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
+        <div class="crops">${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
         <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"></div>
       </div>`;
     }).join('');
@@ -367,12 +374,13 @@
     $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.page));
     $('pinfo').textContent = pageLabel(S.page + 1);
     const im = S.imgs[S.page], gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = (cw - gap) / 2;
-    const sL = half / im.lw, sR = im.R ? half / im.rw : sL, ox = half + gap, H = Math.max(im.lh * sL, im.R ? im.rh * sR : 0);
+    const sR = im.R ? half / im.rw : 1, sL = im.L ? half / im.lw : sR, ox = half + gap, H = Math.max(im.L ? im.lh * sL : 60, im.R ? im.rh * sR : 0);
     const c = $('vcanvas'), ctx = c.getContext('2d');
     c.style.width = cw + 'px'; c.style.height = Math.round(H) + 'px'; c.width = Math.round(cw * dpr); c.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#e9ecf1'; ctx.fillRect(0, 0, cw, H);
-    ctx.drawImage(im.L, 0, 0, im.lw * sL, im.lh * sL);
+    if (im.L) ctx.drawImage(im.L, 0, 0, im.lw * sL, im.lh * sL);
+    else { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原稿なし（成果物だけを確認）', half / 2, 40); ctx.textAlign = 'start'; }
     if (im.R) ctx.drawImage(im.R, ox, 0, im.rw * sR, im.rh * sR);
     else { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('対応する成果物のページなし', ox + half / 2, 40); ctx.textAlign = 'start'; }
     const css = getComputedStyle(document.documentElement), boxes = [];
@@ -380,7 +388,7 @@
     for (const f of S.res.findings) {
       if (f.page !== S.page + 1 || !visible(f) || f.cat === 'F2') continue;
       const sel = f.id === S.sel; ctx.strokeStyle = css.getPropertyValue('--c-' + COLOR[f.cat]); ctx.lineWidth = sel ? 3 : 1.5;
-      for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
+      if (im.L) for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
       if (im.R) for (const n of [...marks(f, 'R'), ...(f.moreNboxes || [])]) { const r = [ox + n[0] * sR - 3, n[1] * sR - 3, (n[2] - n[0]) * sR + 6, (n[3] - n[1]) * sR + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
     }
     geo = { boxes };

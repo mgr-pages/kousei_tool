@@ -9,7 +9,7 @@
     D: '全体・以下同様の直し忘れの候補', E: '見た目では分からない文字の違い',
     F: '指示箇所に結びつかない赤字（人が読む）', F2: '引き出し線・注記（指示箇所に付随）', G: '全体指示として読み取った注記',
     M: 'ママ・イキ（変更しない指示）どおり変更なし', H: '赤以外の書き込み（鉛筆・黒など）',
-    T: '原稿と違う文字', V: '書き方だけの違い（全角・半角など）', N: '原稿にない文字', I: '原稿が画像の部分（文字では比べられない）',
+    T: '原稿と違う文字', V: '書き方だけの違い（全角・半角など）', N: '原稿にない文字', I: '原稿が画像の部分（文字では比べられない）', J: '日本語の確認（成果物だけで判定）',
     K: '原稿の指示（書き込み・コメント）', W: '成果物の書き込み（アタリ・確認事項）',
   };
   const KEEP = /ママ|イキ/;
@@ -703,6 +703,25 @@
     const usedQ = new Set(P.map(d => d.q).filter(q => q >= 0)), lost = [];
     for (let q = 0; q < newDoc.numPages; q++) if (!usedQ.has(q)) lost.push(q + 1);
     if (lost.length) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
+    // 3) 成果物だけを読んで、日本語として問題がありそうな所(原稿とは照らし合わせない)。項目は、その成果物のページを表示している結果のページに付ける
+    //   (見開きの片側だけを照合したページは、その側にある項目だけ。どこにも表示していない成果物のページは「成果物だけ」のページを足す)
+    prog('成果物の日本語を確認', 0.985); await PC.tick();
+    const JP = [];
+    for (let q = 0; q < newDoc.numPages; q++) JP.push({ q, B: NQ.has(q) ? NQ.get(q).B : await PC.pageText(newDoc, q) });
+    for (const x of PC.jcheck(JP)) {
+      const c = PC.center(x.box), ds = P.filter(d => d.q === x.q && d.kind !== 'none');
+      let d = ds.find(d => d.crop && c[0] >= d.crop[0] && c[0] <= d.crop[2] && c[1] >= d.crop[1] && c[1] <= d.crop[3]) || ds.find(d => !d.crop);
+      if (!d) {
+        d = P.find(e => e.kind === 'newonly' && e.q === x.q);
+        if (!d) {
+          const img = await PC.renderPage(newDoc, x.q, PC.DPI, false);
+          d = { kind: 'newonly', q: x.q, src: null, label: null, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], thumbs: { left: null, right: NQ.has(x.q) ? NQ.get(x.q).thumb : await toThumb(img) } };
+          P.push(d);
+        }
+      }
+      const o = d.crop ? [d.crop[0], d.crop[1]] : [0, 0], px = b => [(b[0] - o[0]) * PC.S, (b[1] - o[1]) * PC.S, (b[2] - o[0]) * PC.S, (b[3] - o[1]) * PC.S];
+      (d.jf || (d.jf = [])).push({ ...x, nbox: px(x.box), more: x.boxes ? (x.boxes.get(x.q) || []).slice(1).filter(b => !d.crop || (PC.center(b)[0] >= d.crop[0] && PC.center(b)[0] <= d.crop[2])).map(px) : [] });
+    }
 
     if (window.__pcDebug) PC._last = P;   // 自動テストでの調査用
     prog('照合', 0.97); await PC.tick();
@@ -824,6 +843,10 @@
     const add = (page, cat, box, show = '', how = '', note = '', check = '', nbox = null) => { const f = { id: F.length, page, cat, label: PC.CAT[cat], box: box.map(Math.trunc), nbox: nbox ? nbox.map(Math.trunc) : null, show, how, note, check }; F.push(f); return f; };
     P.forEach((d, p) => {
       if (d.kind === 'content') contentFindings(d, p, add);
+      for (const x of d.jf || []) {   // 成果物だけで見た日本語の問題
+        const f = add(p + 1, 'J', x.nbox, x.show, '', '', '', x.nbox);
+        Object.assign(f, { onNew: true, newOnly: true, level: x.level, j: { kind: x.kind, want: x.want, msg: x.msg, ctx: x.ctx, count: x.count || 0 }, moreNboxes: x.more, pnboxes: [x.nbox] });
+      }
       for (const c of [...d.ch, ...d.im]) {
         const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
         let chk = '', wantUsed = '';

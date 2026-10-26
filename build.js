@@ -9,7 +9,7 @@ const safe = s => s.replace(/<\/script/gi, '<\\/script');   // HTMLの中に埋�
 const cmaps = {}, fonts = {};
 for (const f of fs.readdirSync(nm('pdfjs-dist/cmaps'))) if (f.endsWith('.bcmap')) cmaps[f.replace('.bcmap', '')] = b64(nm('pdfjs-dist/cmaps/' + f));
 for (const f of fs.readdirSync(nm('pdfjs-dist/standard_fonts'))) if (/\.(pfb|ttf)$/.test(f)) fonts[f] = b64(nm('pdfjs-dist/standard_fonts/' + f));
-const order = ['util', 'myers', 'docsrc', 'pdfio', 'vision', 'marks', 'scan', 'content', 'pairing', 'analyze', 'ui'];
+const order = ['util', 'myers', 'docsrc', 'pdfio', 'vision', 'marks', 'scan', 'content', 'jcheck', 'pairing', 'analyze', 'ui'];
 const app = order.map(n => `// ---- ${n}.js ----\n` + fs.readFileSync(path.join(__dirname, 'src/js', n + '.js'), 'utf8')).join('\n');
 const pkg = n => JSON.parse(fs.readFileSync(nm(n + '/package.json'), 'utf8')).version;
 
