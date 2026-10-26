@@ -8,6 +8,7 @@
 :root {
   --bg: #f5f6f8; --panel: #fff; --ink: #1d2330; --sub: #5b6475; --line: #dde1e8; --accent: #0b6bcb; --accent-ink: #fff;
   --c-A: #1f8f4e; --c-B: #d1343b; --c-B2: #e48a8e; --c-C1: #8a8600; --c-C: #d9730d; --c-D: #9b3fa0; --c-E: #1c7ed6; --c-F: #6b7280; --c-M: #1f8f4e;
+  --c-T: #d9730d; --c-K: #1f8f4e; --c-W: #c2185b; --c-V: #5b7cba; --c-I: #8a8f99;
 }
 * { box-sizing: border-box }
 html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif; font-size: 14px; line-height: 1.6 }
@@ -37,6 +38,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .ftot { font-size: 12px; color: var(--sub); margin-top: 4px; display: flex; gap: 8px; align-items: center }
 .ftot button { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 12px }
 .hint { color: var(--sub); font-size: 12px }
+#mapNote { margin: -6px 0 10px }
 .btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer }
 .btn:hover { border-color: #b9c1cf }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; padding: 8px 18px }
@@ -123,10 +125,10 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 <main>
   <section class="card" id="setup">
     <div class="steps">
-      <div class="step" data-kind="marks"><div class="t"><span>1</span>赤字原稿（スキャン・注釈PDF）</div>
+      <div class="step" data-kind="marks"><div class="t"><span>1</span>原稿（朱書き）</div>
         <label class="btn small pick">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*" multiple></label>
         <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div></div>
-      <div class="step" data-kind="nw"><div class="t"><span>2</span>修正後PDF</div>
+      <div class="step" data-kind="nw"><div class="t"><span>2</span>成果物（PDF）</div>
         <label class="btn small pick">＋ ファイルを追加<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label>
         <ol class="flist" id="lNew"></ol><div class="ftot" id="tNew"></div></div>
     </div>
@@ -138,7 +140,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
   </section>
 
   <section id="results" class="hidden">
-    <div class="card"><h2>結果の概要 <span class="hint" id="sumNote"></span></h2><div class="summary" id="summary"></div></div>
+    <div class="card"><h2>結果の概要 <span class="hint" id="sumNote"></span></h2><div class="hint" id="mapNote"></div><div class="summary" id="summary"></div></div>
     <div class="toolbar">
       <label><input type="checkbox" id="hideDone"> 確認済み（OK）を隠す</label>
       <label><input type="checkbox" id="showMinor"> 参考も表示</label>
@@ -151,7 +153,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
       <div class="viewer" id="viewer">
         <div class="tabs" id="tabs"></div>
         <div class="hint" id="pinfo"></div>
-        <div class="cap"><div>赤字原稿</div><div>修正後</div></div>
+        <div class="cap"><div>原稿</div><div>成果物</div></div>
         <div class="scroll" id="vscroll"><canvas id="vcanvas"></canvas></div>
         <div class="legend" id="legend"></div>
       </div>

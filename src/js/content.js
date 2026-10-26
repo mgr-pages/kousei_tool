@@ -1,0 +1,342 @@
+// レイアウトが違う原稿(ラフ・前回の印刷物に指示を書き込んだもの)と成果物の照合: 文字データの対応づけ
+//   位置は pt(1/72インチ、ページの左上が原点)で持つ
+'use strict';
+(function () {
+  const { union } = PC;
+
+  // ---- 照合用に字をそろえる: 全角・半角、波ダッシュ・ハイフン類などの書き方の違いは同じ字とみなす ----
+  const VAR = {};
+  for (const c of '‐‑‒–—―−﹣') VAR[c] = '-';
+  for (const c of '～〜∼') VAR[c] = '~';
+  Object.assign(VAR, { '◯': '○', '·': '・', '“': '"', '”': '"', '‘': "'", '’': "'" });
+  PC.fold = c => { let k = c.normalize('NFKC'); if ([...k].length !== 1) k = c; return VAR[k] || k; };
+
+  const area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+  const inter = (a, b) => area([Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]);
+  const iou = (a, b) => { const i = inter(a, b); return i / Math.max(1e-9, area(a) + area(b) - i); };
+  PC.iou = iou;
+  PC.center = b => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+  PC.gap = (a, b) => Math.hypot(Math.max(0, a[0] - b[2], b[0] - a[2]), Math.max(0, a[1] - b[3], b[1] - a[3]));   // 枠どうしのすき間
+
+  // ---- ページの文字データ: 1字ずつ { c: 字, k: 照合用の字, box, it: まとまりの番号 } ----
+  //   同じ位置に同じ文字列が重ねて描かれたもの(縁取りの文字など)は1つにする
+  PC.pageText = async (doc, pno) => {
+    const page = await doc.getPage(pno + 1), vp = page.getViewport({ scale: 1 }), tc = await page.getTextContent();
+    const items = [], chars = [];
+    let wide = false;   // 直前に幅の広い空白(全角の空白など)があった
+    for (const it of tc.items) {
+      if (!it.str || !it.str.trim()) { if (it.str && (it.str.includes('\u3000') || it.width >= 0.6 * (Math.hypot(it.transform[2], it.transform[3]) || 1))) wide = true; continue; }
+      const st = tc.styles[it.fontName] || {}, [a, b, c, d, e, f] = it.transform;
+      const size = Math.hypot(c, d) || Math.hypot(a, b) || 1, chs = [...it.str], n = chs.length, vert = !!st.vertical;
+      const asc = st.ascent ? Math.min(st.ascent, 1) : 0.88, desc = st.descent ? Math.min(-st.descent, 0.3) : 0.12;
+      const rects = chs.map((_, i) => {
+        let r;
+        if (vert) { const adv = (it.height || size * n) / n; r = [e, f - (i + 1) * adv, e + (it.width || size), f - i * adv]; }
+        else { const adv = it.width / n; r = [e + i * adv, f - desc * size, e + (i + 1) * adv, f + asc * size]; }
+        const p = vp.convertToViewportRectangle(r);
+        return [Math.min(p[0], p[2]), Math.min(p[1], p[3]), Math.max(p[0], p[2]), Math.max(p[1], p[3])];
+      });
+      const box = union(rects);
+      if (items.some(q => q.s === it.str && iou(q.box, box) > 0.6)) { wide = false; continue; }
+      const idx = items.length;
+      items.push({ s: it.str, box, vert, size });
+      // 全角の空白・2つ以上続く空白のあとの字には印(見出しと中身の区切りとして、まとまりを分ける)
+      let ws = '';
+      chs.forEach((ch, i) => { if (!ch.trim()) { ws += ch; return; } chars.push({ c: ch, k: PC.fold(ch), box: rects[i], it: idx, brk: wide || /\u3000|\s{2,}/.test(ws) }); ws = ''; wide = false; });
+    }
+    return { w: vp.width, h: vp.height, items, chars };
+  };
+
+  // ---- まとまり(段落・テキストボックス): 字の並び(描かれた順)を、続きでない所で切る ----
+  //   同じ行でも全角の空白や1字分以上のすき間がある所(「締切日　2027年…」のような見出しと中身)は切る(デザインで別々に配置されることが多いため)
+  //   返り値: [[開始, 終了), ...]。大きすぎるまとまりは maxLen 字ごとに切る
+  PC.blocksOf = (cs, items, maxLen = 400) => {
+    const out = []; let s = 0, bx = null;
+    for (let k = 0; k < cs.length; k++) {
+      if (k > s) {
+        const p = items[cs[k - 1].it], q = items[cs[k].it], size = Math.min(p.size, q.size), a = cs[k - 1].box, b = cs[k].box;
+        const spaced = cs[k].brk || (!p.vert && !q.vert && Math.abs((a[1] + a[3]) - (b[1] + b[3])) / 2 < 0.5 * size && b[0] - a[2] >= 0.9 * size);
+        let cont = cs[k - 1].it === cs[k].it && !spaced;
+        if (!cont && !p.vert && !q.vert) {
+          const sameLine = !spaced && Math.abs((p.box[1] + p.box[3]) - (q.box[1] + q.box[3])) / 2 < 0.6 * size && q.box[0] > p.box[0] - size && q.box[0] - p.box[2] < 3 * size;
+          const nextLine = q.box[1] >= p.box[1] + 0.3 * size && q.box[1] - p.box[3] < 1.5 * size && q.box[0] < bx[2] + size && q.box[2] > bx[0] - size;
+          cont = sameLine || nextLine;
+        } else if (!cont && p.vert && q.vert) {
+          const sameCol = Math.abs((p.box[0] + p.box[2]) - (q.box[0] + q.box[2])) / 2 < 0.6 * size && q.box[1] > p.box[1] - size && q.box[1] - p.box[3] < 3 * size;
+          const nextCol = q.box[2] <= p.box[2] - 0.3 * size && p.box[0] - q.box[2] < 1.5 * size && q.box[1] < bx[3] + size && q.box[3] > bx[1] - size;
+          cont = sameCol || nextCol;
+        }
+        if (!cont || k - s >= maxLen) { out.push([s, k]); s = k; bx = null; }
+      }
+      bx = bx ? union([bx, cs[k].box]) : cs[k].box.slice();
+    }
+    if (cs.length > s) out.push([s, cs.length]);
+    return out;
+  };
+
+  // ---- ページに置かれた画像の範囲(pt): 描画命令をたどり、画像が描かれる単位正方形を写す ----
+  PC.imageBoxes = async (doc, pno) => {
+    const page = await doc.getPage(pno + 1), vp = page.getViewport({ scale: 1 }), ol = await page.getOperatorList(), O = pdfjsLib.OPS;
+    const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+    const IMG = new Set([O.paintImageXObject, O.paintInlineImageXObject, O.paintImageMaskXObject, O.paintJpegXObject].filter(x => x !== undefined));
+    const out = [], stack = [];
+    let m = [1, 0, 0, 1, 0, 0];
+    for (let k = 0; k < ol.fnArray.length; k++) {
+      const fn = ol.fnArray[k], args = ol.argsArray[k];
+      if (fn === O.save) stack.push(m);
+      else if (fn === O.restore) m = stack.pop() || [1, 0, 0, 1, 0, 0];
+      else if (fn === O.transform) m = mul(m, args);
+      else if (fn === O.paintFormXObjectBegin) { stack.push(m); if (args && args[0]) m = mul(m, args[0]); }
+      else if (fn === O.paintFormXObjectEnd) m = stack.pop() || [1, 0, 0, 1, 0, 0];
+      else if (IMG.has(fn)) {
+        const pts = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => vp.convertToViewportPoint(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]));
+        const b = [Math.min(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[0])), Math.max(...pts.map(p => p[1]))];
+        const c = [Math.max(0, b[0]), Math.max(0, b[1]), Math.min(vp.width, b[2]), Math.min(vp.height, b[3])];
+        if (c[2] - c[0] > 4 && c[3] - c[1] > 4) out.push(c);
+      }
+    }
+    return out;
+  };
+
+  // ---- 長く一致する文字列(対応づけの手がかり): {i, j, n} = A[i..i+n) と B[j..j+n) が同じ ----
+  //   位置の手がかりにも使うため、どちらかで文字のまとまり(行など)が変わる所で区切って返す
+  PC.textAnchors = (A, B, K = 6) => {
+    const out = [], idx = new Map(), key = (X, i) => { let s = ''; for (let t = 0; t < K; t++) s += X[i + t].k + '\u0001'; return s; };
+    if (A.length < K || B.length < K) return out;
+    for (let j = 0; j + K <= B.length; j++) { const s = key(B, j); let l = idx.get(s); if (!l) idx.set(s, l = []); l.push(j); }
+    for (let i = 0; i + K <= A.length; i++) {
+      const l = idx.get(key(A, i));
+      if (!l || l.length > 12) continue;   // 何度も出てくる並び(罫線代わりの記号など)は手がかりにしない
+      for (const j of l) {
+        if (i > 0 && j > 0 && A[i - 1].k === B[j - 1].k) continue;   // 左へ延ばせるものは、その位置から始まる一致に含まれる
+        let n = K; while (i + n < A.length && j + n < B.length && A[i + n].k === B[j + n].k) n++;
+        let t0 = 0;
+        for (let t = 1; t <= n; t++) if (t === n || A[i + t].it !== A[i + t - 1].it || B[j + t].it !== B[j + t - 1].it) { out.push({ i: i + t0, j: j + t0, n: t - t0 }); t0 = t; }
+      }
+    }
+    return out;
+  };
+
+  // ---- 原稿 → 成果物の位置の変換をRANSACで当てはめる(重みつき) ----
+  //   T = [a, b, tx, ty, ay]: x' = a x - b y + tx, y' = b x + ay y + ty (ay を省くと ay = a)
+  //   mode 'sim': 相似変換(回転あり。スキャンの画像の手がかり)、'axis': 縦と横の倍率を別々に(回転なし。文字の手がかり。
+  //   デザインで縦横の詰め方が変わっても当てはまるように。配置の違いを回転と取り違えないよう、回転は求めない)
+  const ay = T => (T.length > 4 ? T[4] : T[0]);
+  PC.applyT = (T, x, y) => [T[0] * x - T[1] * y + T[2], T[1] * x + ay(T) * y + T[3]];
+  PC.mapBox = (T, b) => {
+    const ps = [[b[0], b[1]], [b[2], b[1]], [b[0], b[3]], [b[2], b[3]]].map(([x, y]) => PC.applyT(T, x, y));
+    return [Math.min(...ps.map(p => p[0])), Math.min(...ps.map(p => p[1])), Math.max(...ps.map(p => p[0])), Math.max(...ps.map(p => p[1]))];
+  };
+  PC.invT = T => {
+    const a = T[0], b = T[1], d = ay(T), det = a * d + b * b;
+    return [d / det, -b / det, -(d * T[2] + b * T[3]) / det, -(-b * T[2] + a * T[3]) / det, a / det];
+  };
+  PC.scaleOf = T => Math.sqrt(Math.hypot(T[0], T[1]) * Math.hypot(ay(T), T[1]));   // 縦横の倍率の相乗平均
+  PC.aspectOf = T => ay(T) / T[0];   // 縦の倍率 ÷ 横の倍率
+  function fitW(P, Q, w, idx, mode) {
+    let sw = 0, mx = 0, my = 0, nx = 0, ny = 0;
+    for (const k of idx) { sw += w[k]; mx += w[k] * P[k][0]; my += w[k] * P[k][1]; nx += w[k] * Q[k][0]; ny += w[k] * Q[k][1]; }
+    if (sw <= 0) return null;
+    mx /= sw; my /= sw; nx /= sw; ny /= sw;
+    let sxx = 0, syy = 0, sa = 0, sb = 0, sx = 0, sy = 0;
+    for (const k of idx) {
+      const px = P[k][0] - mx, py = P[k][1] - my, qx = Q[k][0] - nx, qy = Q[k][1] - ny;
+      sxx += w[k] * px * px; syy += w[k] * py * py; sa += w[k] * (px * qx + py * qy); sb += w[k] * (px * qy - py * qx); sx += w[k] * px * qx; sy += w[k] * py * qy;
+    }
+    if (mode === 'axis') {
+      if (sxx < 1e-9 || syy < 1e-9) return null;
+      const a = sx / sxx, d = sy / syy;
+      return [a, 0, nx - a * mx, ny - d * my, d];
+    }
+    if (sxx + syy < 1e-9) return null;
+    const a = sa / (sxx + syy), b = mode === 'sim' ? sb / (sxx + syy) : 0;
+    return [a, b, nx - (a * mx - b * my), ny - (b * mx + a * my)];
+  }
+  // 裏返し・大きな回転・極端な縦横比はない
+  const sane = T => { const s = PC.scaleOf(T), r = PC.aspectOf(T); return T[0] > 0 && ay(T) > 0 && s > 0.25 && s < 4 && r > 0.67 && r < 1.5 && Math.abs(T[1]) < 0.1 * s; };
+  PC.fitSimilarity = (P, Q, w, thr, opt = {}) => {
+    const n = P.length, rand = PC.prng(opt.seed || 20261026), mode = opt.mode || 'iso';
+    const err = (T, k) => { const p = PC.applyT(T, P[k][0], P[k][1]); return Math.hypot(p[0] - Q[k][0], p[1] - Q[k][1]); };
+    if (n < 2) return null;
+    const all = [...Array(n).keys()], score = T => { let s = 0; for (let k = 0; k < n; k++) if (err(T, k) < thr) s += w[k]; return s; };
+    let best = null, bs = 0;
+    for (let it = 0; it < Math.min(opt.iters || 3000, n * n); it++) {
+      const a = Math.floor(rand() * n), b = Math.floor(rand() * n);
+      if (a === b || Math.hypot(P[a][0] - P[b][0], P[a][1] - P[b][1]) < 10) continue;
+      if (mode === 'axis' && (Math.abs(P[a][0] - P[b][0]) < 10 || Math.abs(P[a][1] - P[b][1]) < 10)) continue;
+      const T = fitW(P, Q, w, [a, b], mode);
+      if (!T || !sane(T)) continue;
+      const s = score(T);
+      if (s > bs) { bs = s; best = T; }
+    }
+    if (!best) return null;
+    for (let r = 0; r < 3; r++) { const inl = all.filter(k => err(best, k) < thr), T = inl.length >= 2 ? fitW(P, Q, w, inl, mode) : null; if (!T || !sane(T)) break; best = T; }
+    const inl = all.filter(k => err(best, k) < thr);
+    return { T: best, inl, score: inl.reduce((s, k) => s + w[k], 0), err: k => err(best, k) };
+  };
+
+  // ---- 並べ替えに強い対応づけ ----
+  //   Aの字の並びを、Bのいくつかの区間につなぎ合わせて対応させる。区間の中は普通の編集(一致・置換・Bにだけある字・Aにだけある字)、
+  //   別の区間へ移るたびに jump の手間がかかる(段組み・配置の違い)。near[j] は、Bのj字目から始めるときの追加の手間(Aのまとまりが
+  //   来るはずの範囲から遠いほど大きい。Aの字ごとに変えると、字を捨てて手間の小さい位置を選ぶ抜け道ができるため、まとまり単位で決める)
+  //   used[j]: ほかのまとまりがすでに対応づけたBの字(同じ文が2か所にあるとき、同じ所に2度当てないよう、一致しない字と同じ扱いにする)
+  //   返り値 ops: ['=', i, j] 同じ字 / ['~', i, j] 書き方だけ違う / ['x', i, j] 違う字 / ['-', i] Aにだけある / ['+', j] Bにだけある / ['|'] 別の区間へ
+  PC.collate = (A, B, opt = {}) => {
+    const n = A.length, m = B.length, J = opt.jump ?? 3, nr = opt.near || null, W = m + 1, near = nr ? (i, j) => nr[j] : null, used = opt.used || null;
+    if (!n) return [];
+    if (!m) return A.map((_, i) => ['-', i]);
+    const D = new Float32Array((n + 1) * W), op = new Uint8Array((n + 1) * W), from = new Int32Array(n + 1);
+    for (let j = 0; j <= m; j++) { D[j] = J + (near && j < m ? near(0, j) : 0); op[j] = 3; }
+    from[0] = -1;
+    for (let i = 0; i < n; i++) {
+      const r0 = i * W, r1 = r0 + W, ak = A[i].k;
+      for (let j = 0; j <= m; j++) { D[r1 + j] = D[r0 + j] + 1; op[r1 + j] = 1; }
+      for (let j = 0; j < m; j++) { const v = D[r0 + j] + (ak === B[j].k && !(used && used[j]) ? 0 : 1); if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 0; } }
+      for (let j = 0; j < m; j++) { const v = D[r1 + j] + 1; if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 2; } }
+      let best = Infinity, bj = 0;
+      for (let j = 0; j <= m; j++) if (D[r1 + j] < best) { best = D[r1 + j]; bj = j; }
+      from[i + 1] = bj;
+      if (i + 1 < n) for (let j = 0; j < m; j++) { const v = best + J + (near ? near(i + 1, j) : 0); if (v < D[r1 + j]) { D[r1 + j] = v; op[r1 + j] = 3; } }
+    }
+    let i = n, j = 0, best = Infinity;
+    for (let q = 0; q <= m; q++) if (D[n * W + q] < best) { best = D[n * W + q]; j = q; }
+    const ops = [];
+    while (i > 0) {
+      const o = op[i * W + j];
+      if (o === 0) { i--; j--; ops.push([A[i].c === B[j].c ? '=' : A[i].k === B[j].k ? '~' : 'x', i, j]); }
+      else if (o === 1) { i--; ops.push(['-', i]); }
+      else if (o === 2) { j--; ops.push(['+', j]); }
+      else { ops.push(['|']); j = from[i]; }
+    }
+    ops.reverse();
+    // 一致した字が少ない区間(区間のAの字の半分未満、かつ3字未満)は、たまたま同じ字に当たっただけとみなし、対応させない
+    const out = []; let seg = [];
+    const flush = () => {
+      const a = seg.filter(o => o[0] !== '+').length, hit = seg.filter(o => o[0] === '=' || o[0] === '~').length;
+      if (hit >= Math.min(3, Math.ceil(a / 2))) out.push(...seg);
+      else for (const o of seg) if (o[0] !== '+') out.push(['-', o[1]]);
+      seg = [];
+    };
+    for (const o of ops) { if (o[0] === '|') { flush(); out.push(o); } else seg.push(o); }
+    flush();
+    // 区間の先頭・末尾の「Bにだけある字」は、区間の始め方・終わり方の都合で入っただけなので除く
+    const keep = out.map(() => true);
+    for (let k = 0; k < out.length; k++) {
+      if (out[k][0] !== '+') continue;
+      let a = k; while (a > 0 && out[a - 1][0] === '+') a--;
+      let b = k; while (b + 1 < out.length && out[b + 1][0] === '+') b++;
+      const atStart = a === 0 || out[a - 1][0] === '|', atEnd = b === out.length - 1 || out[b + 1][0] === '|';
+      if (atStart || atEnd) keep[k] = false;
+    }
+    return out.filter((_, k) => keep[k]);
+  };
+
+  // ---- opsを、違いのまとまり(hunk)に分ける: [開始, 終了) は ops の番号 ----
+  //   区間の切れ目('|')は違いではない(配置が違うだけ)。同じ字が2字以上続く所、区間の切れ目で分ける
+  PC.hunksOf = ops => {
+    const out = []; let s = -1, e = -1;
+    for (let k = 0; k < ops.length; k++) {
+      const t = ops[k][0];
+      if (t === '=' || t === '|') {
+        if (s >= 0 && (t === '|' || (k + 1 < ops.length && ops[k + 1][0] === '=') || k + 1 === ops.length)) { out.push([s, e]); s = -1; }
+        continue;
+      }
+      if (s < 0) s = k;
+      e = k + 1;
+    }
+    if (s >= 0) out.push([s, e]);
+    return out.map(([s, e]) => ({ s, e, variant: ops.slice(s, e).every(o => o[0] === '~' || o[0] === '=') }));
+  };
+
+  // ---- 成果物の書き込み(アタリ・未支給・質問など): ピンクの帯に白抜きの文字、または決まった言い方 ----
+  //   img: 成果物の描画、k: pt → 画素の倍率。返り値: 書き込みとみなした字のまとまり(item)の番号の集合
+  const NOTE_WORD = /^(アタリ|あたり)\s*[:：]|未支給|ご指示ください|ご指示下さい|要確認|入れますか|差し?替え$|[?？]$/;
+  PC.designerNotes = (B, img, k) => {
+    const out = new Set(), { w, h, d } = img;
+    B.items.forEach((it, idx) => {
+      if (NOTE_WORD.test(it.s.trim())) { out.add(idx); return; }
+      const m = 1.5, x0 = Math.max(0, Math.floor((it.box[0] - m) * k)), y0 = Math.max(0, Math.floor((it.box[1] - m) * k)), x1 = Math.min(w, Math.ceil((it.box[2] + m) * k)), y1 = Math.min(h, Math.ceil((it.box[3] + m) * k));
+      let n = 0, pink = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const j = (y * w + x) * 4, r = d[j], g = d[j + 1], b = d[j + 2]; n++; if (r >= 170 && g <= 110 && b >= 50 && r - g >= 120) pink++; }
+      if (n && pink >= 0.35 * n) out.add(idx);
+    });
+    return out;
+  };
+
+  // ---- 原稿の書き込みのうち、指示とみなすもの ----
+  //   短い書き込みで指示の言い方を含むもの、または図版の場所を示す言葉だけのもの(成果物に見当たらないときだけ指示とみなす)
+  const INSTR = /カエ|替え|後送|共通|のみ|追加|削除|トル|イキ|ママ|変更|差し?替|入れ替|お願い|ください|加工|作成|アタリ|ファイル名|\.(png|jpe?g|psd|ai|pdf|tiff?|eps|gif)\b/i;
+  const PLACE = /^(モデル|写真|画像|イメージ|ロゴ|QR|ＱＲ|図|イラスト|地図|表|グラフ)(写真|画像|コード|後送)?$/;
+  PC.isInstr = s => { const t = s.replace(/\s/g, ''); return PLACE.test(t) || ([...t].length <= 24 && INSTR.test(t)); };
+
+  // ---- 原稿の1ページ(文字データあり・レイアウトが違う)を、成果物のページと照合する ----
+  //   A: 原稿の文字データ、B: 成果物の文字データ、pr: ページの対応(T・範囲)、used: 成果物の字のうち、すでに対応づいたもの(ページの間で共有)
+  //   skip: 照合に使わない成果物のまとまり(成果物の書き込み)
+  //   返り値 blocks: [{ s, e, ops, instr, found }] (s, e は原稿の字の番号、ops は PC.collate の結果。字の番号はまとまりの中での番号)
+  PC.collatePage = (A, B, pr, used, skip) => {
+    const T = pr.Tt || pr.T, R = pr.region, D = 0.5 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+    const Bk = B.chars.map(c => (skip.has(c.it) ? { c: c.c, k: '\uFFFF', box: c.box, it: c.it } : c));   // 書き込みの字は、どの字とも一致しない字に置き換える
+    const ctr = B.items.map(it => PC.center(it.box));
+    const dist = (p, b) => Math.hypot(Math.max(b[0] - p[0], 0, p[0] - b[2]), Math.max(b[1] - p[1], 0, p[1] - b[3]));
+    // まとまりが来るはずの範囲(写した枠を少し広げたもの)から遠いほど、そこから始める手間を大きくする
+    //   (字ごとの位置でなだらかに、最大1.5まで: 隣の字との差が、字を1つ足す・替える手間を超えないように)
+    const nearFor = box => {
+      const bb = PC.mapBox(T, box), M = 0.08 * D, ex = [bb[0] - M, bb[1] - M, bb[2] + M, bb[3] + M], out = new Float32Array(Bk.length);
+      Bk.forEach((c, j) => { out[j] = 1.5 * Math.min(1, dist(PC.center(c.box), ex) / (0.25 * D)); });
+      return out;
+    };
+    // 指示の書き込み(欄外にあることが多く、位置は当てにならない): 対応する範囲の中なら手間なし
+    const nearRegion = (() => { const M = 0.1 * D, ex = [R[0] - M, R[1] - M, R[2] + M, R[3] + M], out = new Float32Array(Bk.length); Bk.forEach((c, j) => { out[j] = dist(ctr[c.it], ex) > 0 ? 6 : 0; }); return out; })();
+    // 欄外の書き込み: 原稿のうち成果物と位置が対応する範囲の外にあり、成果物と長く一致する文字も少ないまとまり
+    //   (段組みを組み替えたデザインでは、本文でも位置の対応から外れるため、長く一致する文字があれば本文とみなす)
+    const src = pr.src, inSrc = c => { const [x, y] = PC.center(c.box); return x >= src[0] && x <= src[2] && y >= src[1] && y <= src[3]; };
+    const cov = new Uint8Array(A.chars.length);
+    for (const x of PC.textAnchors(A.chars, Bk, 6)) cov.fill(1, x.i, x.i + x.n);
+    const blocks = PC.blocksOf(A.chars, A.items).map(([s, e]) => {
+      const cs = A.chars.slice(s, e), text = cs.map(c => c.c).join('');
+      let inside = 0, hit = 0; for (let k = s; k < e; k++) { if (inSrc(A.chars[k])) inside++; if (cov[k]) hit++; }
+      return { s, e, cs, text, margin: inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
+    });
+    const hits = ops => ops.filter(o => o[0] === '=' || o[0] === '~').length;
+    // 対応づいた成果物の字に印を付け、新しく印を付けた字を返す(指示として扱い直すときは、その字の印だけを外す)
+    const mark = ops => { const js = []; for (const o of ops) { const j = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1; if (j >= 0 && !used[j]) { used[j] = 1; js.push(j); } } return js; };
+    const byLen = xs => xs.slice().sort((x, y) => (y.e - y.s) - (x.e - x.s) || x.s - y.s);
+    // 短い区間(同じ字だけ、12字まで)が、同じ文字の並びが成果物に何か所もあるうちの離れた所に当たっていたら、
+    // まだ使われていない同じ並びのうち、前後の区間に近いものへ移す(見出しと本文に同じ語がある場合など)
+    const reanchor = (ops, cs) => {
+      const segs = [[]];
+      ops.forEach((o, k) => { if (o[0] === '|') segs.push([]); else segs[segs.length - 1].push(k); });
+      segs.forEach((ks, s) => {
+        const os = ks.map(k => ops[k]);
+        if (!os.length || os.length > 12 || !os.every(o => o[0] === '=' || o[0] === '~')) return;
+        const nb = [], prev = s > 0 && segs[s - 1].map(k => ops[k]).filter(o => o.length === 3).pop(), next = s + 1 < segs.length && segs[s + 1].map(k => ops[k]).find(o => o.length === 3);
+        if (prev) nb.push(Bk[prev[2]].box); if (next) nb.push(Bk[next[2]].box);
+        if (!nb.length) return;
+        const d = j => Math.min(...nb.map(b => PC.gap(Bk[j].box, b))), j0 = os[0][2], L = os.length;
+        let best = j0, bd = d(j0);
+        for (let j = 0; j + L <= Bk.length; j++) {
+          if (j === j0) continue;
+          let ok = true; for (let t = 0; t < L && ok; t++) ok = Bk[j + t].k === Bk[j0 + t].k && !used[j + t];
+          if (ok) { const dj = d(j); if (dj < 0.7 * bd) { bd = dj; best = j; } }
+        }
+        if (best !== j0) for (const k of ks) { const o = ops[k], j = o[2] + best - j0; ops[k] = [cs[o[1]].c === Bk[j].c ? '=' : '~', o[1], j]; }
+      });
+    };
+    // 1) 本文(欄外でないまとまり): 長いものから、まだ対応づいていない成果物の字に当てる
+    for (const b of byLen(blocks.filter(b => !b.margin))) {
+      b.ops = PC.collate(b.cs, Bk, { jump: 3, near: nearFor(PC.union(b.cs.map(c => c.box))), used });
+      reanchor(b.ops, b.cs);
+      const js = mark(b.ops);
+      // 成果物に見当たらない短い書き込みで、指示の言い方のもの → 指示として扱い直す
+      if (hits(b.ops) < 0.5 * b.cs.length && PC.isInstr(b.text)) { for (const j of js) used[j] = 0; b.instr = true; }
+    }
+    // 2) 指示(欄外の書き込み・指示の言い方の書き込み): 残りの成果物の字から探す(新しく入れる文の指示なら、成果物にあるはず)
+    for (const b of byLen(blocks.filter(b => b.margin || b.instr))) {
+      b.instr = true;
+      b.ops = PC.collate(b.cs, Bk, { jump: 3, near: nearRegion, used });
+      b.found = hits(b.ops) / b.cs.length;
+      if (b.found >= 0.8) mark(b.ops);
+    }
+    return blocks.map(({ s, e, ops, instr, found, text }) => ({ s, e, ops, instr, found, text }));
+  };
+})();

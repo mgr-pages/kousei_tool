@@ -8,6 +8,14 @@ PC.S = PC.DPI / 72;
 // 処理の途中で画面を更新できるよう、ときどき制御を返す
 PC.tick = () => new Promise(r => setTimeout(r, 0));
 
+// 決まった乱数(同じ入力なら同じ結果になるように)
+PC.prng = seed => () => {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
 PC.median = a => {
   if (!a.length) return NaN;
   const s = [...a].sort((x, y) => x - y), m = s.length >> 1;

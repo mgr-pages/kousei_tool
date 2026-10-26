@@ -9,6 +9,8 @@
     D: '全体・以下同様の直し忘れの候補', E: '見た目では分からない文字の違い',
     F: '指示箇所に結びつかない赤字（人が読む）', F2: '引き出し線・注記（指示箇所に付随）', G: '全体指示として読み取った注記',
     M: 'ママ・イキ（変更しない指示）どおり変更なし', H: '赤以外の書き込み（鉛筆・黒など）',
+    T: '原稿と違う文字', V: '書き方だけの違い（全角・半角など）', N: '原稿にない文字', I: '原稿が画像の部分（文字では比べられない）',
+    K: '原稿の指示（書き込み・コメント）', W: '成果物の書き込み（アタリ・確認事項）',
   };
   const KEEP = /ママ|イキ/;
 
@@ -118,8 +120,11 @@
 
   // 表示用の画像(赤字原稿を薄く／修正後を薄く)をJPEGにして手放す
   const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
+  //   大きなページ(A3・見開きなど)は長い辺を2400画素までに縮める(w, h は元の大きさ。表示のときに縮めた分を戻す)
   async function toThumb(img) {
-    const c = PC.toCanvas(blend(img));
+    let c = PC.toCanvas(blend(img));
+    const k = Math.min(1, 2400 / Math.max(img.w, img.h));
+    if (k < 1) { const d = document.createElement('canvas'); d.width = Math.round(img.w * k); d.height = Math.round(img.h * k); d.getContext('2d').drawImage(c, 0, 0, d.width, d.height); c = d; }
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
     return { url: URL.createObjectURL(blob), w: img.w, h: img.h };
   }
@@ -173,6 +178,8 @@
     for (const i of r.px) { const x = i % w, y = Math.floor(i / w); if (Math.abs(x - fx) > 260 || Math.abs(y - fy) > 260) continue; b = b ? [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x + 1), Math.max(b[3], y + 1)] : [x, y, x + 1, y + 1]; }
     return b;
   }
+  // [1,2,3,5] → 「1〜3・5」
+  const spans = ns => { const out = []; for (let k = 0; k < ns.length; k++) { let e = k; while (e + 1 < ns.length && ns[e + 1] === ns[e] + 1) e++; out.push(e > k ? `${ns[k]}〜${ns[e]}` : `${ns[k]}`); k = e; } return out.join('・'); };
   const imageShow = c => { c.show = { changed: '画像・図版の変化', moved: '画像・図版の移動', removed: '画像・図版の削除' }[c.kind]; };
 
   // 注釈を入れたPDFのページ: 注釈を消した描画が修正前、注釈ありとの描画の差が赤字
@@ -341,24 +348,192 @@
   }
   const coreOf = (frm, to) => { const c = splitCore(frm, to); return [c.b, c.a]; };
 
+  // ---- レイアウトが違うページ(内容で照合する): 原稿の文字データを、成果物の文字データと並べ替えに強いやり方で対応づける ----
+  async function contentPage(src, p, pr, nq, step) {
+    const { doc, i } = src.page(p);
+    step('文字データを読み取り', 0.1); await PC.tick();
+    const A = await PC.pageText(doc, i), annots = await PC.annotations(doc, i, 72), imgs = await PC.imageBoxes(doc, i);
+    step('文字を照合', 0.3); await PC.tick();
+    // 成果物の文字データがほとんどない(文字がアウトライン化・画像化されている)ページは、文字では比べない(すべて「ない」と出てしまうため)
+    const noText = nq.B.chars.length < Math.max(10, 0.2 * A.chars.length);
+    const blocks = noText ? [] : PC.collatePage(A, nq.B, pr, nq.used, nq.notes);
+    step('表示用の画像を作成', 0.8); await PC.tick();
+    const left = await PC.renderPage(doc, i, PC.DPI, true), k = PC.S;
+    return {
+      kind: 'content', q: pr.q, pr, A, annots, imgs, blocks, nq, extra: [], noText,
+      ch: [], im: [], an: [], notes: annots.map(n => ({ ...n, box: n.box.map(v => v * k) })), restBoxes: [], ot: [], nt: [], pairs: [], nc: [],
+      oc: A.chars.map(c => [c.c, c.box.map(v => v * k)]), w: left.w,
+      thumbs: { left: await toThumb(left), right: nq.thumb },
+    };
+  }
+  // 対応する成果物のページがない原稿のページ(または、レイアウトが違う紙の原稿): 原稿の画像だけ
+  async function nonePage(src, p) {
+    const it = src.page(p), img = it.doc ? await PC.renderPage(it.doc, it.i, PC.DPI, true) : (await src.image(p)).img;
+    return { kind: 'none', q: -1, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], w: img.w, thumbs: { left: await toThumb(img), right: null } };
+  }
+  // 内容で照合したページの残り: 成果物の字のうち、どの原稿にも対応しなかったもの(原稿にない文字・原稿が画像の部分)と、成果物の書き込み
+  //   成果物の字は、その位置を範囲に含む原稿のページ(なければいちばん近い範囲)に割り当てる
+  function leftovers(P, NQ) {
+    const k = PC.S;
+    const dist = (pt, b) => Math.hypot(Math.max(b[0] - pt[0], 0, pt[0] - b[2]), Math.max(b[1] - pt[1], 0, pt[1] - b[3]));
+    for (const [q, nq] of NQ) {
+      const ds = P.filter(d => d.kind === 'content' && d.q === q);
+      if (!ds.length) continue;
+      const { B, used, notes } = nq;
+      const owner = pt => {   // 範囲の中なら範囲の中心がいちばん近いもの、どの範囲にも入らなければ範囲がいちばん近いもの
+        let best = null, bd = Infinity;
+        for (const d of ds) { const R = d.pr.region, out = dist(pt, R), c = PC.center(R), key = out > 0 ? 1e6 + out : Math.hypot(pt[0] - c[0], pt[1] - c[1]); if (key < bd) { bd = key; best = d; } }
+        return best;
+      };
+      // 字のまとまり(item)ごとに、使われなかった字をまとめる。近いまとまりどうしはつなげる
+      const groups = [];
+      B.items.forEach((it, idx) => {
+        const js = []; B.chars.forEach((c, j) => { if (c.it === idx && !used[j]) js.push(j); });
+        const isNote = notes.has(idx);
+        if (!js.length || (!isNote && !js.some(j => /[\p{L}\p{N}]/u.test(B.chars[j].c)))) return;
+        const box = PC.union(js.map(j => B.chars[j].box)), g = groups[groups.length - 1];
+        const close = g && g.note === isNote && PC.gap(box, g.box) < 1.2 * Math.max(it.size, g.size);
+        if (close) { g.js.push(...js); g.box = PC.union([g.box, box]); g.size = Math.max(g.size, it.size); }
+        else groups.push({ js, box, note: isNote, size: it.size });
+      });
+      for (const d of ds) d.nc = [];
+      B.chars.forEach(c => owner(PC.center(B.items[c.it].box)).nc.push([c.c, c.box.map(v => v * k)]));
+      const far = 0.08 * Math.hypot(B.w, B.h);   // どの原稿の範囲からもこれより離れた所は「原稿が見つからない部分」
+      for (const g of groups) {
+        const d = owner(PC.center(g.box)), text = g.js.map(j => B.chars[j].c).join(''), T = d.pr.Tv || d.pr.T, Ti = PC.invT(T);
+        const back = PC.mapBox(Ti, g.box), R = d.pr.region, M = 0.04 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+        if (g.note) { d.extra.push({ cat: 'W', nbox: g.box, box: back, show: text }); continue; }
+        if (dist(PC.center(g.box), R) > far) {   // 原稿のない部分は1件にまとめる(成果物のその部分の原稿を渡していないとき)
+          const prev = d.extra.find(e => e.cat === 'I' && e.noSrc);
+          if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.nbox = PC.union([prev.nbox, g.box]); prev.box = PC.mapBox(Ti, prev.nbox); }
+          else d.extra.push({ cat: 'I', noSrc: true, nbox: g.box, nboxes: [g.box], box: back, texts: [text] });
+          continue;
+        }
+        const img = d.imgs.findIndex(b => { const c = PC.center(back); return c[0] >= b[0] - M && c[0] <= b[2] + M && c[1] >= b[1] - M && c[1] <= b[3] + M; });
+        const prev = img >= 0 && d.extra.find(e => e.cat === 'I' && !e.noSrc && e.img === img);
+        if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.nbox = PC.union([prev.nbox, g.box]); continue; }
+        if (img >= 0) d.extra.push({ cat: 'I', img, nbox: g.box, nboxes: [g.box], box: d.imgs[img], texts: [text] });
+        else d.extra.push({ cat: 'N', nbox: g.box, box: back, show: text });
+      }
+    }
+  }
+
+  // ---- 内容で照合したページの項目 ----
+  // 違いのまとまり(hunk)の表示: 前後の文脈つきの並び(segs)と、原稿・成果物での位置
+  function hunkView(ops, h, cs, B) {
+    const segs = [], ab = [], bb = [];
+    const push = (t, c) => { const g = segs[segs.length - 1]; if (g && g[0] === t) g[1] += c; else segs.push([t, c]); };
+    const ctxA = (from, dir) => { let s = ''; for (let q = from, n = 0; q >= 0 && q < ops.length && n < 6; q += dir, n++) { const o = ops[q]; if (o[0] !== '=' && o[0] !== '~') break; s = dir < 0 ? cs[o[1]].c + s : s + cs[o[1]].c; } return s; };
+    const pre = ctxA(h.s - 1, -1), post = ctxA(h.e, 1);
+    if (pre) push('=', pre);
+    for (let q = h.s; q < h.e; q++) {
+      const o = ops[q];
+      if (o[0] === '=') push('=', cs[o[1]].c);
+      else if (o[0] === '-') { push('-', cs[o[1]].c); ab.push(cs[o[1]].box); }
+      else if (o[0] === '+') { push('+', B[o[1]].c); bb.push(B[o[1]].box); }
+      else { push('-', cs[o[1]].c); push('+', B[o[2]].c); ab.push(cs[o[1]].box); bb.push(B[o[2]].box); }
+    }
+    if (post) push('=', post);
+    // 挿入・削除だけのときは、隣の字の境目に細い枠
+    const near = (side, dir) => { for (let q = dir < 0 ? h.s - 1 : h.e; q >= 0 && q < ops.length; q += dir) { const o = ops[q]; if (o[0] === '|') return null; const b = side === 'A' ? (o[0] === '+' ? null : cs[o[1]].box) : (o[0] === '-' ? null : B[o[0] === '+' ? o[1] : o[2]].box); if (b) return b; } return null; };
+    const caretOf = side => { const p = near(side, -1), n = near(side, 1); if (p) return [p[2] - 1, p[1], p[2] + 1, p[3]]; if (n) return [n[0] - 1, n[1], n[0] + 1, n[3]]; return null; };
+    return { segs, box: ab.length ? union(ab) : caretOf('A'), nbox: bb.length ? union(bb) : caretOf('B') };
+  }
+  const instrCheck = t => /後送/.test(t) ? '後送（素材はあとから届く）' : /\.(png|jpe?g|psd|ai|pdf|tiff?|eps|gif)\b|ファイル名/i.test(t) ? '使う画像・素材の指定' : '指示どおりか確認';
+  function contentFindings(d, p, add) {
+    const k = PC.S, px = b => b && b.map(v => v * k), A = d.A.chars, B = d.nq.B.chars, T = d.pr.T;
+    const toNew = b => { const m = PC.mapBox(T, b), R = d.pr.region; return [Math.max(R[0], Math.min(m[0], R[2] - 20)), Math.max(R[1], Math.min(m[1], R[3] - 20)), Math.min(R[2], Math.max(m[2], R[0] + 20)), Math.min(R[3], Math.max(m[3], R[1] + 20))]; };
+    for (const b of d.blocks) {
+      const cs = A.slice(b.s, b.e), box = PC.union(cs.map(c => c.box));
+      if (b.instr) {
+        const hit = b.ops.filter(o => o.length === 3).map(o => B[o[2]]), found = b.found >= 0.8 && hit.length;
+        const f = add(p + 1, 'K', px(box), b.text, '原稿の書き込み', b.text, found ? '指示の文字が成果物にある（自動確認OK）' : instrCheck(b.text), px(found ? PC.union(hit.map(c => c.box)) : toNew(box)));
+        if (!found) f.approx = true;
+        continue;
+      }
+      const vs = [];
+      for (const h of PC.hunksOf(b.ops)) {
+        const r = hunkView(b.ops, h, cs, B);
+        if (h.variant) { vs.push(r); continue; }
+        const f = add(p + 1, 'T', px(r.box || box), '', '', '', '', px(r.nbox || toNew(r.box || box)));
+        Object.assign(f, { segs: r.segs, same: false, pboxes: r.box ? [px(r.box)] : [], pnboxes: r.nbox ? [px(r.nbox)] : [] });
+        if (!r.nbox) f.approx = true;
+      }
+      if (vs.length) {   // 書き方だけの違いは、まとまりごとに1件
+        const segs = []; vs.forEach((r, i) => { if (i) segs.push(['=', '…']); segs.push(...r.segs); });
+        const f = add(p + 1, 'V', px(union(vs.map(r => r.box))), '', '', '', '', px(union(vs.map(r => r.nbox))));
+        Object.assign(f, { segs, same: false, pboxes: vs.map(r => px(r.box)), pnboxes: vs.map(r => px(r.nbox)) });
+      }
+    }
+    for (const n of d.annots) {   // コメント(注釈): 書かれた指示を、成果物の対応する位置と並べて示す
+      if (!n.text.trim()) continue;
+      const f = add(p + 1, 'K', px(n.box), n.text, 'コメント', n.text, instrCheck(n.text), px(toNew(n.box)));
+      f.approx = true;
+    }
+    for (const e of d.extra) {
+      if (e.cat === 'I') {
+        const f = add(p + 1, 'I', px(e.box), e.texts.join(' ／ '), '', '', '', px(e.nbox));
+        Object.assign(f, { pnboxes: e.nboxes.map(px), texts: e.texts });
+        if (e.noSrc) Object.assign(f, { noSrc: true, onNew: true });
+        continue;
+      }
+      const f = add(p + 1, e.cat, px(e.box), e.show, '', '', '', px(e.nbox));
+      f.onNew = true;
+      if (e.cat === 'N') Object.assign(f, { segs: [['+', e.show]], same: false, pnboxes: [px(e.nbox)] });
+    }
+  }
+
   // opts: { marks: PC.markSource(...), newDoc, progress(msg, frac) }
   PC.analyze = async opts => {
     const { marks: src, newDoc } = opts, prog = opts.progress || (() => {});
     const cb = new PC.Codebook(), P = [], npages = src.numPages, warn = [];
-    let blank = null;
+    // 1) 原稿の各ページが、成果物のどのページのどの範囲に当たるか
+    const W0 = 0.15;
+    const pairs = await PC.pairPages(src, newDoc, (s, f) => prog(s, W0 * f));
+    // 成果物のページの描画・文字データ・書き込みは、内容で照合するページのために1回だけ作る
+    const NQ = new Map();
+    const newPage = async q => {
+      if (NQ.has(q)) return NQ.get(q);
+      const img = await PC.renderPage(newDoc, q, PC.DPI, false), B = await PC.pageText(newDoc, q);
+      const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
+      NQ.set(q, v);
+      return v;
+    };
+    // 2) ページごとに照合: 同じレイアウトなら字形を重ねて比べ、レイアウトが違えば文字データの内容で比べる
     for (let p = 0; p < npages; p++) {
-      const step = (s, f) => prog(`${p + 1} / ${npages} ページ：${s}`, (p + f) / npages);
+      const step = (s, f) => prog(`${p + 1} / ${npages} ページ：${s}`, W0 + (1 - W0) * 0.97 * (p + f) / npages);
       step('描画', 0.01); await PC.tick();
+      const pr = pairs[p], it = src.page(p);
+      if (pr.q < 0) { P.push(await nonePage(src, p)); continue; }
+      if (!pr.same && !it.doc) {
+        warn.push(`${p + 1}ページ目は、成果物とレイアウトが違う紙の原稿のため、自動では比べられませんでした`);
+        P.push(await nonePage(src, p)); continue;
+      }
+      if (!pr.same) {
+        const d = await contentPage(src, p, pr, await newPage(pr.q), step);
+        if (d.noText) warn.push(`${p + 1}ページ目に当たる成果物のページには文字データがほとんどないため（文字のアウトライン化など）、文字では比べられませんでした`);
+        P.push(d); continue;
+      }
       const kind = await src.kind(p);
-      let nw, nc = [];
-      if (p < newDoc.numPages) { nw = await PC.renderPage(newDoc, p, PC.DPI, false); nc = await PC.textChars(newDoc, p); blank = blank || nw; }
-      else { const r = blank || await PC.renderPage(newDoc, newDoc.numPages - 1, PC.DPI, false); nw = { w: r.w, h: r.h, d: new Uint8ClampedArray(r.d.length).fill(255) }; }
+      let nw = await PC.renderPage(newDoc, pr.q, PC.DPI, false), nc = await PC.textChars(newDoc, pr.q);
+      if (pr.crop) {   // 原稿のページが成果物のページの一部(見開きの片側など)に当たる: その部分だけを切り出して比べる
+        const [x0, y0, x1, y1] = pr.crop.map(v => Math.round(v * PC.S));
+        nw = PC.crop(nw, x0, y0, x1, y1);
+        nc = nc.filter(([, b]) => (b[0] + b[2]) / 2 >= x0 && (b[0] + b[2]) / 2 < x1 && (b[1] + b[3]) / 2 >= y0 && (b[1] + b[3]) / 2 < y1).map(([c, b]) => [c, [b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0]]);
+      }
       const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step) : await scanPage(src, p, nw, nc, step);
-      if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、赤字原稿と修正後の位置がうまく合いません（ページの順番・向きを確かめてください）`);
+      if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、原稿と成果物の位置がうまく合いません（ページの向きを確かめてください）`);
       step('表示用の画像を作成', 0.96); await PC.tick();
+      d.q = pr.q; d.crop = pr.crop; d.extra = [];
       d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right) }; d.left = d.right = null;
       P.push(d);
     }
+    leftovers(P, NQ);
+    const none = P.map((d, p) => (d.kind === 'none' ? p + 1 : 0)).filter(Boolean);
+    if (none.length) warn.push(`原稿の${spans(none)}ページ目は、対応する成果物のページが見つかりませんでした（照合していません）`);
+    const usedQ = new Set(P.map(d => d.q).filter(q => q >= 0)), lost = [];
+    for (let q = 0; q < newDoc.numPages; q++) if (!usedQ.has(q)) lost.push(q + 1);
+    if (lost.length) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
 
     if (window.__pcDebug) PC._last = P;   // 自動テストでの調査用
     prog('照合', 0.97); await PC.tick();
@@ -472,11 +647,14 @@
       const ob = []; d.nt.forEach((t, k) => { if (ov(t.box, box) && rpm(d).has(k)) ob.push(d.ot[rpm(d).get(k)].box); });
       return ob.length ? union(ob) : null;
     };
+    // 原稿での位置が分からない項目の、切り抜きの中心(内容で照合したページは、対応の変換を逆にたどったおよその位置)
+    const approx = (d, nb) => d.kind === 'content' ? PC.mapBox(PC.invT(d.pr.T), nb.map(v => v / PC.S)).map(v => v * PC.S) : nb;
     const tokBox = (d, k) => pm(d).has(k) ? d.nt[pm(d).get(k)].box : null;
     // 結果の一覧
     const F = [];
-    const add = (page, cat, box, show = '', how = '', note = '', check = '', nbox = null) => F.push({ id: F.length, page, cat, label: PC.CAT[cat], box: box.map(Math.trunc), nbox: nbox ? nbox.map(Math.trunc) : null, show, how, note, check });
+    const add = (page, cat, box, show = '', how = '', note = '', check = '', nbox = null) => { const f = { id: F.length, page, cat, label: PC.CAT[cat], box: box.map(Math.trunc), nbox: nbox ? nbox.map(Math.trunc) : null, show, how, note, check }; F.push(f); return f; };
     P.forEach((d, p) => {
+      if (d.kind === 'content') contentFindings(d, p, add);
       for (const c of [...d.ch, ...d.im]) {
         const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
         let chk = '';
@@ -539,7 +717,7 @@
     });
     for (const e of leaks) {
       const d = P[e.page - 1], ob = backBox(d, e.nbox);
-      add(e.page, 'D', ob || e.nbox, `${e.frm}→${e.to}`, e.how, '', e.check, e.nbox);
+      add(e.page, 'D', ob || approx(d, e.nbox), `${e.frm}→${e.to}`, e.how, '', e.check, e.nbox);
       Object.assign(F[F.length - 1], { frm: e.frm, to: e.to, onNew: !ob });
     }
     for (const l of lookalike) { const [x, y] = l.show.split('→'); add(l.page, 'E', l.box, l.show, '', '', '', l.nbox); F[F.length - 1].segs = [['-', x], ['+', y]]; }
@@ -548,13 +726,14 @@
       for (const l of lookalikeChars(d.nc)) {
         if (F.some(f => f.page === p + 1 && f.nbox && ov(f.nbox, l.box, 2) && (f.cat === 'E' || f.cat === 'C2' || f.cat === 'A'))) continue;
         const ob = backBox(d, l.box);
-        add(p + 1, 'E', ob || l.box, `${l.c}→${l.want}`, '', '', '', l.box);
+        add(p + 1, 'E', ob || approx(d, l.box), `${l.c}→${l.want}`, '', '', '', l.box);
         Object.assign(F[F.length - 1], { lint: { c: l.c, want: l.want, ctx: l.ctx }, onNew: !ob });
       }
     });
     prog('完了', 1);
     // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
     const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
-    return { findings: F, pages: P.map(d => d.thumbs), rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
+    const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null }));
+    return { findings: F, pages, rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
   };
 })();
