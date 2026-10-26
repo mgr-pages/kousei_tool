@@ -1,14 +1,14 @@
-// 照合の本体: 初校 × 朱書き(紙スキャン/デジタル注釈) × 修正後 → 要確認箇所の一覧
+// 照合の本体: 赤字原稿(紙のスキャン/注釈を入れたPDF) × 修正後PDF → 要確認箇所の一覧
 'use strict';
 (function () {
   const { ov, union } = PC;
   PC.CAT = {
     A: '赤字あり・変更あり（内容を人が確認）', A_IMG: '赤字あり・画像の変更あり（人が確認）',
     B: '赤字あり・変更なし（修正漏れの疑い）', B2: '続きの赤字（軽）',
-    C1: '全体指示・以下同様で説明できる変更', C2: '指示外の変更（文字・組み）', C3: '指示外の変更（画像・図版・色・位置）',
-    D: '全体指示・以下同様の展開', E: '見た目では差が出ない文字データの変更',
+    C1: '全体・以下同様で説明できる変更', C2: '指示外の変更（文字・組み）', C3: '指示外の変更（画像・図版・色・位置）',
+    D: '全体・以下同様の直し忘れの候補', E: '見た目では分からない文字の違い',
     F: '指示箇所に結びつかない赤字（人が読む）', F2: '引き出し線・注記（指示箇所に付随）', G: '全体指示として読み取った注記',
-    M: 'ママ・イキ（変更しない指示）どおり変更なし',
+    M: 'ママ・イキ（変更しない指示）どおり変更なし', H: '赤以外の書き込み（鉛筆・黒など）',
   };
   const KEEP = /ママ|イキ/;
 
@@ -54,7 +54,7 @@
     const b = q[1]; return vert ? [b[0], b[1] - 2, b[2], b[1] + 2] : [b[0] - 2, b[1], b[0] + 2, b[3]];
   }
   // ピンポイントの違い: 変わった範囲の文字データを比べ、違う字だけを取り出す(表示用の並びと、違う字の位置)
-  //   segs: [['=', 同じ字], ['-', 初校だけの字], ['+', 修正後だけの字], ...]。前後の字(ctx)も添える
+  //   segs: [['=', 同じ字], ['-', 修正前だけの字], ['+', 修正後だけの字], ...]。前後の字(ctx)も添える
   function pinDiff(A, B, pre, post) {
     const ops = PC.opcodes(A.map(c => c[0]), B.map(c => c[0])), segs = [], ob = [], nb = [];
     const str = (X, i, j) => X.slice(i, j).map(c => c[0]).join('');
@@ -72,13 +72,20 @@
 
   // 文字の並び(コードポイント単位)の中から、文字列sの出現位置をすべて探す
   function findAll(cs, s) {
+    if (s instanceof RegExp) {   // 型で探す(1字=1要素の並びを文字列にして、一致した範囲を要素の番号に戻す)
+      const str = cs.map(c => c[0]).join(''), pos = [], out = []; let k = 0;
+      cs.forEach(c => { pos.push(k); k += c[0].length; }); pos.push(k);
+      const at = new Map(pos.map((v, i) => [v, i]));
+      for (const m of str.matchAll(new RegExp(s.source, 'gu'))) { const a = at.get(m.index), b = at.get(m.index + m[0].length); if (a !== undefined && b !== undefined && b > a) out.push([a, b]); }
+      return out;
+    }
     const target = [...s], n = target.length, out = [];
     if (!n) return out;
     for (let i = 0; i + n <= cs.length; i++) { let ok = true; for (let k = 0; k < n && ok; k++) ok = cs[i + k][0] === target[k]; if (ok) out.push([i, i + n]); }
     return out;
   }
 
-  // 初校と修正後で字形の並びがまったく同じブロック(位置が近いもの同士を組にする)
+  // 修正前と修正後で字形の並びがまったく同じブロック(位置が近いもの同士を組にする)
   function sameBlocks(ot, ol, nt, nl, oids, nids) {
     const perBlock = (T, L, ids) => {
       const d = new Map();
@@ -108,107 +115,249 @@
     return out;
   }
 
-  // 表示用の画像(初校＋赤字を薄く／修正後を薄く)をJPEGにして手放す
+
+  // 表示用の画像(赤字原稿を薄く／修正後を薄く)をJPEGにして手放す
+  const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
   async function toThumb(img) {
-    const c = PC.toCanvas(img);
+    const c = PC.toCanvas(blend(img));
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
     return { url: URL.createObjectURL(blob), w: img.w, h: img.h };
   }
 
-  // opts: { oldDoc, newDoc, mode: 'scan'|'digital'|'none', scans(PC.scanSource), annDoc, rules, progress(msg, frac) }
+  // 差分に、文字(修正前→修正後)とピンポイントの違いを付ける(注釈PDF・スキャン共通)
+  function describe(ch, ot, ol, nt, nl, oc, nc) {
+    const tt = (cs, T, a, b) => { let s = ''; for (let k = Math.max(0, a); k < Math.min(T.length, b); k++) s += tokText(cs, T[k].box); return s; };
+    for (const c of ch) {
+      if (!c.obox) { const k = Math.max(0, c.oi[0] - 1), b = ot[k].box; c.obox = ol[ot[k].line].vert ? [b[0], b[3] - 3, b[2], b[3] + 3] : [b[2] - 3, b[1], b[2] + 3, b[3]]; }
+      if (!c.nbox && (c.pj !== null || c.nj[0] < nt.length)) {
+        if (c.pj !== null) { const b = nt[c.pj].box; c.nbox = nl[nt[c.pj].line].vert ? [b[0], b[3] - 3, b[2], b[3] + 3] : [b[2] - 3, b[1], b[2] + 3, b[3]]; }
+        else { const b = nt[c.nj[0]].box; c.nbox = nl[nt[c.nj[0]].line].vert ? [b[0], b[1] - 3, b[2], b[1] + 3] : [b[0] - 3, b[1], b[0] + 3, b[3]]; }
+      }
+      c.kind = 'text';
+      c.before = tt(oc, ot, c.oi[0], c.oi[1]); c.after = tt(nc, nt, c.nj[0], c.nj[1]);
+      c.show = `${tt(oc, ot, c.oi[0] - 1, c.oi[1] + 1)}→${tt(nc, nt, c.nj[0] - 1, c.nj[1] + 1)}`;
+      c.nline = nl.filter(l => l.toks.length && c.nbox && ov(l.box, c.nbox)).map(l => tt(nc, nt, l.toks[0], l.toks[l.toks.length - 1] + 1)).join('');
+      const A = tokChars(oc, ot, c.oi[0], c.oi[1]), B = tokChars(nc, nt, c.nj[0], c.nj[1]);
+      if (A.length || B.length) c.diff = pinDiff(A, B, tokChars(oc, ot, c.oi[0] - 6, c.oi[0]), tokChars(oc, ot, c.oi[1], c.oi[1] + 6));   // 文字データがなければ作らない
+    }
+  }
+  // 指示に使われなかった赤字のまとまり(注記・印鑑など)
+  //   書き込みの字の間(全角の空き)でまとまりが分かれないよう、横に広めに膨らませてまとめる。
+  //   丸の中に字がある印鑑(閉じた輪で、中に印刷の字がない)は stamp とする
+  function restBoxesOf(rm, used, w, h) {
+    const rest = new Uint8Array(rm.length); for (let k = 0; k < rm.length; k++) rest[k] = rm[k] && !used[k] ? 1 : 0;
+    const rc = PC.cc(PC.morph(rest, w, h, 'dilate', 45, 25), w, h), comps = new Map();
+    for (let i = 0; i < rest.length; i++) if (rest[i]) { const l = rc.lab[i]; let c = comps.get(l); if (!c) comps.set(l, c = []); c.push(i); }
+    const out = [];
+    for (const [j, px] of comps) {
+      if (px.length < 60) continue;
+      const s = rc.st[j], b = [s.x0, s.y0, s.x1 + 1, s.y1 + 1];
+      const bw = b[2] - b[0], bh = b[3] - b[1];
+      let stamp = false;
+      if (bw >= 60 && bh >= 60 && bw < 3.5 * PC.DPI / 2.54 && bh < 3.5 * PC.DPI / 2.54 && bw / bh > 0.7 && bw / bh < 1.4) {   // 3.5cm角までの丸いもの
+        const m = new Uint8Array(bw * bh); for (const i of px) m[(Math.floor(i / w) - b[1]) * bw + (i % w) - b[0]] = 255;
+        const cm = PC.toMat(PC.morph(m, bw, bh, 'close', 5, 5), bw, bh), cn = new cv.MatVector(), hi = new cv.Mat();
+        cv.findContours(cm, cn, hi, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
+        for (let k = 0; k < cn.size(); k++) { const c = cn.get(k); if (hi.intPtr(0, k)[3] >= 0 && cv.contourArea(c) >= 0.25 * bw * bh) stamp = true; c.delete(); }
+        cm.delete(); cn.delete(); hi.delete();
+      }
+      out.push({ box: b, px, stamp });
+    }
+    return out;
+  }
+  // 指示箇所(赤字)につながる書き込みのうち、指示箇所からいちばん遠い所(引き出し線の先)のまわり = 何に直すかの書き込み
+  function noteBoxOf(r, abox, w) {
+    const cx = (abox[0] + abox[2]) / 2, cy = (abox[1] + abox[3]) / 2; let fx = 0, fy = 0, fd = -1;
+    for (const i of r.px) { const x = i % w, y = Math.floor(i / w), d = (x - cx) ** 2 + (y - cy) ** 2; if (d > fd) { fd = d; fx = x; fy = y; } }
+    let b = null;
+    for (const i of r.px) { const x = i % w, y = Math.floor(i / w); if (Math.abs(x - fx) > 260 || Math.abs(y - fy) > 260) continue; b = b ? [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x + 1), Math.max(b[3], y + 1)] : [x, y, x + 1, y + 1]; }
+    return b;
+  }
+  const imageShow = c => { c.show = { changed: '画像・図版の変化', moved: '画像・図版の移動', removed: '画像・図版の削除' }[c.kind]; };
+
+  // 注釈を入れたPDFのページ: 注釈を消した描画が修正前、注釈ありとの描画の差が赤字
+  async function annotPage(src, p, nw, nc, cb, step) {
+    const { doc, i } = src.page(p);
+    const old = await PC.renderPage(doc, i, PC.DPI, false), oc = await PC.textChars(doc, i);
+    step('文字のまとまりを解析', 0.1); await PC.tick();
+    const oink = PC.textInk(old), nink = PC.textInk(nw);
+    const ob = PC.blocks(old, oink), nb = PC.blocks(nw, nink);
+    const { toks: ot, lines: ol } = PC.tokens(old, oink, ob), { toks: nt, lines: nl } = PC.tokens(nw, nink, nb);
+    step('字形を照合', 0.25); await PC.tick();
+    const oids = [], nids = [];
+    for (let k = 0; k < ot.length; k++) { oids.push(cb.id(old, ot[k], ol[ot[k].line])); if (k % 80 === 79) await PC.tick(); }
+    for (let k = 0; k < nt.length; k++) { nids.push(cb.id(nw, nt[k], nl[nt[k].line])); if (k % 80 === 79) await PC.tick(); }
+    step('変更箇所を検出', 0.55); await PC.tick();
+    const sk = sameBlocks(ot, ol, nt, nl, oids, nids), lookPairs = [], ch = PC.textChanges(cb, ot, nt, oids, nids, old, nw, ol, nl, sk, lookPairs);
+    const oi_ = [], ni_ = []; for (let k = 0; k < oids.length; k++) if (!sk[0].has(k)) oi_.push(k); for (let k = 0; k < nids.length; k++) if (!sk[1].has(k)) ni_.push(k);
+    const pairs = PC.pairs(oi_.map(k => oids[k]), ni_.map(k => nids[k])).map(([a, b]) => [oi_[a], ni_[b]]);
+    if (sk[0].size === sk[1].size) { const a = [...sk[0]].sort((x, y) => x - y), b = [...sk[1]].sort((x, y) => x - y); a.forEach((k, i) => pairs.push([k, b[i]])); }
+    const merged = [];   // 同じ行で1字以内に隣接する差分は1件にまとめる
+    for (const c of ch) {
+      const q = merged[merged.length - 1];
+      if (q && c.oi[0] - q.oi[1] <= 1 && c.nj[0] - q.nj[1] <= 1 && q.oi[1] > 0 && c.oi[0] < ot.length && ot[c.oi[0]].line === ot[q.oi[1] - 1].line) {
+        q.oi = [q.oi[0], c.oi[1]]; q.nj = [q.nj[0], c.nj[1]]; q.tag = 'replace';
+        q.obox = union([q.obox, c.obox].filter(Boolean)); q.nbox = union([q.nbox, c.nbox].filter(Boolean));
+      } else merged.push(c);
+    }
+    describe(merged, ot, ol, nt, nl, oc, nc);
+    merged.push(...layoutChanges(ot, ol, nt, nl, pairs));
+    const im = PC.imageChanges(old, nw, ob, nb); im.forEach(imageShow);
+    step('赤字を読み取り', 0.7); await PC.tick();
+    const notes = await PC.annotations(doc, i), withA = await PC.renderPage(doc, i, PC.DPI, true);
+    const { rm, shown } = PC.fromAnnots(withA, old, notes);
+    const { an, used } = PC.anchors(rm, old.w, old.h, ol.filter(l => l.toks.length), ot, ob.filter(b => b.kind === 'image'));
+    for (const n of notes) {   // 挿入の注釈は位置情報から直接読む
+      if (n.type !== 'Caret') continue;
+      const [x0, y0, x1] = n.box;
+      for (const l of ol) {
+        const lb = l.box, h = lb[3] - lb[1];
+        if (!l.vert && lb[1] - 0.3 * h <= y0 && y0 <= lb[3] + 0.6 * h && lb[0] <= x0 && x0 <= lb[2]) {
+          const ks = l.toks.filter(k => (x0 - h / 2 <= ot[k].box[2] && ot[k].box[2] <= x1 + h / 2) || (x0 - h / 2 <= ot[k].box[0] && ot[k].box[0] <= x1 + h / 2));
+          if (ks.length) { an.push({ kind: 'insert', at: Math.min(...ks) + 1, span: [Math.min(...ks), Math.max(...ks) + 1], how: '挿入(注釈)', box: n.box.map(Math.trunc), stroke: -1, note: n.text }); break; }
+        }
+      }
+    }
+    // 取り消し線・下線・マーカーの注釈: 引いた範囲に重なる字形を指示箇所にする
+    const MK = { StrikeOut: '取消線(注釈)', Underline: '下線(注釈)', Squiggly: '波線(注釈)', Highlight: 'マーカー(注釈)' };
+    for (const n of notes) {
+      if (!PC.MARKUP.has(n.type) || !n.quads.length) continue;
+      const area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]), inter = (p_, q) => area([Math.max(p_[0], q[0]), Math.max(p_[1], q[1]), Math.min(p_[2], q[2]), Math.min(p_[3], q[3])]);
+      const toks = new Set(); ot.forEach((t, k) => { if (n.quads.some(q => inter(t.box, q) >= 0.4 * area(t.box))) toks.add(k); });
+      const box = union(n.quads).map(Math.trunc);
+      if (toks.size) an.push({ kind: 'tokens', toks, how: MK[n.type], box, stroke: -1, note: n.text });
+      else if (ob.some(b => b.kind === 'image' && ov(b.box, box))) an.push({ kind: 'image', how: MK[n.type], box, stroke: -1, note: n.text });
+    }
+    for (const a of an) if (a.note === undefined) a.note = (notes.find(n => n.type !== 'Caret' && ov(n.box, a.box, 8)) || {}).text || (notes.find(n => n.type === 'Caret' && ov(n.box, a.box, 2)) || {}).text || '';
+    return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, w: old.w };
+  }
+
+  // スキャンの字形の文字(推定): 見た目で対応づいた修正後の字の文字。対応しない字形は、見た目がいちばん近い修正後の字の文字
+  // (十分近いときだけ)、なければ「□」
+  function synthChars(sp, nc) {
+    const pm = new Map(sp.pairs()), out = [];
+    sp.ot.forEach((t, i) => {
+      let j = pm.get(i);
+      const paired = j !== undefined;
+      if (!paired) { const [k, d] = sp.obest[i]; j = k >= 0 && d < sp.tolS && sp.of[i].mf < 0.6 ? sp.protos[k].j : -1; }   // 似た別の字を当てないよう厳しめ
+      const cs = j >= 0 ? tokChars(nc, sp.nt, j, j + 1) : [];
+      if (cs.length) cs.forEach(([c]) => out.push([c, t.box]));
+      else if (!paired) out.push(['□', t.box]);
+    });
+    return out;
+  }
+  // 紙の赤字原稿(スキャン)のページ: スキャンを修正後に重ねて字形を比べる。修正前の文字は、修正後の文字から推定する
+  async function scanPage(src, p, nw, nc, step) {
+    step('スキャンを読み込み', 0.02); await PC.tick();
+    const { img, dpi } = await src.image(p);
+    step('位置を合わせています', 0.05); await PC.tick();
+    const { W, matched } = PC.registerScan(img, nw, dpi);
+    const sp = await new PC.ScanPage(W, nw).init((s, f) => step(s, 0.08 + 0.77 * f));
+    const pairs = sp.pairs(), oc = synthChars(sp, nc), ch = sp.changes();
+    describe(ch, sp.ot, sp.ol, sp.nt, sp.nl, oc, nc);
+    ch.push(...layoutChanges(sp.ot, sp.ol, sp.nt, sp.nl, pairs));
+    step('写真・図版を比べています', 0.86); await PC.tick();
+    const im = sp.imageChanges(); im.forEach(imageShow);
+    step('赤字を読み取り', 0.9); await PC.tick();
+    const { w, h } = nw, rm = PC.morph(sp.pen, w, h, 'open', 2, 2);
+    // 赤以外の書き込みだけの行は、赤字の指す先にしない(書き込みに重ねた赤字は「読み取れない赤字」になる)
+    const hw = sp.hw || (sp.hw = sp.handwriting());
+    const { an, used } = PC.anchors(rm, w, h, sp.ol.filter(l => l.toks.length && !l.toks.every(k => hw.has(k))), sp.ot, sp.oblocks.filter(b => b.kind === 'image'));
+    // 修正後で赤く印刷されている字の範囲に収まる赤は、赤字ではなく「赤い文字そのものが変わった」可能性が高い
+    // (修正前のPDFがないため、変わった赤い文字は印刷の赤と見分けられない)。指示どおりの変更とはみなさない
+    const nred = PC.redMask(nw), zone = new Uint8Array(w * h);
+    for (const t of sp.nt) {
+      const [x0, y0, x1, y1] = t.box; let r = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (nred[y * w + x]) r++;
+      if (r < 0.15 * (x1 - x0) * (y1 - y0)) continue;
+      for (let y = Math.max(0, y0 - 3); y < Math.min(h, y1 + 3); y++) zone.fill(1, y * w + Math.max(0, x0 - 3), y * w + Math.min(w, x1 + 3));
+    }
+    const sc = PC.cc(PC.morph(rm, w, h, 'dilate', 5, 5), w, h), inZ = new Float64Array(sc.n), all = new Float64Array(sc.n);
+    for (let k = 0; k < rm.length; k++) if (rm[k]) { const l = sc.lab[k]; all[l]++; if (zone[k]) inZ[l]++; }
+    for (const a of an) { a.note = ''; a.printedLike = a.stroke > 0 && all[a.stroke] > 0 && inZ[a.stroke] >= 0.9 * all[a.stroke]; }
+    const res = { kind: 'scan', ot: sp.ot, ol: sp.ol, nt: sp.nt, nl: sp.nl, ch, im, an, notes: [], pairs, oc, nc, restBoxes: restBoxesOf(rm, used, w, h), left: W, right: nw, matched, w };
+    if (window.__pcDebug) { res.sp = sp; res.removed = sp.removed.map(r => ({ oi: r.c.oi, nj: r.c.nj, obox: r.c.obox, nbox: r.c.nbox, why: r.why })); } else sp.release();
+    return res;
+  }
+
+  // 見た目が似た別の字(修正後の文字データだけで調べる): カタカナの間の漢字・記号、漢字の間のカタカナ
+  const TO_KATA = { '一': 'ー', '−': 'ー', '‐': 'ー', '－': 'ー', '―': 'ー', '─': 'ー', '口': 'ロ', '力': 'カ', '工': 'エ', '二': 'ニ', '八': 'ハ', '卜': 'ト', '夕': 'タ', '才': 'オ' };
+  const TO_KAN = { 'ー': '一', 'ロ': '口', 'カ': '力', 'エ': '工', 'ニ': '二', 'ハ': '八', 'ト': '卜', 'タ': '夕', 'オ': '才' };
+  const isKata = c => /^[ァ-ヺー]$/.test(c), isKan = c => /^\p{Script=Han}$/u.test(c);
+  function lookalikeChars(cs) {
+    const out = [], near = (a, b) => { const s = Math.max(a[2] - a[0], a[3] - a[1], b[2] - b[0], b[3] - b[1]); return Math.hypot((a[0] + a[2] - b[0] - b[2]) / 2, (a[1] + a[3] - b[1] - b[3]) / 2) < 1.6 * s; };
+    for (let i = 1; i + 1 < cs.length; i++) {
+      const [c, b] = cs[i], [a, pb] = cs[i - 1], [z, qb] = cs[i + 1];
+      let want = null;
+      if (TO_KATA[c] && isKata(a) && isKata(z)) want = TO_KATA[c];
+      else if (TO_KAN[c] && isKan(a) && isKan(z)) want = TO_KAN[c];
+      if (want && near(pb, b) && near(b, qb)) out.push({ c, want, box: b, ctx: [a, z] });
+    }
+    return out;
+  }
+
+  // ---- 全体に関わる修正(全体指示・以下同様)を赤字原稿から読み取るための小道具 ----
+  const isWord = s => [...s].length >= 2 && !s.includes('□') && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}A-Za-z]/u.test(s);
+  const known = s => [...s].filter(c => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}A-Za-z]/u.test(c)).length;   // □以外の、語になる字の数
+  // 修正後の文字の並びで、枠に入る文字(text)の前後n字。枠に中心が入る文字がなければ、近くにある同じ文字列を探す
+  function ctxOf(cs, b, text, n = 8) {
+    if (!b) return null;
+    let i0 = -1, i1 = -1;
+    cs.forEach(([, r], i) => { const cx = (r[0] + r[2]) / 2, cy = (r[1] + r[3]) / 2; if (cx >= b[0] - 3 && cx <= b[2] + 3 && cy >= b[1] - 3 && cy <= b[3] + 3) { if (i0 < 0) i0 = i; i1 = i; } });
+    if (i0 < 0 && text) {
+      const bx = (b[0] + b[2]) / 2, by = (b[1] + b[3]) / 2; let best = 60;
+      for (const [s, e] of findAll(cs, text)) { const u = union(cs.slice(s, e).map(c => c[1])), d = Math.hypot((u[0] + u[2]) / 2 - bx, (u[1] + u[3]) / 2 - by); if (d < best) { best = d; i0 = s; i1 = e - 1; } }
+    }
+    if (i0 < 0) return null;
+    return [cs.slice(Math.max(0, i0 - n), i0).map(c => c[0]).join(''), cs.slice(i1 + 1, i1 + 1 + n).map(c => c[0]).join('')];
+  }
+  // どの箇所にも共通する前後の文字(同じ変更が何か所にもあるとき、語の形にそろえる)
+  function commonCtx(cx) {
+    if (!cx.length || cx.some(c => !c)) return ['', ''];
+    let [L, R] = cx[0];
+    for (const [l, r] of cx) {
+      let k = 0; while (k < L.length && k < l.length && L[L.length - 1 - k] === l[l.length - 1 - k]) k++;
+      L = L.slice(L.length - k);
+      k = 0; while (k < R.length && k < r.length && R[k] === r[k]) k++;
+      R = R.slice(0, k);
+    }
+    const stop = /[\s、。，．,.・：:；;！!？?（）()「」『』【】［］\[\]]/;   // 句読点・かっこの外までは広げない
+    while (L && stop.test(L[0])) L = L.slice(1);
+    for (let k = L.length - 1; k >= 0; k--) if (stop.test(L[k])) { L = L.slice(k + 1); break; }
+    for (let k = 0; k < R.length; k++) if (stop.test(R[k])) { R = R.slice(0, k); break; }
+    return [L, R];
+  }
+  // □(推定できなかった字)を含む語の型: □は1〜3字の、句読点・空白以外の字
+  const patternOf = s => new RegExp([...s].map(c => c === '□' ? '[^\\s、。，．,.]{1,3}' : c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(''), 'u');
+  // 推定できなかった字(□)はどの字とも合うとみなして、同じ並びか
+  const fits = (a, b) => { const x = [...a], y = [...b]; return x.length === y.length && x.every((c, k) => c === '□' || y[k] === '□' || c === y[k]); };
+  const mergeKnown = (a, b) => { const y = [...b]; return [...a].map((c, k) => (c === '□' ? y[k] : c)).join(''); };
+  // 「A」→「B」の変わった部分だけ(前後の同じ文字を除く)
+  function splitCore(frm, to) {
+    const a = [...frm], b = [...to]; let s = 0, e = 0;
+    while (s < a.length && s < b.length && a[s] === b[s]) s++;
+    while (e < a.length - s && e < b.length - s && a[a.length - 1 - e] === b[b.length - 1 - e]) e++;
+    return { b: a.slice(s, a.length - e).join(''), a: b.slice(s, b.length - e).join(''), head: a.slice(0, s).join(''), tail: a.slice(a.length - e).join('') };
+  }
+  const coreOf = (frm, to) => { const c = splitCore(frm, to); return [c.b, c.a]; };
+
+  // opts: { marks: PC.markSource(...), newDoc, progress(msg, frac) }
   PC.analyze = async opts => {
-    const { oldDoc, newDoc, mode } = opts, prog = opts.progress || (() => {});
-    const rules = (opts.rules || []).map(r => ({ ...r })), cb = new PC.Codebook(), P = [], npages = oldDoc.numPages;
+    const { marks: src, newDoc } = opts, prog = opts.progress || (() => {});
+    const cb = new PC.Codebook(), P = [], npages = src.numPages, warn = [];
+    let blank = null;
     for (let p = 0; p < npages; p++) {
       const step = (s, f) => prog(`${p + 1} / ${npages} ページ：${s}`, (p + f) / npages);
-      step('描画', 0.02); await PC.tick();
-      const old = await PC.renderPage(oldDoc, p, PC.DPI, false);
-      const nw = p < newDoc.numPages ? await PC.renderPage(newDoc, p, PC.DPI, false) : { w: old.w, h: old.h, d: new Uint8ClampedArray(old.d.length).fill(255) };
-      const oc = await PC.textChars(oldDoc, p), nc = p < newDoc.numPages ? await PC.textChars(newDoc, p) : [];
-      step('文字のまとまりを解析', 0.1); await PC.tick();
-      const oink = PC.textInk(old), nink = PC.textInk(nw);
-      const ob = PC.blocks(old, oink), nb = PC.blocks(nw, nink);
-      const { toks: ot, lines: ol } = PC.tokens(old, oink, ob), { toks: nt, lines: nl } = PC.tokens(nw, nink, nb);
-      step('字形を照合', 0.25); await PC.tick();
-      const oids = [], nids = [];
-      for (let k = 0; k < ot.length; k++) { oids.push(cb.id(old, ot[k], ol[ot[k].line])); if (k % 80 === 79) await PC.tick(); }
-      for (let k = 0; k < nt.length; k++) { nids.push(cb.id(nw, nt[k], nl[nt[k].line])); if (k % 80 === 79) await PC.tick(); }
-      step('変更箇所を検出', 0.55); await PC.tick();
-      const sk = sameBlocks(ot, ol, nt, nl, oids, nids), lookPairs = [], ch = PC.textChanges(cb, ot, nt, oids, nids, old, nw, ol, nl, sk, lookPairs);
-      const oi_ = [], ni_ = []; for (let k = 0; k < oids.length; k++) if (!sk[0].has(k)) oi_.push(k); for (let k = 0; k < nids.length; k++) if (!sk[1].has(k)) ni_.push(k);
-      const pairs = PC.pairs(oi_.map(k => oids[k]), ni_.map(k => nids[k])).map(([a, b]) => [oi_[a], ni_[b]]);
-      if (sk[0].size === sk[1].size) { const a = [...sk[0]].sort((x, y) => x - y), b = [...sk[1]].sort((x, y) => x - y); a.forEach((k, i) => pairs.push([k, b[i]])); }
-      const ePairs = [...pairs, ...lookPairs];   // 文字データでの裏取りは、見た目が同じとした組すべてで行う
-      const merged = [];   // 同じ行で1字以内に隣接する差分は1件にまとめる
-      for (const c of ch) {
-        const q = merged[merged.length - 1];
-        if (q && c.oi[0] - q.oi[1] <= 1 && c.nj[0] - q.nj[1] <= 1 && q.oi[1] > 0 && c.oi[0] < ot.length && ot[c.oi[0]].line === ot[q.oi[1] - 1].line) {
-          q.oi = [q.oi[0], c.oi[1]]; q.nj = [q.nj[0], c.nj[1]]; q.tag = 'replace';
-          q.obox = union([q.obox, c.obox].filter(Boolean)); q.nbox = union([q.nbox, c.nbox].filter(Boolean));
-        } else merged.push(c);
-      }
-      const tt = (cs, T, a, b) => { let s = ''; for (let k = Math.max(0, a); k < Math.min(T.length, b); k++) s += tokText(cs, T[k].box); return s; };
-      for (const c of merged) {
-        if (!c.obox) { const k = Math.max(0, c.oi[0] - 1), b = ot[k].box; c.obox = ol[ot[k].line].vert ? [b[0], b[3] - 3, b[2], b[3] + 3] : [b[2] - 3, b[1], b[2] + 3, b[3]]; }
-        if (!c.nbox && (c.pj !== null || c.nj[0] < nt.length)) {
-          if (c.pj !== null) { const b = nt[c.pj].box; c.nbox = nl[nt[c.pj].line].vert ? [b[0], b[3] - 3, b[2], b[3] + 3] : [b[2] - 3, b[1], b[2] + 3, b[3]]; }
-          else { const b = nt[c.nj[0]].box; c.nbox = nl[nt[c.nj[0]].line].vert ? [b[0], b[1] - 3, b[2], b[1] + 3] : [b[0] - 3, b[1], b[0] + 3, b[3]]; }
-        }
-        c.kind = 'text';
-        c.before = tt(oc, ot, c.oi[0], c.oi[1]); c.after = tt(nc, nt, c.nj[0], c.nj[1]);
-        c.show = `${tt(oc, ot, c.oi[0] - 1, c.oi[1] + 1)}→${tt(nc, nt, c.nj[0] - 1, c.nj[1] + 1)}`;
-        c.nline = nl.filter(l => l.toks.length && c.nbox && ov(l.box, c.nbox)).map(l => tt(nc, nt, l.toks[0], l.toks[l.toks.length - 1] + 1)).join('');
-        const A = tokChars(oc, ot, c.oi[0], c.oi[1]), B = tokChars(nc, nt, c.nj[0], c.nj[1]);
-        if (A.length || B.length) c.diff = pinDiff(A, B, tokChars(oc, ot, c.oi[0] - 6, c.oi[0]), tokChars(oc, ot, c.oi[1], c.oi[1] + 6));   // 文字データがなければ作らない
-      }
-      merged.push(...layoutChanges(ot, ol, nt, nl, pairs));
-      const im = PC.imageChanges(old, nw, ob, nb);
-      for (const c of im) c.show = { changed: '画像・図版の変化', moved: '画像・図版の移動', removed: '画像・図版の削除' }[c.kind];
-
-      step('赤字を読み取り', 0.7); await PC.tick();
-      let rm, shown, notes = [];
-      const scan = mode === 'scan' ? await opts.scans.get(p) : null;
-      if (scan) ({ rm, shown } = PC.fromScan(scan, old));
-      else if (mode === 'digital' && p < opts.annDoc.numPages) {
-        notes = await PC.annotations(opts.annDoc, p);
-        const withA = await PC.renderPage(opts.annDoc, p, PC.DPI, true), without = await PC.renderPage(opts.annDoc, p, PC.DPI, false);
-        ({ rm, shown } = PC.fromAnnots(withA, without, notes));
-      } else { rm = new Uint8Array(old.w * old.h); shown = old; }
-      const { an, used } = PC.anchors(rm, old.w, old.h, ol.filter(l => l.toks.length), ot, ob.filter(b => b.kind === 'image'));
-      for (const n of notes) {   // デジタルの挿入注釈は位置情報から直接読む
-        if (n.type !== 'Caret') continue;
-        const [x0, y0, x1] = n.box;
-        for (const l of ol) {
-          const lb = l.box, h = lb[3] - lb[1];
-          if (!l.vert && lb[1] - 0.3 * h <= y0 && y0 <= lb[3] + 0.6 * h && lb[0] <= x0 && x0 <= lb[2]) {
-            const ks = l.toks.filter(k => (x0 - h / 2 <= ot[k].box[2] && ot[k].box[2] <= x1 + h / 2) || (x0 - h / 2 <= ot[k].box[0] && ot[k].box[0] <= x1 + h / 2));
-            if (ks.length) { an.push({ kind: 'insert', at: Math.min(...ks) + 1, span: [Math.min(...ks), Math.max(...ks) + 1], how: '挿入(注釈)', box: n.box.map(Math.trunc), stroke: -1, note: n.text }); break; }
-          }
-        }
-      }
-      // 取り消し線・下線・マーカーの注釈: 引いた範囲に重なる字形を指示箇所にする
-      const MK = { StrikeOut: '取消線(注釈)', Underline: '下線(注釈)', Squiggly: '波線(注釈)', Highlight: 'マーカー(注釈)' };
-      for (const n of notes) {
-        if (!PC.MARKUP.has(n.type) || !n.quads.length) continue;
-        const area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]), inter = (p, q) => area([Math.max(p[0], q[0]), Math.max(p[1], q[1]), Math.min(p[2], q[2]), Math.min(p[3], q[3])]);
-        const toks = new Set(); ot.forEach((t, k) => { if (n.quads.some(q => inter(t.box, q) >= 0.4 * area(t.box))) toks.add(k); });
-        const box = union(n.quads).map(Math.trunc);
-        if (toks.size) an.push({ kind: 'tokens', toks, how: MK[n.type], box, stroke: -1, note: n.text });
-        else if (ob.some(b => b.kind === 'image' && ov(b.box, box))) an.push({ kind: 'image', how: MK[n.type], box, stroke: -1, note: n.text });
-      }
-      for (const a of an) if (a.note === undefined) a.note = (notes.find(n => n.type !== 'Caret' && ov(n.box, a.box, 8)) || {}).text || (notes.find(n => n.type === 'Caret' && ov(n.box, a.box, 2)) || {}).text || '';
-      // 指示に使われなかった赤字のまとまり(注記・印鑑など)
-      const rest = new Uint8Array(rm.length); for (let k = 0; k < rm.length; k++) rest[k] = rm[k] && !used[k] ? 1 : 0;
-      const rc = PC.cc(PC.morph(rest, old.w, old.h, 'dilate', 25, 25), old.w, old.h), restBoxes = [];
-      for (let j = 1; j < rc.n; j++) {
-        const s = rc.st[j], b = [s.x0, s.y0, s.x1 + 1, s.y1 + 1]; let cnt = 0;
-        for (let y = b[1]; y < b[3]; y++) for (let x = b[0]; x < b[2]; x++) if (rest[y * old.w + x]) cnt++;
-        if (cnt >= 60) restBoxes.push(b);
-      }
-      step('表示用の画像を作成', 0.9); await PC.tick();
-      const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
-      const thumbs = { left: await toThumb(blend(shown)), right: await toThumb(blend(nw)) };
-      P.push({ ot, ol, nt, nl, ch: merged, im, an, notes, pairs: ePairs, oc, nc, restBoxes, thumbs });
+      step('描画', 0.01); await PC.tick();
+      const kind = await src.kind(p);
+      let nw, nc = [];
+      if (p < newDoc.numPages) { nw = await PC.renderPage(newDoc, p, PC.DPI, false); nc = await PC.textChars(newDoc, p); blank = blank || nw; }
+      else { const r = blank || await PC.renderPage(newDoc, newDoc.numPages - 1, PC.DPI, false); nw = { w: r.w, h: r.h, d: new Uint8ClampedArray(r.d.length).fill(255) }; }
+      const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step) : await scanPage(src, p, nw, nc, step);
+      if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、赤字原稿と修正後の位置がうまく合いません（ページの順番・向きを確かめてください）`);
+      step('表示用の画像を作成', 0.96); await PC.tick();
+      d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right) }; d.left = d.right = null;
+      P.push(d);
     }
 
     if (window.__pcDebug) PC._last = P;   // 自動テストでの調査用
@@ -219,60 +368,85 @@
       for (const a of d.an) a.hit = [];
       for (const c of [...d.ch, ...d.im]) {
         c.status = null;
+        if (c.hw) continue;   // 赤以外の書き込みは、修正の対象ではない
         for (const a of d.an) {
           if (KEEP.test(a.note || '') && a.kind === 'tokens' && c.kind === 'text' && meets(a.toks, c.oi[0], Math.max(c.oi[1], c.oi[0] + 1))) { a.hit.push(c); continue; }
           let m = false;
           if (c.kind === 'text' && a.kind === 'tokens') { const [lo, hi] = c.oi; m = meets(a.toks, lo - (c.tag === 'layout' ? 1 : 0), Math.max(hi, lo + 1)); }
           else if (c.kind === 'text' && a.kind === 'insert') { const [lo, hi] = a.span || [a.at - 1, a.at + 1]; m = (lo <= c.oi[0] && c.oi[0] <= hi) || (lo <= c.oi[1] && c.oi[1] <= hi); }
           else if (c.kind !== 'text' && a.kind === 'image') m = ov(c.obox, a.box, 5);
+          if (m && a.printedLike) { a.hit.push(c); continue; }
           if (m) { c.status = c.kind === 'text' ? 'A' : 'A_IMG'; c.anchor = a; a.hit.push(c); }
         }
       }
     }
 
-    // 以下同様・全体指示の展開
-    const occCache = new Map();
-    const occurrences = s => {
-      if (!occCache.has(s)) {
-        const res = [];
-        P.forEach((d, q) => { for (const [i, e] of findAll(d.oc, s)) res.push([q, union(d.oc.slice(i, e).map(c => c[1]))]); });
-        occCache.set(s, res);
-      }
-      return occCache.get(s);
-    };
-    const expansions = [];
-    const expand = (src, frm, to, scope, origin) => {
-      for (const [q, r] of occurrences(frm)) {
-        if (src && q === src[0] && ov(r, src[1], 2)) continue;
-        const hitc = P[q].ch.find(c => c.tag !== 'layout' && ov(c.obox, r, 2));
-        let st = hitc && hitc.nline.includes(to) ? '展開済み' : (hitc ? '別の変更あり' : '変更なし（展開漏れの候補）');
-        if (hitc && st === '展開済み' && hitc.status === null) { hitc.status = 'C1'; hitc.why = origin; }
-        if (scope === 'after' && src && (q < src[0] || (q === src[0] && (r[1] < src[1][1] || (r[1] === src[1][1] && r[0] < src[1][0]))))) st += '（指示より前なので対象外の可能性）';
-        expansions.push({ page: q + 1, frm, to, status: st, origin, box: r.map(Math.trunc) });
-      }
-    };
+    // ---- 全体に関わる修正(全体指示・以下同様): 手で登録しなくても、赤字原稿から読み取る ----
+    //  1) 注釈のコメント「全体…「A」→「B」」  2) 同じ変更が2か所以上(全体指示と推定)  3) 赤字どおり変わった語(以下同様の候補)
+    const rules = [], textCh = [];
+    P.forEach((d, p) => d.ch.forEach(c => { if (c.kind === 'text' && c.tag !== 'layout' && c.before && !c.hw) textCh.push([p, c]); }));
+    for (const d of P) for (const n of d.notes) {
+      const m = n.text.match(/「(.+?)」\s*(?:→|を)\s*「(.+?)」/);
+      if (m && n.text.includes('全体')) { rules.push({ frm: m[1], to: m[2], core: coreOf(m[1], m[2]), how: '全体指示', check: '未統一' }); n.rule = true; }
+    }
+    const groups = [];
+    for (const [p, c] of textCh) {
+      const [b, a] = coreOf(c.before, c.after), g = groups.find(g => g.after === a && fits(g.before, b));
+      if (g) { g.xs.push([p, c]); g.before = mergeKnown(g.before, b); } else groups.push({ before: b, after: a, xs: [[p, c]] });
+    }
+    for (const g of groups) {
+      if (g.xs.length < 2 || rules.some(r => r.core[1] === g.after && fits(r.core[0], g.before))) continue;
+      if (g.before.includes('□') ? known(g.before) < 1 : !isWord(g.before)) continue;
+      // 変わった部分の前後に、どの箇所にも共通する文字があれば含めて語にする(「い合わ→合」→「お問い合わせ→お問合せ」)
+      const cx = g.xs.map(([p, c]) => {
+        const x = ctxOf(P[p].nc, c.nbox, c.after), { head, tail } = splitCore(c.before, c.after);
+        return x ? [x[0] + head, tail + x[1]] : null;
+      });
+      const [L, R] = commonCtx(cx);
+      if (window.__pcDebug) (PC._ctx = PC._ctx || []).push({ g: g.before + '→' + g.after, cx, L, R });
+      // 表示は前後を含めた語、探すのは変わった部分(前後の字が違う箇所の直し忘れも見つけるため)。
+      // 推定できなかった字(□)があるときは、前後の字も含めて、□を1〜3字のどの字とも合うとみなして探す
+      const wild = g.before.includes('□'), pat = L + g.before + R;
+      if (wild && known(pat) < 3) continue;
+      rules.push({ frm: pat, to: L + g.after + R, core: [g.before, g.after], search: wild ? patternOf(pat) : g.before, how: `同じ変更が${g.xs.length}か所`, check: '未統一' });
+    }
     P.forEach((d, p) => {
       for (const a of d.an) for (const c of a.hit) {
         if (c.kind !== 'text' || !c.before || c.tag === 'layout') continue;
-        const scope = (a.note || '').includes('以下同様') ? 'after' : 'candidate';
-        if (scope === 'candidate' && !(c.after && [...c.before].length >= 2 && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}A-Za-z]/u.test(c.before))) continue;
-        expand([p, c.obox], c.before, c.after, scope, scope === 'after' ? '以下同様' : '同じ語の他の箇所（以下同様の候補）');
+        const after = (a.note || '').includes('以下同様');
+        if (!after && !(c.after && isWord(c.before))) continue;
+        const [b, ca] = coreOf(c.before, c.after);
+        if (rules.some(r => r.core[1] === ca && fits(r.core[0], b))) continue;
+        rules.push({ frm: c.before, to: c.after, core: [b, ca], how: after ? '以下同様' : '同じ語の他の箇所（以下同様の候補）', check: '変更なし（展開漏れの候補）', after, src: [p, c.nbox] });
       }
     });
-    for (const d of P) for (const n of d.notes) {
-      const m = n.text.match(/「(.+?)」\s*(?:→|を)\s*「(.+?)」/);
-      if (m && n.text.includes('全体')) { rules.push({ frm: m[1], to: m[2], src: '注釈' }); n.rule = true; }
-    }
-    for (const r of rules) if (r.frm) expand(null, r.frm, r.to, 'all', '全体指示');
-    const remain = [];
+    const leaks = [], seen = new Set();
     for (const r of rules) {
-      if (!r.frm) continue;
-      P.forEach((d, q) => { for (const [i, e] of findAll(d.nc, r.frm)) remain.push({ page: q + 1, frm: r.frm, to: r.to, box: union(d.nc.slice(i, e).map(c => c[1])).map(Math.trunc) }); });
+      // 赤字のない同じ変更は「全体・以下同様で説明できる変更」
+      for (const [p, c] of textCh) {
+        if (c.status !== null) continue;
+        const [b, a] = coreOf(c.before, c.after);
+        if (a !== r.core[1] || !fits(b, r.core[0])) continue;
+        if ([...r.to].length > [...r.core[1]].length && c.nbox && !around(P[p].nc, c.nbox, [...r.to].length + 3).includes(r.to)) continue;
+        c.status = 'C1'; c.why = r.how;
+      }
+      // 修正後に「A」が残っている箇所は、直し忘れの候補
+      P.forEach((d, q) => {
+        for (const [i, e] of findAll(d.nc, r.search || r.frm)) {
+          const nb = union(d.nc.slice(i, e).map(c => c[1])).map(Math.trunc), key = q + ':' + nb.join(','), found = d.nc.slice(i, e).map(c => c[0]).join('');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          let check = r.check;
+          if (r.after && r.src && (q < r.src[0] || (q === r.src[0] && r.src[1] && (nb[1] < r.src[1][1] || (nb[1] === r.src[1][1] && nb[0] < r.src[1][0]))))) check += '（指示より前なので対象外の可能性）';
+          leaks.push({ page: q + 1, frm: r.frm.includes('□') ? found : r.frm, to: r.to, nbox: nb, how: r.how, check });
+        }
+      });
     }
 
-    // 文字データでの裏取り: 見た目で「同じ」と対応づいた字形どうしで、文字データが違うもの
+    // 文字データでの裏取り(注釈PDFのページ): 見た目で「同じ」と対応づいた字形どうしで、文字データが違うもの
     const lookalike = [];
     P.forEach((d, p) => {
+      if (d.kind !== 'annot') return;
       // 文字データを字形に割り当てる: 字形の枠に中心が入る文字、なければ同じ行の中で字形の幅(縦組みは高さ)に入る文字
       const owner = (cs, T, L) => {
         const res = new Map();
@@ -285,23 +459,26 @@
         return res;
       };
       const oo = owner(d.oc, d.ot, d.ol), no = owner(d.nc, d.nt, d.nl);
-      for (const [k, m] of d.pairs) if (oo.has(k) && no.has(m) && oo.get(k) !== no.get(m) && !d.ch.some(c => ov(d.ot[k].box, c.obox, 2))) lookalike.push({ page: p + 1, show: `${oo.get(k)}→${no.get(m)}`, box: d.ot[k].box });
+      for (const [k, m] of d.pairs) if (oo.has(k) && no.has(m) && oo.get(k) !== no.get(m) && !d.ch.some(c => ov(d.ot[k].box, c.obox, 2))) lookalike.push({ page: p + 1, show: `${oo.get(k)}→${no.get(m)}`, box: d.ot[k].box, nbox: d.nt[m].box });
     });
 
-    // 初校の枠に対応する修正後の枠(見た目で対応づいた字形の組から求める)
+    // 修正前の枠 ⇄ 修正後の枠(見た目で対応づいた字形の組から求める)
+    const pm = d => d.pmap || (d.pmap = new Map(d.pairs)), rpm = d => d.rmap || (d.rmap = new Map(d.pairs.map(([a, b]) => [b, a])));
     const mapBox = (d, box) => {
-      if (!d.pmap) d.pmap = new Map(d.pairs);
-      const ks = []; d.ot.forEach((t, k) => { if (ov(t.box, box)) ks.push(k); });
-      const nb = ks.filter(k => d.pmap.has(k)).map(k => d.nt[d.pmap.get(k)].box);
+      const nb = []; d.ot.forEach((t, k) => { if (ov(t.box, box) && pm(d).has(k)) nb.push(d.nt[pm(d).get(k)].box); });
       return nb.length ? union(nb) : null;
     };
-    const tokBox = (d, k) => (d.pmap || (d.pmap = new Map(d.pairs))).has(k) ? d.nt[d.pmap.get(k)].box : null;
+    const backBox = (d, box) => {
+      const ob = []; d.nt.forEach((t, k) => { if (ov(t.box, box) && rpm(d).has(k)) ob.push(d.ot[rpm(d).get(k)].box); });
+      return ob.length ? union(ob) : null;
+    };
+    const tokBox = (d, k) => pm(d).has(k) ? d.nt[pm(d).get(k)].box : null;
     // 結果の一覧
     const F = [];
     const add = (page, cat, box, show = '', how = '', note = '', check = '', nbox = null) => F.push({ id: F.length, page, cat, label: PC.CAT[cat], box: box.map(Math.trunc), nbox: nbox ? nbox.map(Math.trunc) : null, show, how, note, check });
     P.forEach((d, p) => {
       for (const c of [...d.ch, ...d.im]) {
-        const st = c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
+        const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
         let chk = '';
         if (a.note && c.kind === 'text' && c.tag !== 'layout') {   // 指示文(注釈のコメント)が、修正後の該当箇所の前後にあるか
           // 「目指し（以下同様）」のような添え書きは外す(指示文全体がかっこ書きなら外さない)
@@ -312,10 +489,13 @@
           else { const ctx = c.nbox ? around(d.nc, c.nbox, [...want].length + 3) : ''; chk = want && ctx.includes(want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
         }
         add(p + 1, st, c.obox, c.show + (c.look === 'color' ? '（色のみ）' : ''), a.how || c.why || '', a.note || '', chk, c.nbox);
-        if (c.diff) Object.assign(F[F.length - 1], { segs: c.diff.segs, same: c.diff.same, pboxes: c.diff.ob, pnboxes: c.diff.nb });
-        if (c.tag === 'layout') F[F.length - 1].kind = 'layout';
-        if (c.kind !== 'text') F[F.length - 1].kind = 'image';
-        if (c.look === 'color') F[F.length - 1].color = true;
+        const f = F[F.length - 1];
+        if (c.anchor) Object.defineProperty(f, 'anchorRef', { value: c.anchor, enumerable: false });
+        if (c.diff) Object.assign(f, { segs: c.diff.segs, same: c.diff.same, pboxes: c.diff.ob, pnboxes: c.diff.nb });
+        if (c.tag === 'layout') f.kind = 'layout';
+        if (c.kind !== 'text') f.kind = 'image';
+        if (c.look === 'color') f.color = true;
+        if (d.kind === 'scan') f.scan = true;
       }
       const done = new Set(d.an.filter(a => a.hit.length).map(a => a.stroke)), f0 = F.length;
       const along = (b, v) => v ? [b[1], b[3]] : [b[0], b[2]];   // 行の向きに沿った範囲
@@ -339,20 +519,42 @@
           show = `${pre}｜${post}（挿入位置）`; nb = union([tokBox(d, at - 1), tokBox(d, at)].filter(Boolean));
         } else { show = textIn(d.oc, a.box); nb = mapBox(d, a.box); }
         add(p + 1, cat, a.box, show, a.how, a.note || '', '', nb);
+        Object.defineProperty(F[F.length - 1], 'anchorRef', { value: a, enumerable: false });
         if (a.kind === 'insert') F[F.length - 1].ins = show.replace('（挿入位置）', '').split('｜');
         Object.assign(F[F.length - 1], { stroke: a.stroke, thin: !!a.thin, li: a.li, vert: a.vert, span: a.span, lh: a.h });
       }
       // まとめたあとで行のほぼ全長(かつ字2つ分より長く)にわたる細い線は、引き出し線の可能性として示す
       for (const f of F.slice(f0)) if (f.thin && f.span) { const [s, e] = along(f.box, f.vert); if (e - s >= 0.9 * f.span && e - s > 2 * f.lh) f.how += '（細い線：引き出し線の可能性）'; }
-      for (const b of d.restBoxes) {
+      for (const r of d.restBoxes) {
+        const b = r.box;
+        if (r.stamp) continue;   // 印鑑は指示ではない
         if (d.notes.some(n => n.rule && ov(n.box, b))) { add(p + 1, 'G', b); continue; }
-        add(p + 1, d.an.some(a => ov(b, a.box, 30)) ? 'F2' : 'F', b);
+        const a = d.an.find(a => ov(b, a.box, 30));
+        if (!a) { add(p + 1, 'F', b); continue; }
+        add(p + 1, 'F2', b);
+        // 指示箇所の項目に、何に直すかの書き込みを添える
+        const nb = noteBoxOf(r, a.box, d.w);
+        if (nb) for (const f of F) if (f.page === p + 1 && f.anchorRef === a && !f.noteBox) f.noteBox = nb;
       }
     });
-    for (const e of expansions) { add(e.page, 'D', e.box, `${e.frm}→${e.to}`, e.origin, '', e.status, mapBox(P[e.page - 1], e.box)); Object.assign(F[F.length - 1], { frm: e.frm, to: e.to }); }
-    for (const r of remain) { add(r.page, 'D', r.box, `${r.frm}（修正後に残っている）`, '全体指示', '', '未統一'); Object.assign(F[F.length - 1], { frm: r.frm, to: r.to, nbox: r.box, onNew: true }); }
-    for (const l of lookalike) { const [x, y] = l.show.split('→'); add(l.page, 'E', l.box, l.show, '', '', '', mapBox(P[l.page - 1], l.box)); F[F.length - 1].segs = [['-', x], ['+', y]]; }
+    for (const e of leaks) {
+      const d = P[e.page - 1], ob = backBox(d, e.nbox);
+      add(e.page, 'D', ob || e.nbox, `${e.frm}→${e.to}`, e.how, '', e.check, e.nbox);
+      Object.assign(F[F.length - 1], { frm: e.frm, to: e.to, onNew: !ob });
+    }
+    for (const l of lookalike) { const [x, y] = l.show.split('→'); add(l.page, 'E', l.box, l.show, '', '', '', l.nbox); F[F.length - 1].segs = [['-', x], ['+', y]]; }
+    // 見た目が似た別の字: 修正後の文字データだけで調べる(紙の赤字原稿でも分かるように)。すでに出ている箇所は除く
+    P.forEach((d, p) => {
+      for (const l of lookalikeChars(d.nc)) {
+        if (F.some(f => f.page === p + 1 && f.nbox && ov(f.nbox, l.box, 2) && (f.cat === 'E' || f.cat === 'C2' || f.cat === 'A'))) continue;
+        const ob = backBox(d, l.box);
+        add(p + 1, 'E', ob || l.box, `${l.c}→${l.want}`, '', '', '', l.box);
+        Object.assign(F[F.length - 1], { lint: { c: l.c, want: l.want, ctx: l.ctx }, onNew: !ob });
+      }
+    });
     prog('完了', 1);
-    return { findings: F, pages: P.map(d => d.thumbs), rules };
+    // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
+    const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
+    return { findings: F, pages: P.map(d => d.thumbs), rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
   };
 })();

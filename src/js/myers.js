@@ -1,15 +1,16 @@
 // 最小の編集手順で2つの並びを比べる(Myers法)。表のように同じ内容が繰り返される並びでも変更位置を取り違えない
 'use strict';
 (function () {
-  function edits(a, b) {
-    const n = a.length, m = b.length, trace = [];
+  // eq(x, y): 並びaのx番目と並びbのy番目が等しいか
+  function edits(n, m, eq) {
+    const trace = [];
     let v = new Map([[1, 0]]);
     for (let d = 0; d <= n + m; d++) {
       trace.push(new Map(v));
       for (let k = -d; k <= d; k += 2) {
         let x = (k === -d || (k !== d && v.get(k - 1) < v.get(k + 1))) ? v.get(k + 1) : v.get(k - 1) + 1;
         let y = x - k;
-        while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+        while (x < n && y < m && eq(x, y)) { x++; y++; }
         v.set(k, x);
         if (x >= n && y >= m) return back(trace, n, m);
       }
@@ -30,8 +31,10 @@
     return out.reverse();
   }
   // Pythonのdifflib.get_opcodes()と同じ形式: [tag, i1, i2, j1, j2]
-  PC.opcodes = (a, b) => {
-    const E = edits(a, b), res = [];
+  PC.opcodes = (a, b) => PC.opcodesBy(a.length, b.length, (x, y) => a[x] === b[y]);
+  // 等しさを関数で決める版(字形どうしの見た目の差で比べるときに使う)
+  PC.opcodesBy = (n, m, eq) => {
+    const E = edits(n, m, eq), res = [];
     let i = 0, j = 0, k = 0;
     while (k < E.length) {
       if (E[k][0] === '=') {

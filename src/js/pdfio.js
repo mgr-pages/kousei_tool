@@ -101,27 +101,40 @@
     });
   };
 
-  // スキャン: ページ順に1枚ずつ取り出せる形にする(全ページを一度に展開するとメモリが足りなくなるため)
-  // PDFは各ページを300dpiで描画、画像はそのまま。複数ファイルは渡された順(画面のリストの順)につなげる
+  // 赤字原稿: PDF(注釈を入れたPDF・スキャンしたPDF)と画像を、並べた順に1ページずつ取り出せる形にする
+  // (全ページを一度に展開するとメモリが足りなくなるため)
   PC.isPdf = f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
-  PC.scanSource = async files => {
-    const items = [];
+  PC.markSource = async files => {
+    const items = [], parts = [];
     for (const f of files) {
+      const start = items.length;
       if (PC.isPdf(f)) {
         let doc;
         try { doc = await PC.openPdf(f.buf.slice(0)); } catch (e) { throw new Error(`「${f.name}」を開けません（${e && e.message ? e.message : e}）`); }
         for (let i = 0; i < doc.numPages; i++) items.push({ doc, i });
-      } else items.push({ file: new Blob([f.buf], { type: f.type }) });
+      } else items.push({ file: new Blob([f.buf], { type: f.type }), name: f.name });
+      parts.push({ name: f.name, start, pages: items.length - start });
     }
     return {
-      count: items.length,
-      get: async p => {
-        const it = items[p]; if (!it) return null;
-        if (it.doc) return PC.renderPage(it.doc, it.i, 300, false);
-        const bmp = await createImageBitmap(it.file), c = document.createElement('canvas');
-        c.width = bmp.width; c.height = bmp.height;
-        const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bmp, 0, 0); bmp.close();
-        return { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data };
+      numPages: items.length, parts,
+      // 注釈(取り消し線・コメントなど)があり、文字データもあるページは「注釈を入れたPDF」。それ以外はスキャンとして扱う
+      kind: async p => {
+        const it = items[p];
+        if (!it.doc) return 'scan';
+        if (!(await PC.annotations(it.doc, it.i)).length) return 'scan';
+        return (await PC.textChars(it.doc, it.i)).length ? 'annot' : 'scan';
+      },
+      page: p => items[p],
+      // スキャンとして読む画像。PDFは注釈も含めて300dpiで描画、画像はそのまま(大きすぎるものは縮める)
+      image: async p => {
+        const it = items[p];
+        if (it.doc) return { img: await PC.renderPage(it.doc, it.i, 300, true), dpi: 300 };
+        let bmp;
+        try { bmp = await createImageBitmap(it.file); } catch (e) { throw new Error(`「${it.name}」を画像として開けません`); }
+        const k = Math.min(1, 3600 / bmp.width), c = document.createElement('canvas');
+        c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+        const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bmp, 0, 0, c.width, c.height); bmp.close();
+        return { img: { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data }, dpi: 0 };
       },
     };
   };

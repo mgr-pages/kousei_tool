@@ -18,7 +18,8 @@
     return ink;
   };
 
-  PC.blocks = (img, ink) => {
+  // withLab: 膨らませたまとまりの番号(画素ごと)も out.lab に、各ブロックのまとまりの番号を cid に入れる
+  PC.blocks = (img, ink, withLab) => {
     const { w, h } = img, dil = morph(ink, w, h, 'dilate', 41, 31), cc = PC.cc(dil, w, h), out = [];
     for (let i = 1; i < cc.n; i++) {
       const s = cc.st[i], bw = s.x1 - s.x0 + 1, bh = s.y1 - s.y0 + 1;
@@ -41,7 +42,7 @@
         else if (zc > zr + 0.08) kind = 'vtext';
         else kind = th > 1.5 * tw ? 'vtext' : 'htext';
       }
-      out.push({ box: [s.x0, s.y0, s.x0 + bw, s.y0 + bh], kind });
+      out.push({ box: [s.x0, s.y0, s.x0 + bw, s.y0 + bh], kind, cid: i });
     }
     // 縦組みの段落の最終行のように短い列は、上端がそろう縦組みの列があれば縦組みとみなす
     const vw = out.filter(b => b.kind === 'vtext').map(b => b.box[2] - b.box[0]);
@@ -49,10 +50,12 @@
       const mw = median(vw);
       for (const b of out) if (b.kind === 'htext' && b.box[2] - b.box[0] <= 1.3 * mw && out.some(c => c.kind === 'vtext' && Math.abs(b.box[1] - c.box[1]) < 40)) b.kind = 'vtext';
     }
+    if (withLab) out.lab = cc.lab;
     return out;
   };
 
   // 読み順: 上下・左右のうち、いちばん広いすき間で切り分けることを繰り返す(縦組みは左右を右から)
+  PC.xycut = (bs, rtl, gap) => xycut(bs, rtl, gap);
   function xycut(bs, rtl, gap = 8) {
     if (bs.length <= 1) return [...bs];
     let best = null;
@@ -82,18 +85,34 @@
   }
 
   // テキストブロックを行に分け、字形の単位(トークン)を読み順に並べる
-  PC.tokens = (img, ink, blks) => {
+  //   opt.ordered: ブロックを渡した順に読む(読み順を決め直さない)。opt.lab: 画素ごとのブロックの番号(各ブロックの lid の画素だけを使う)
+  PC.tokens = (img, ink, blks, opt = {}) => {
     const W = img.w, toks = [], lines = [];
-    const hB = xycut(blks.filter(b => b.kind === 'htext'), false), vB = xycut(blks.filter(b => b.kind === 'vtext'), true);
-    for (const b of [...hB, ...vB]) {
+    const text = b => b.kind === 'htext' || b.kind === 'vtext';
+    const order = opt.ordered ? blks.filter(text) : [...xycut(blks.filter(b => b.kind === 'htext'), false), ...xycut(blks.filter(b => b.kind === 'vtext'), true)];
+    for (const b of order) {
       const [x0, y0, x1, y1] = b.box, vert = b.kind === 'vtext', bw = x1 - x0, bh = y1 - y0;
       const sub = PC.sub(ink, W, x0, y0, x1, y1).a;
+      if (opt.lab) for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (opt.lab[(y0 + y) * W + x0 + x] !== b.lid) sub[y * bw + x] = 0;
       let bands = runs(vert ? colSums(sub, bw, bh).reverse() : rowSums(sub, bw, bh), 3);
       if (bands.length > 1) {   // 細すぎる帯(字の一部)は隣とまとめる
         const med = median(bands.map(([p, q]) => q - p)), mb = [bands[0].slice()];
         for (const [b0, b1] of bands.slice(1)) {
           const pr = mb[mb.length - 1];
           if ((b1 - b0 < 0.5 * med || pr[1] - pr[0] < 0.5 * med) && b0 - pr[1] < 0.5 * med && b1 - pr[0] < 1.4 * med) pr[1] = b1; else mb.push([b0, b1]);
+        }
+        bands = mb;
+      }
+      // opt.guide: 手がかりにする行(修正後の行)。となり合う帯が同じ手がかりの行の範囲に収まれば、1行にまとめる
+      // (スキャンで、取り消し線を消した跡で字が上下に分かれたとき)
+      if (opt.guide && bands.length > 1) {
+        const pg = ([p0, p1]) => vert ? [x1 - p1, x1 - p0] : [y0 + p0, y0 + p1];   // 帯をページの座標に
+        const G = opt.guide.filter(g => g.vert === vert && (vert ? g.box[1] < y1 && y0 < g.box[3] : g.box[0] < x1 && x0 < g.box[2]));
+        const inside = (r, g) => { const [g0, g1] = vert ? [g.box[0], g.box[2]] : [g.box[1], g.box[3]]; return r[0] >= g0 - 4 && r[1] <= g1 + 4; };
+        const mb = [bands[0].slice()];
+        for (const b of bands.slice(1)) {
+          const pr = mb[mb.length - 1], u = pg([pr[0], b[1]]);
+          if (G.some(g => inside(u, g))) pr[1] = b[1]; else mb.push(b.slice());
         }
         bands = mb;
       }
@@ -185,6 +204,8 @@
     }
     return out;
   }
+
+  PC.resizeArea = resizeArea;
 
   // 見た目が同じ字形に同じ番号を振る(形・色・太さ・行の中での位置で比べる)
   PC.Codebook = class {

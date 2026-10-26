@@ -1,4 +1,4 @@
-// 赤字の取得と解釈: 紙スキャン/デジタル注釈 → 赤字マスク → 指示箇所(アンカー)と引き出し線・注記の切り分け
+// 赤字の取得と解釈: 注釈の描画差分 → 赤字マスク → 指示箇所(アンカー)と引き出し線・注記の切り分け(紙のスキャンの赤字は scan.js で取り出す)
 'use strict';
 (function () {
   const { morph } = PC;
@@ -15,32 +15,6 @@
     }
     src.delete(); rgb.delete(); hsv.delete();
     return out;
-  };
-
-  // 紙: スキャンを初校の画像に重ね(ORB特徴点+射影変換)、赤だけを取り出す。初校にもともと印刷されている赤は除く
-  PC.fromScan = (scan, ref) => {
-    const grayNoRed = img => {
-      const g = PC.gray(img), r = PC.redMask(img);
-      for (let i = 0; i < g.length; i++) if (r[i]) g[i] = 255;
-      return PC.toMat(g, img.w, img.h);
-    };
-    const g1 = grayNoRed(scan), g2 = grayNoRed(ref), orb = new cv.ORB(6000);
-    const k1 = new cv.KeyPointVector(), k2 = new cv.KeyPointVector(), d1 = new cv.Mat(), d2 = new cv.Mat(), none = new cv.Mat();
-    orb.detectAndCompute(g1, none, k1, d1); orb.detectAndCompute(g2, none, k2, d2);
-    const bf = new cv.BFMatcher(cv.NORM_HAMMING, true), mv = new cv.DMatchVector(); bf.match(d1, d2, mv);
-    const ms = []; for (let i = 0; i < mv.size(); i++) ms.push(mv.get(i));
-    ms.sort((a, b) => a.distance - b.distance); const top = ms.slice(0, 1000);
-    const p1 = [], p2 = [];
-    for (const m of top) { const a = k1.get(m.queryIdx).pt, b = k2.get(m.trainIdx).pt; p1.push(a.x, a.y); p2.push(b.x, b.y); }
-    const m1 = cv.matFromArray(top.length, 1, cv.CV_32FC2, p1), m2 = cv.matFromArray(top.length, 1, cv.CV_32FC2, p2);
-    const Hm = cv.findHomography(m1, m2, cv.RANSAC, 3.0);
-    const src = cv.matFromImageData(new ImageData(new Uint8ClampedArray(scan.d), scan.w, scan.h)), warped = new cv.Mat();
-    cv.warpPerspective(src, warped, Hm, new cv.Size(ref.w, ref.h), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255, 255, 255, 255));
-    const shown = { w: ref.w, h: ref.h, d: new Uint8ClampedArray(warped.data) };
-    [g1, g2, orb, k1, k2, d1, d2, none, bf, mv, m1, m2, Hm, src, warped].forEach(o => o.delete());
-    const rm = PC.redMask(shown), printed = morph(PC.redMask(ref), ref.w, ref.h, 'dilate', 9, 9);
-    for (let i = 0; i < rm.length; i++) if (printed[i]) rm[i] = 0;
-    return { rm: morph(rm, ref.w, ref.h, 'open', 2, 2), shown };
   };
 
   // デジタル: 注釈あり/なしで描画した差分が朱入れ。挿入(Caret)注釈は位置情報から直接読むため描画からは除く

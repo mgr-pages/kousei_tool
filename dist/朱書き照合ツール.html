@@ -14,12 +14,10 @@ html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "
 button, input, select { font: inherit }
 header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap }
 header h1 { font-size: 18px; margin: 0 }
-header .lead { color: var(--sub); font-size: 13px }
-header .badge { margin-left: auto; font-size: 12px; color: #0f5132; background: #e3f4ea; border: 1px solid #b7e1c7; border-radius: 999px; padding: 3px 10px }
 main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px }
 .card h2 { font-size: 15px; margin: 0 0 12px }
-.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px }
 .step { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px }
 .step .t { font-weight: 700; font-size: 13px; margin-bottom: 6px }
 .step .t span { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px }
@@ -27,7 +25,6 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .pick { position: relative; display: inline-block; margin-bottom: 6px }
 .pick input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer }
 .pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px }
-.pick.disabled { opacity: .45; pointer-events: none }
 .flist { list-style: none; margin: 0; padding: 0; counter-reset: f }
 .flist li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid #eef0f3; counter-increment: f }
 .flist li::before { content: counter(f) "."; color: var(--sub); min-width: 18px }
@@ -39,16 +36,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .flist li.err .nm { color: var(--c-B) }
 .ftot { font-size: 12px; color: var(--sub); margin-top: 4px; display: flex; gap: 8px; align-items: center }
 .ftot button { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 12px }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px }
-.seg label { padding: 4px 10px; cursor: pointer; font-size: 13px; border-right: 1px solid var(--line) }
-.seg label:last-child { border-right: 0 }
-.seg { position: relative }
-.seg input { position: absolute; opacity: 0; width: 1px; height: 1px }
-.seg label:focus-within { outline: 2px solid var(--accent); outline-offset: -2px }
-.seg input:checked + span { color: var(--accent); font-weight: 700 }
 .hint { color: var(--sub); font-size: 12px }
-.rules .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px }
-.rules input { width: 0; flex: 1; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px }
 .btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer }
 .btn:hover { border-color: #b9c1cf }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; padding: 8px 18px }
@@ -96,7 +84,7 @@ ins { background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 7
 .more { color: var(--sub); font-size: 12px }
 .what { margin-top: 8px; font-size: 15px }
 .what.ng { color: var(--c-B); font-weight: 700; font-size: 13px; margin-top: 2px }
-details.more { flex-basis: 100%; font-size: 12px; color: var(--sub) } details.more summary { cursor: pointer; width: max-content }
+mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; border-radius: 3px }
 .show { font-weight: 700; word-break: break-all }
 .meta { font-size: 12px; color: var(--sub); margin-top: 2px }
 .meta .ng { color: var(--c-B); font-weight: 700 }
@@ -105,6 +93,7 @@ details.more { flex-basis: 100%; font-size: 12px; color: var(--sub) } details.mo
 .crops figure { margin: 0 }
 .crops canvas { width: 100%; border: 1px solid var(--line); border-radius: 4px; background: #fff }
 .crops figcaption { font-size: 11px; color: var(--sub) }
+.crops figure.note { grid-column: 1 / -1 } .crops figure.note canvas { max-height: 120px; object-fit: contain }
 .judge { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap }
 .judge button.on[data-v="ok"] { background: #e3f4ea; border-color: var(--c-A); color: #0f5132; font-weight: 700 }
 .judge button.on[data-v="fix"] { background: #fde8e8; border-color: var(--c-B); color: #8a1c21; font-weight: 700 }
@@ -119,10 +108,9 @@ details.more { flex-basis: 100%; font-size: 12px; color: var(--sub) } details.mo
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--sub); margin-top: 6px }
 .legend i { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--c); margin-right: 3px; vertical-align: -1px }
 .empty { color: var(--sub); text-align: center; padding: 30px }
-.help { margin-top: 12px; font-size: 13px; color: var(--ink) } .help summary { cursor: pointer; color: var(--accent); font-weight: 700 } .help ol { padding-left: 20px; margin: 6px 0 } .help p { margin: 6px 0 }
 .hidden { display: none !important }
 @media print {
-  header .badge, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on), details.more { display: none !important }
+  #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on) { display: none !important }
   body { background: #fff } main { padding: 0 } .work { display: block } .item { break-inside: avoid; border-left-width: 4px; margin-bottom: 4mm }
   .summary { grid-template-columns: repeat(4, 1fr) } .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb }
 }
@@ -131,59 +119,29 @@ details.more { flex-basis: 100%; font-size: 12px; color: var(--sub) } details.mo
 <body>
 <header>
   <h1>朱書き照合ツール</h1>
-  <div class="lead">初校・朱書き・修正後を照合し、確認が必要な箇所を一覧にします</div>
-  <div class="badge" id="libstate">読み込み中…</div>
 </header>
 <main>
   <section class="card" id="setup">
-    <h2>照合するファイル</h2>
     <div class="steps">
-      <div class="step" data-kind="old"><div class="t"><span>1</span>初校PDF（朱書き前）</div>
-        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fOld" accept=".pdf,application/pdf" multiple></label>
-        <ol class="flist" id="lOld"></ol><div class="ftot" id="tOld"></div></div>
+      <div class="step" data-kind="marks"><div class="t"><span>1</span>赤字原稿（スキャン・注釈PDF）</div>
+        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*" multiple></label>
+        <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div></div>
       <div class="step" data-kind="nw"><div class="t"><span>2</span>修正後PDF</div>
         <label class="btn small pick">＋ ファイルを追加<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label>
         <ol class="flist" id="lNew"></ol><div class="ftot" id="tNew"></div></div>
-      <div class="step" data-kind="marks"><div class="t"><span>3</span>朱書き</div>
-        <div class="seg" role="radiogroup" aria-label="朱書きの種類">
-          <label><input type="radio" name="mode" value="scan" checked><span>紙のスキャン</span></label>
-          <label><input type="radio" name="mode" value="digital"><span>PDFへの注釈</span></label>
-          <label><input type="radio" name="mode" value="none"><span>なし</span></label>
-        </div>
-        <div><label class="btn small pick" id="pMarks">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*" multiple></label></div>
-        <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div>
-        <div class="hint" id="modeHint">カラー・300dpiで、初校と同じページ順にスキャンしたPDF（または画像）</div></div>
-      <div class="step rules"><div class="t"><span>4</span>全体指示（任意）</div>
-        <div id="rules"></div>
-        <button class="btn small" id="addRule">＋ 全体指示を追加</button>
-        <div class="hint">紙の「全体的に〜に統一」は読み取れないため、ここに登録してください。PDFの注釈なら「全体的に「A」→「B」」の書き方で自動で読み取ります。</div></div>
     </div>
-    <div class="hint" style="margin-top:8px">各欄に複数のファイルを入れられます（まとめて選ぶ・何回かに分けて追加する・ドラッグ＆ドロップ、のどれでも可）。ページはリストの上から順につなげて照合します。追加したファイルは名前の順に並ぶので、違うときは ↑↓ で並べ替えてください。</div>
     <div class="runbar">
-      <button class="btn primary" id="run" disabled>照合を開始</button>
-      <div class="progress"><div class="bar"><div id="pbar"></div></div><div class="msg" id="pmsg">初校PDFと修正後PDFを選んでください</div></div>
+      <button class="btn primary" id="run" disabled>照合</button>
+      <div class="progress"><div class="bar"><div id="pbar"></div></div><div class="msg" id="pmsg"></div></div>
     </div>
     <div class="err" id="err"></div>
-    <details class="help">
-      <summary>使い方と注意点</summary>
-      <ol>
-        <li><b>初校PDF</b>（朱書きする前のデータ）と<b>修正後PDF</b>を選びます。どちらも複数のファイルに分かれていてかまいません。リストの順にページをつなげて照合するので、初校と修正後でページの並びがそろうようにしてください（ファイルの分け方は違っていてもかまいません）。</li>
-        <li><b>朱書き</b>を選びます。紙の場合は、カラー・300dpiでスキャンしたPDF（または画像）。PDFに注釈で朱入れした場合は「PDFへの注釈」を選び、そのPDFを指定します。こちらも複数のファイルを入れられます。</li>
-        <li>ファイルは選んだときに読み込みます。あとでファイルを直したときは、リストから外して入れ直してください（同じ名前のファイルを追加すると、新しいほうに置き換わります）。</li>
-        <li>紙の「全体的に〜に統一」は読み取れないため、<b>全体指示</b>に「変更前 → 変更後」を登録します。</li>
-        <li>「照合を開始」を押すと、確認が必要な箇所が重要な順に一覧になります。左右の切り抜き（初校＋朱書き／修正後）を見比べて、<b>OK・要修正・保留</b>を付けてください（このパソコンのブラウザに自動で保存されます）。</li>
-        <li>結果は「CSVで保存」「印刷・PDFで保存」で残せます。</li>
-      </ol>
-      <p><b>結果の見方</b>：上の「直す必要がありそう」から順に確認します。各項目では、初校と修正後を2段に並べ、<del>消えた字</del>・<ins>入った字</ins>だけに色を付けています（同じ部分は「…」で省略、<span class="mk">∧</span>は字が入った位置）。切り抜きとページの枠も、違う字の位置だけを囲みます。「直っていない」＝赤字があるのに変わっていない／「指示にない変更」＝赤字がないのに変わっている／「直し忘れ」＝全体指示・以下同様が反映されていない／「文字だけ違う」＝見た目は同じだが文字データが違う（ー と 一 など）／「赤字どおり変わった」＝中身が指示どおりかを確認（PDFの注釈なら指示文と自動で照合）。</p>
-      <p><b>注意</b>：このツールは見落としを減らすための補助です。<b>判定がないことは「問題がない」ことの保証ではありません</b>。最終確認は必ず人が行ってください。紙の「ママ」「イキ」は読めないため「修正漏れの疑い」と出ます。引き出し線が文字の行の真ん中を通ると、取り消し線と見分けられないことがあります。ファイルはこのパソコンの中だけで処理され、外部には送信されません。</p>
-    </details>
   </section>
 
   <section id="results" class="hidden">
     <div class="card"><h2>結果の概要 <span class="hint" id="sumNote"></span></h2><div class="summary" id="summary"></div></div>
     <div class="toolbar">
       <label><input type="checkbox" id="hideDone"> 確認済み（OK）を隠す</label>
-      <label><input type="checkbox" id="showMinor"> 参考情報も表示</label>
+      <label><input type="checkbox" id="showMinor"> 参考も表示</label>
       <span class="sp"></span>
       <button class="btn" id="csv">CSVで保存</button>
       <button class="btn" id="print">印刷・PDFで保存</button>
@@ -193,7 +151,7 @@ details.more { flex-basis: 100%; font-size: 12px; color: var(--sub) } details.mo
       <div class="viewer" id="viewer">
         <div class="tabs" id="tabs"></div>
         <div class="hint" id="pinfo"></div>
-        <div class="cap"><div>初校＋朱書き</div><div>修正後</div></div>
+        <div class="cap"><div>赤字原稿</div><div>修正後</div></div>
         <div class="scroll" id="vscroll"><canvas id="vcanvas"></canvas></div>
         <div class="legend" id="legend"></div>
       </div>
@@ -380,15 +338,16 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 // 最小の編集手順で2つの並びを比べる(Myers法)。表のように同じ内容が繰り返される並びでも変更位置を取り違えない
 'use strict';
 (function () {
-  function edits(a, b) {
-    const n = a.length, m = b.length, trace = [];
+  // eq(x, y): 並びaのx番目と並びbのy番目が等しいか
+  function edits(n, m, eq) {
+    const trace = [];
     let v = new Map([[1, 0]]);
     for (let d = 0; d <= n + m; d++) {
       trace.push(new Map(v));
       for (let k = -d; k <= d; k += 2) {
         let x = (k === -d || (k !== d && v.get(k - 1) < v.get(k + 1))) ? v.get(k + 1) : v.get(k - 1) + 1;
         let y = x - k;
-        while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+        while (x < n && y < m && eq(x, y)) { x++; y++; }
         v.set(k, x);
         if (x >= n && y >= m) return back(trace, n, m);
       }
@@ -409,8 +368,10 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     return out.reverse();
   }
   // Pythonのdifflib.get_opcodes()と同じ形式: [tag, i1, i2, j1, j2]
-  PC.opcodes = (a, b) => {
-    const E = edits(a, b), res = [];
+  PC.opcodes = (a, b) => PC.opcodesBy(a.length, b.length, (x, y) => a[x] === b[y]);
+  // 等しさを関数で決める版(字形どうしの見た目の差で比べるときに使う)
+  PC.opcodesBy = (n, m, eq) => {
+    const E = edits(n, m, eq), res = [];
     let i = 0, j = 0, k = 0;
     while (k < E.length) {
       if (E[k][0] === '=') {
@@ -535,27 +496,40 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     });
   };
 
-  // スキャン: ページ順に1枚ずつ取り出せる形にする(全ページを一度に展開するとメモリが足りなくなるため)
-  // PDFは各ページを300dpiで描画、画像はそのまま。複数ファイルは渡された順(画面のリストの順)につなげる
+  // 赤字原稿: PDF(注釈を入れたPDF・スキャンしたPDF)と画像を、並べた順に1ページずつ取り出せる形にする
+  // (全ページを一度に展開するとメモリが足りなくなるため)
   PC.isPdf = f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
-  PC.scanSource = async files => {
-    const items = [];
+  PC.markSource = async files => {
+    const items = [], parts = [];
     for (const f of files) {
+      const start = items.length;
       if (PC.isPdf(f)) {
         let doc;
         try { doc = await PC.openPdf(f.buf.slice(0)); } catch (e) { throw new Error(`「${f.name}」を開けません（${e && e.message ? e.message : e}）`); }
         for (let i = 0; i < doc.numPages; i++) items.push({ doc, i });
-      } else items.push({ file: new Blob([f.buf], { type: f.type }) });
+      } else items.push({ file: new Blob([f.buf], { type: f.type }), name: f.name });
+      parts.push({ name: f.name, start, pages: items.length - start });
     }
     return {
-      count: items.length,
-      get: async p => {
-        const it = items[p]; if (!it) return null;
-        if (it.doc) return PC.renderPage(it.doc, it.i, 300, false);
-        const bmp = await createImageBitmap(it.file), c = document.createElement('canvas');
-        c.width = bmp.width; c.height = bmp.height;
-        const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bmp, 0, 0); bmp.close();
-        return { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data };
+      numPages: items.length, parts,
+      // 注釈(取り消し線・コメントなど)があり、文字データもあるページは「注釈を入れたPDF」。それ以外はスキャンとして扱う
+      kind: async p => {
+        const it = items[p];
+        if (!it.doc) return 'scan';
+        if (!(await PC.annotations(it.doc, it.i)).length) return 'scan';
+        return (await PC.textChars(it.doc, it.i)).length ? 'annot' : 'scan';
+      },
+      page: p => items[p],
+      // スキャンとして読む画像。PDFは注釈も含めて300dpiで描画、画像はそのまま(大きすぎるものは縮める)
+      image: async p => {
+        const it = items[p];
+        if (it.doc) return { img: await PC.renderPage(it.doc, it.i, 300, true), dpi: 300 };
+        let bmp;
+        try { bmp = await createImageBitmap(it.file); } catch (e) { throw new Error(`「${it.name}」を画像として開けません`); }
+        const k = Math.min(1, 3600 / bmp.width), c = document.createElement('canvas');
+        c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+        const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bmp, 0, 0, c.width, c.height); bmp.close();
+        return { img: { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data }, dpi: 0 };
       },
     };
   };
@@ -589,7 +563,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     return ink;
   };
 
-  PC.blocks = (img, ink) => {
+  // withLab: 膨らませたまとまりの番号(画素ごと)も out.lab に、各ブロックのまとまりの番号を cid に入れる
+  PC.blocks = (img, ink, withLab) => {
     const { w, h } = img, dil = morph(ink, w, h, 'dilate', 41, 31), cc = PC.cc(dil, w, h), out = [];
     for (let i = 1; i < cc.n; i++) {
       const s = cc.st[i], bw = s.x1 - s.x0 + 1, bh = s.y1 - s.y0 + 1;
@@ -612,7 +587,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         else if (zc > zr + 0.08) kind = 'vtext';
         else kind = th > 1.5 * tw ? 'vtext' : 'htext';
       }
-      out.push({ box: [s.x0, s.y0, s.x0 + bw, s.y0 + bh], kind });
+      out.push({ box: [s.x0, s.y0, s.x0 + bw, s.y0 + bh], kind, cid: i });
     }
     // 縦組みの段落の最終行のように短い列は、上端がそろう縦組みの列があれば縦組みとみなす
     const vw = out.filter(b => b.kind === 'vtext').map(b => b.box[2] - b.box[0]);
@@ -620,10 +595,12 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       const mw = median(vw);
       for (const b of out) if (b.kind === 'htext' && b.box[2] - b.box[0] <= 1.3 * mw && out.some(c => c.kind === 'vtext' && Math.abs(b.box[1] - c.box[1]) < 40)) b.kind = 'vtext';
     }
+    if (withLab) out.lab = cc.lab;
     return out;
   };
 
   // 読み順: 上下・左右のうち、いちばん広いすき間で切り分けることを繰り返す(縦組みは左右を右から)
+  PC.xycut = (bs, rtl, gap) => xycut(bs, rtl, gap);
   function xycut(bs, rtl, gap = 8) {
     if (bs.length <= 1) return [...bs];
     let best = null;
@@ -653,18 +630,34 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   }
 
   // テキストブロックを行に分け、字形の単位(トークン)を読み順に並べる
-  PC.tokens = (img, ink, blks) => {
+  //   opt.ordered: ブロックを渡した順に読む(読み順を決め直さない)。opt.lab: 画素ごとのブロックの番号(各ブロックの lid の画素だけを使う)
+  PC.tokens = (img, ink, blks, opt = {}) => {
     const W = img.w, toks = [], lines = [];
-    const hB = xycut(blks.filter(b => b.kind === 'htext'), false), vB = xycut(blks.filter(b => b.kind === 'vtext'), true);
-    for (const b of [...hB, ...vB]) {
+    const text = b => b.kind === 'htext' || b.kind === 'vtext';
+    const order = opt.ordered ? blks.filter(text) : [...xycut(blks.filter(b => b.kind === 'htext'), false), ...xycut(blks.filter(b => b.kind === 'vtext'), true)];
+    for (const b of order) {
       const [x0, y0, x1, y1] = b.box, vert = b.kind === 'vtext', bw = x1 - x0, bh = y1 - y0;
       const sub = PC.sub(ink, W, x0, y0, x1, y1).a;
+      if (opt.lab) for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (opt.lab[(y0 + y) * W + x0 + x] !== b.lid) sub[y * bw + x] = 0;
       let bands = runs(vert ? colSums(sub, bw, bh).reverse() : rowSums(sub, bw, bh), 3);
       if (bands.length > 1) {   // 細すぎる帯(字の一部)は隣とまとめる
         const med = median(bands.map(([p, q]) => q - p)), mb = [bands[0].slice()];
         for (const [b0, b1] of bands.slice(1)) {
           const pr = mb[mb.length - 1];
           if ((b1 - b0 < 0.5 * med || pr[1] - pr[0] < 0.5 * med) && b0 - pr[1] < 0.5 * med && b1 - pr[0] < 1.4 * med) pr[1] = b1; else mb.push([b0, b1]);
+        }
+        bands = mb;
+      }
+      // opt.guide: 手がかりにする行(修正後の行)。となり合う帯が同じ手がかりの行の範囲に収まれば、1行にまとめる
+      // (スキャンで、取り消し線を消した跡で字が上下に分かれたとき)
+      if (opt.guide && bands.length > 1) {
+        const pg = ([p0, p1]) => vert ? [x1 - p1, x1 - p0] : [y0 + p0, y0 + p1];   // 帯をページの座標に
+        const G = opt.guide.filter(g => g.vert === vert && (vert ? g.box[1] < y1 && y0 < g.box[3] : g.box[0] < x1 && x0 < g.box[2]));
+        const inside = (r, g) => { const [g0, g1] = vert ? [g.box[0], g.box[2]] : [g.box[1], g.box[3]]; return r[0] >= g0 - 4 && r[1] <= g1 + 4; };
+        const mb = [bands[0].slice()];
+        for (const b of bands.slice(1)) {
+          const pr = mb[mb.length - 1], u = pg([pr[0], b[1]]);
+          if (G.some(g => inside(u, g))) pr[1] = b[1]; else mb.push(b.slice());
         }
         bands = mb;
       }
@@ -756,6 +749,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     }
     return out;
   }
+
+  PC.resizeArea = resizeArea;
 
   // 見た目が同じ字形に同じ番号を振る(形・色・太さ・行の中での位置で比べる)
   PC.Codebook = class {
@@ -878,7 +873,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 })();
 
 // ---- marks.js ----
-// 赤字の取得と解釈: 紙スキャン/デジタル注釈 → 赤字マスク → 指示箇所(アンカー)と引き出し線・注記の切り分け
+// 赤字の取得と解釈: 注釈の描画差分 → 赤字マスク → 指示箇所(アンカー)と引き出し線・注記の切り分け(紙のスキャンの赤字は scan.js で取り出す)
 'use strict';
 (function () {
   const { morph } = PC;
@@ -895,32 +890,6 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     }
     src.delete(); rgb.delete(); hsv.delete();
     return out;
-  };
-
-  // 紙: スキャンを初校の画像に重ね(ORB特徴点+射影変換)、赤だけを取り出す。初校にもともと印刷されている赤は除く
-  PC.fromScan = (scan, ref) => {
-    const grayNoRed = img => {
-      const g = PC.gray(img), r = PC.redMask(img);
-      for (let i = 0; i < g.length; i++) if (r[i]) g[i] = 255;
-      return PC.toMat(g, img.w, img.h);
-    };
-    const g1 = grayNoRed(scan), g2 = grayNoRed(ref), orb = new cv.ORB(6000);
-    const k1 = new cv.KeyPointVector(), k2 = new cv.KeyPointVector(), d1 = new cv.Mat(), d2 = new cv.Mat(), none = new cv.Mat();
-    orb.detectAndCompute(g1, none, k1, d1); orb.detectAndCompute(g2, none, k2, d2);
-    const bf = new cv.BFMatcher(cv.NORM_HAMMING, true), mv = new cv.DMatchVector(); bf.match(d1, d2, mv);
-    const ms = []; for (let i = 0; i < mv.size(); i++) ms.push(mv.get(i));
-    ms.sort((a, b) => a.distance - b.distance); const top = ms.slice(0, 1000);
-    const p1 = [], p2 = [];
-    for (const m of top) { const a = k1.get(m.queryIdx).pt, b = k2.get(m.trainIdx).pt; p1.push(a.x, a.y); p2.push(b.x, b.y); }
-    const m1 = cv.matFromArray(top.length, 1, cv.CV_32FC2, p1), m2 = cv.matFromArray(top.length, 1, cv.CV_32FC2, p2);
-    const Hm = cv.findHomography(m1, m2, cv.RANSAC, 3.0);
-    const src = cv.matFromImageData(new ImageData(new Uint8ClampedArray(scan.d), scan.w, scan.h)), warped = new cv.Mat();
-    cv.warpPerspective(src, warped, Hm, new cv.Size(ref.w, ref.h), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255, 255, 255, 255));
-    const shown = { w: ref.w, h: ref.h, d: new Uint8ClampedArray(warped.data) };
-    [g1, g2, orb, k1, k2, d1, d2, none, bf, mv, m1, m2, Hm, src, warped].forEach(o => o.delete());
-    const rm = PC.redMask(shown), printed = morph(PC.redMask(ref), ref.w, ref.h, 'dilate', 9, 9);
-    for (let i = 0; i < rm.length; i++) if (printed[i]) rm[i] = 0;
-    return { rm: morph(rm, ref.w, ref.h, 'open', 2, 2), shown };
   };
 
   // デジタル: 注釈あり/なしで描画した差分が朱入れ。挿入(Caret)注釈は位置情報から直接読むため描画からは除く
@@ -1076,18 +1045,777 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   };
 })();
 
+// ---- scan.js ----
+// 紙の赤字原稿(スキャン) × 修正後PDF: スキャンを修正後の画像に重ね、赤字を除いた字形を修正後の字形と1字ずつ比べる
+//   位置合わせ → 赤字の除去 → 色・ぼけを合わせる → 字形の照合(行ごとの基準) → 差分
+'use strict';
+(function () {
+  const { median, union, morph } = PC;
+
+  // ---- 小道具 ----
+  // 決まった乱数(同じ入力なら同じ結果になるように)
+  function prng(seed) {
+    return () => {
+      seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const toMatRGBA = img => cv.matFromImageData(new ImageData(new Uint8ClampedArray(img.d), img.w, img.h));
+  const fromMatRGBA = m => ({ w: m.cols, h: m.rows, d: new Uint8ClampedArray(m.data) });
+  // 度数分布からの分位点(numpyのpercentileと同じく、順位の間を直線で補う)
+  function pctHist(hist, m, q) {
+    if (!m) return NaN;
+    const r = q / 100 * (m - 1), lo = Math.floor(r), hi = Math.ceil(r);
+    let s = 0, vlo = null, vhi = null;
+    for (let v = 0; v < hist.length; v++) {
+      s += hist[v];
+      if (vlo === null && s > lo) vlo = v;
+      if (s > hi) { vhi = v; break; }
+    }
+    return vlo + (vhi - vlo) * (r - lo);
+  }
+
+  // ---- 位置合わせ: スキャンを修正後の描画に重ねる(回転・拡大縮小・平行移動のみ) ----
+  const grayNoRed = img => { const g = PC.gray(img), r = PC.redMask(img); for (let i = 0; i < g.length; i++) if (r[i]) g[i] = 255; return g; };
+  // 文字などのある範囲(左端・上端・右端)。赤は除く。小さな点に左右されないよう端から0.5%の位置で測る
+  function inkExtent(img) {
+    const { w, h, d } = img, r = PC.redMask(img), cx = new Float64Array(w), cy = new Float64Array(h);
+    let n = 0;
+    for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++) {
+      const j = i * 4;
+      if (255 - Math.min(d[j], d[j + 1], d[j + 2]) > 60 && !r[i]) { cx[x]++; cy[y]++; n++; }
+    }
+    if (n < 100) return null;
+    return [pctHist(cx, n, 0.5), pctHist(cy, n, 0.5), pctHist(cx, n, 99.5)];
+  }
+  // 相似変換 [a, -b, tx, b, a, ty] を最小二乗で求める
+  function fitSim(P, Q, idx) {
+    let n = 0, mx = 0, my = 0, nx = 0, ny = 0;
+    for (const i of idx) { mx += P[2 * i]; my += P[2 * i + 1]; nx += Q[2 * i]; ny += Q[2 * i + 1]; n++; }
+    if (n < 2) return null;
+    mx /= n; my /= n; nx /= n; ny /= n;
+    let sxx = 0, sa = 0, sb = 0;
+    for (const i of idx) {
+      const px = P[2 * i] - mx, py = P[2 * i + 1] - my, qx = Q[2 * i] - nx, qy = Q[2 * i + 1] - ny;
+      sxx += px * px + py * py; sa += px * qx + py * qy; sb += px * qy - py * qx;
+    }
+    if (sxx < 1e-9) return null;
+    const a = sa / sxx, b = sb / sxx;
+    return [a, -b, nx - (a * mx - b * my), b, a, ny - (b * mx + a * my)];
+  }
+  const simErr = (A, P, Q, k) => { const x = P[2 * k], y = P[2 * k + 1]; return Math.hypot(A[0] * x + A[1] * y + A[2] - Q[2 * k], A[3] * x + A[4] * y + A[5] - Q[2 * k + 1]); };
+  // RANSACで相似変換を当てはめ、当てはまった点で最小二乗をやり直す
+  function ransacSim(P, Q, idx, thr, maxIt, rand) {
+    const m = idx.length;
+    if (m < 2) return null;
+    let best = null, bestN = 0, need = maxIt;
+    for (let it = 0; it < need; it++) {
+      const a = idx[Math.floor(rand() * m)], b = idx[Math.floor(rand() * m)];
+      if (a === b || Math.hypot(P[2 * a] - P[2 * b], P[2 * a + 1] - P[2 * b + 1]) < 4) continue;
+      const A = fitSim(P, Q, [a, b]);
+      if (!A) continue;
+      let n = 0; for (const k of idx) if (simErr(A, P, Q, k) < thr) n++;
+      if (n > bestN) {
+        bestN = n; best = A;
+        const w = n / m, q = 1 - w * w;
+        need = q <= 1e-9 ? 0 : Math.min(maxIt, Math.ceil(Math.log(0.001) / Math.log(q)));
+      }
+    }
+    if (!best) return null;
+    let A = best;
+    for (let r = 0; r < 3; r++) {
+      const inl = idx.filter(k => simErr(A, P, Q, k) < thr), B = inl.length >= 2 ? fitSim(P, Q, inl) : null;
+      if (!B) break;
+      A = B;
+    }
+    return { A, inl: idx.filter(k => simErr(A, P, Q, k) < thr) };
+  }
+  // 文章が動いたページでは「動いた部分だけが合う重ね方」も候補になるため、候補を複数作り、
+  // 文字のある範囲(左端・上端・右端)がいちばんよく重なるものを選ぶ(余白の位置は文章が動いても変わらない)
+  //   dpi: スキャンの解像度(PDFは300で描画)。画像ファイルは不明なので、ページの幅で合わせる
+  PC.registerScan = (sc, ref, dpi) => {
+    const s = dpi ? PC.DPI / dpi : ref.w / sc.w, src = toMatRGBA(sc), sm = new cv.Mat();
+    cv.resize(src, sm, new cv.Size(Math.round(sc.w * s), Math.round(sc.h * s)), 0, 0, cv.INTER_AREA);
+    src.delete();
+    const small = fromMatRGBA(sm); sm.delete();
+    const g1 = PC.toMat(grayNoRed(small), small.w, small.h), g2 = PC.toMat(grayNoRed(ref), ref.w, ref.h);
+    const orb = new cv.ORB(8000), k1 = new cv.KeyPointVector(), k2 = new cv.KeyPointVector(), d1 = new cv.Mat(), d2 = new cv.Mat(), none = new cv.Mat();
+    orb.detectAndCompute(g1, none, k1, d1); orb.detectAndCompute(g2, none, k2, d2);
+    const P = [], Q = [];
+    if (d1.rows && d2.rows) {
+      const bf = new cv.BFMatcher(cv.NORM_HAMMING, false), mm = new cv.DMatchVectorVector();
+      bf.knnMatch(d1, d2, mm, 2);
+      for (let i = 0; i < mm.size(); i++) {
+        const v = mm.get(i);
+        if (v.size() === 2) {
+          const a = v.get(0), b = v.get(1);
+          if (a.distance < 0.85 * b.distance) { const p = k1.get(a.queryIdx).pt, q = k2.get(a.trainIdx).pt; P.push(p.x, p.y); Q.push(q.x, q.y); }
+        }
+        v.delete();
+      }
+      bf.delete(); mm.delete();
+    }
+    [g1, g2, orb, k1, k2, d1, d2, none].forEach(o => o.delete());
+    const n = P.length / 2, rand = prng(20261026), hyps = [];
+    let idx = [...Array(n).keys()];
+    for (let hN = 0; hN < 5 && idx.length >= 12; hN++) {
+      const r = ransacSim(P, Q, idx, 2.0, 5000, rand);
+      if (!r) break;
+      let cnt = 0; for (let k = 0; k < n; k++) if (simErr(r.A, P, Q, k) < 3.0) cnt++;
+      hyps.push([cnt, r.A]);
+      const inl = new Set(r.inl); idx = idx.filter(k => !inl.has(k));
+    }
+    let A = [1, 0, 0, 0, 1, 0], ok = 0;
+    if (hyps.length) {
+      const eR = inkExtent(ref), eS = inkExtent(small), top = Math.max(...hyps.map(h => h[0]));
+      const miss = M => {
+        if (!eR || !eS) return 0;
+        const c = (x, y) => [M[0] * x + M[1] * y + M[2], M[3] * x + M[4] * y + M[5]], a = c(eS[0], eS[1]), b = c(eS[2], eS[1]);
+        return Math.abs(a[0] - eR[0]) + Math.abs(a[1] - eR[1]) + Math.abs(b[0] - eR[2]);
+      };
+      const best = hyps.filter(h => h[0] >= 0.25 * top).reduce((p, q) => (miss(q[1]) < miss(p[1]) ? q : p));
+      A = best[1]; ok = best[0];
+    }
+    const M = cv.matFromArray(2, 3, cv.CV_64F, A), s2 = toMatRGBA(small), out = new cv.Mat();
+    cv.warpAffine(s2, out, M, new cv.Size(ref.w, ref.h), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255, 255, 255, 255));
+    const W = fromMatRGBA(out);
+    [M, s2, out].forEach(o => o.delete());
+    return { W, matched: ok };
+  };
+
+  // ---- 赤字の除去 ----
+  // 赤ペンらしい色: 色相が赤(HSV)、または赤みが強く緑と青が同じくらい(薄い赤のにじみ)。黄・橙は含めない
+  const reddish = (r, g, b) => r - Math.max(g, b) > 40 && g - b < 40;
+  // スキャンの赤いまとまりのうち、修正後にも(近くに)同じ形で印刷されている赤。位置が少しずれていても探す
+  function printedRed(w, ref, search = 20) {
+    const W = w.w, H = w.h, n = W * H, d = w.d, rw = PC.redMask(w), rnM = PC.redMask(ref), out = new Uint8Array(n);
+    for (let i = 0, j = 0; i < n; i++, j += 4) if (reddish(d[j], d[j + 1], d[j + 2])) rw[i] = 255;
+    const cc = PC.cc(morph(rw, W, H, 'dilate', 3, 3), W, H);
+    for (let c = 1; c < cc.n; c++) {
+      const s = cc.st[c], x = s.x0, y = s.y0, ww = s.x1 - s.x0 + 1, hh = s.y1 - s.y0 + 1;
+      if (s.area < 6) continue;
+      const comp = new Float32Array(ww * hh); let cs = 0;
+      for (let yy = 0; yy < hh; yy++) for (let xx = 0; xx < ww; xx++) { const g = (y + yy) * W + x + xx; if (cc.lab[g] === c && rw[g]) { comp[yy * ww + xx] = 1; cs++; } }
+      if (cs < 4) continue;
+      const x0 = Math.max(0, x - search), y0 = Math.max(0, y - search), x1 = Math.min(W, x + ww + search), y1 = Math.min(H, y + hh + search), rW = x1 - x0, rH = y1 - y0;
+      if (rH < hh || rW < ww) continue;
+      const sub = new Uint8Array(rW * rH); let any = false;
+      for (let yy = 0; yy < rH; yy++) for (let xx = 0; xx < rW; xx++) if (rnM[(y0 + yy) * W + x0 + xx]) { sub[yy * rW + xx] = 1; any = true; }
+      if (!any) continue;
+      const reg = morph(sub, rW, rH, 'dilate', 3, 3), rm = new cv.Mat(rH, rW, cv.CV_32FC1), tm = new cv.Mat(hh, ww, cv.CV_32FC1), res = new cv.Mat();
+      for (let k = 0; k < reg.length; k++) rm.data32F[k] = reg[k] ? 1 : 0;
+      tm.data32F.set(comp);
+      cv.matchTemplate(rm, tm, res, cv.TM_CCORR);
+      const mm = cv.minMaxLoc(res); [rm, tm, res].forEach(o => o.delete());
+      if (mm.maxVal < 0.3 * cs) continue;
+      // いちばん重なるずらし方で、修正後の赤と重なる画素だけを「印刷の赤」にする(赤ペンの線が触れていても分けられる)
+      const sh = new Uint8Array(ww * hh);
+      for (let yy = 0; yy < hh; yy++) for (let xx = 0; xx < ww; xx++) sh[yy * ww + xx] = reg[(mm.maxLoc.y + yy) * rW + mm.maxLoc.x + xx] ? 1 : 0;
+      const dsh = morph(sh, ww, hh, 'dilate', 3, 3);
+      for (let k = 0; k < comp.length; k++) if (comp[k] && dsh[k]) out[(y + Math.floor(k / ww)) * W + x + (k % ww)] = 1;
+    }
+    return out;
+  }
+  // 赤字(修正後にも印刷されている赤以外の赤)を紙の色で消し、まわりの赤の跡と小さな点も消す
+  PC.cleanScan = (w, ref) => {
+    const W = w.w, H = w.h, n = W * H, d = w.d, hsv = PC.redMask(w), pr = printedRed(w, ref), core = new Uint8Array(n);
+    for (let i = 0, j = 0; i < n; i++, j += 4) core[i] = (reddish(d[j], d[j + 1], d[j + 2]) || hsv[i]) && !pr[i] ? 1 : 0;
+    const near = morph(core, W, H, 'dilate', 7, 7), g = PC.gray(w), ink = PC.inkMask(w);
+    const bg = [0, 1, 2].map(c => { const hist = new Float64Array(256); let m = 0; for (let i = 0; i < n; i++) if (!ink[i]) { hist[d[i * 4 + c]]++; m++; } return m ? Math.trunc(pctHist(hist, m, 50)) : 255; });
+    const o = { w: W, h: H, d: new Uint8ClampedArray(d) }, paint = i => { o.d[i * 4] = bg[0]; o.d[i * 4 + 1] = bg[1]; o.d[i * 4 + 2] = bg[2]; };
+    for (let i = 0; i < n; i++) if ((near[i] && g[i] > 110) || core[i]) paint(i);
+    const cc = PC.cc(PC.inkMask(o), W, H);
+    for (let i = 0; i < n; i++) { const l = cc.lab[i]; if (l && cc.st[l].area < 8) paint(i); }
+    // 赤字の形を読むための赤: 色相が赤のはっきりした画素だけ(にじみまで含めると線が太り、くさびの形などが崩れる)
+    const pen = new Uint8Array(n); for (let i = 0; i < n; i++) pen[i] = hsv[i] && !pr[i] ? 255 : 0;
+    return { O: o, core, pen, pr };
+  };
+
+  // ---- 色合わせ ----
+  // 文字のブロックの範囲
+  function region(blks, w, h) {
+    const m = new Uint8Array(w * h);
+    for (const b of blks) if (b.kind === 'htext' || b.kind === 'vtext') for (let y = b.box[1]; y < b.box[3]; y++) m.fill(1, y * w + b.box[0], y * w + b.box[2]);
+    return m;
+  }
+  // 文字の部分の、紙の色(明るい側)と文字の黒(暗い側)を色ごとに測る
+  function levels(img, tm) {
+    const g = PC.gray(img), d = img.d, n = img.w * img.h, gh = new Float64Array(256); let m = 0;
+    for (let i = 0; i < n; i++) if (tm[i]) { gh[g[i]]++; m++; }
+    if (!m) return [[255, 255, 255], [0, 0, 0]];
+    const paperG = pctHist(gh, m, 75), med = sel => [0, 1, 2].map(c => { const h = new Float64Array(256); let k = 0; for (let i = 0; i < n; i++) if (tm[i] && sel(g[i])) { h[d[i * 4 + c]]++; k++; } return k ? pctHist(h, k, 50) : 0; });
+    const paper = med(v => v >= paperG - 3);
+    const dh = new Float64Array(256); let dm = 0; for (let v = 0; v < 256; v++) if (v < paperG - 80) { dh[v] = gh[v]; dm += gh[v]; }
+    const darkG = dm > 100 ? pctHist(dh, dm, 20) : 0;
+    return [paper, med(v => v <= darkG + 10)];
+  }
+  // 修正後(RGBA)を色ごとに a*x+b で変換した実数の画像(RGB)
+  function tone(N, coef) {
+    const n = N.w * N.h, f = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) f[i * 3 + c] = Math.min(255, Math.max(0, coef[c][0] * N.d[i * 4 + c] + coef[c][1]));
+    return f;
+  }
+  function blurF3(f, w, h, sg) {
+    const m = new cv.Mat(h, w, cv.CV_32FC3), o = new cv.Mat();
+    m.data32F.set(f);
+    cv.GaussianBlur(m, o, new cv.Size(0, 0), sg, sg, cv.BORDER_DEFAULT);
+    const r = new Float32Array(o.data32F); m.delete(); o.delete();
+    return r;
+  }
+  const toU8 = (f, w, h) => { const n = w * h, d = new Uint8ClampedArray(n * 4); for (let i = 0; i < n; i++) { d[i * 4] = Math.round(f[i * 3]); d[i * 4 + 1] = Math.round(f[i * 3 + 1]); d[i * 4 + 2] = Math.round(f[i * 3 + 2]); d[i * 4 + 3] = 255; } return { w, h, d }; };
+
+  // ---- 字形の特徴 ----
+  // ガウスぼかし(端は鏡映。OpenCVと同じ大きさの重み)
+  function gaussK(sg) {
+    const n = (Math.round(sg * 8 + 1) | 1), r = (n - 1) / 2, k = new Float64Array(n); let s = 0;
+    for (let i = 0; i < n; i++) { k[i] = Math.exp(-((i - r) ** 2) / (2 * sg * sg)); s += k[i]; }
+    for (let i = 0; i < n; i++) k[i] /= s;
+    return k;
+  }
+  const r101 = (i, n) => (n === 1 ? 0 : i < 0 ? Math.min(n - 1, -i) : i >= n ? Math.max(0, 2 * n - 2 - i) : i);
+  function blurSmall(a, w, h, sg) {   // a: RGBの実数(3チャンネル)
+    const k = gaussK(sg), r = (k.length - 1) / 2, t = new Float32Array(a.length), o = new Float32Array(a.length);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 3; c++) { let s = 0; for (let q = -r; q <= r; q++) s += k[q + r] * a[(y * w + r101(x + q, w)) * 3 + c]; t[(y * w + x) * 3 + c] = s; }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 3; c++) { let s = 0; for (let q = -r; q <= r; q++) s += k[q + r] * t[(r101(y + q, h) * w + x) * 3 + c]; o[(y * w + x) * 3 + c] = s; }
+    return o;
+  }
+  // img: { w, h, d, ch } (ch=4: RGBAの整数、ch=3: RGBの実数)の矩形をRGBの実数で取り出す(範囲外は切り詰める)
+  function crop3(img, x0, y0, x1, y1) {
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(img.w, x1); y1 = Math.min(img.h, y1);
+    const w = Math.max(0, x1 - x0), h = Math.max(0, y1 - y0), o = new Float32Array(w * h * 3), C = img.ch;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const s = ((y0 + y) * img.w + x0 + x) * C, t = (y * w + x) * 3; o[t] = img.d[s]; o[t + 1] = img.d[s + 1]; o[t + 2] = img.d[s + 2]; }
+    return { a: o, w, h, x0, y0 };
+  }
+  // 字形の特徴: 枠ちょうどで切り出す(隣の字を入れない)。濃さ = 色ごとの「紙より暗い量」の最大を、字形の中の最大で割る。
+  //   sg>0 なら、この字形だけをぼかしてから(修正後の描画をスキャンに寄せる用)、gm で太さを寄せる。zone: 比べない画素(赤字の所)
+  //   halo: 赤ペンのにじみが届く範囲(スキャン側だけ)。そこで赤みのある画素は、赤の成分の濃さで測る
+  //   (赤チャンネルでは、赤いにじみはほぼ白、黒い字は黒のまま見える。字の上の赤のにじみに引きずられないように)
+  function feats(img, box, line, paper, zone, sg = 0, gm = 1, halo = null) {
+    let [x0, y0, x1, y1] = box;
+    x0 = Math.max(0, Math.round(x0)); y0 = Math.max(0, Math.round(y0)); x1 = Math.min(img.w, Math.round(x1)); y1 = Math.min(img.h, Math.round(y1));
+    if (x1 <= x0) x1 = Math.min(img.w, x0 + 1), x0 = x1 - 1;
+    if (y1 <= y0) y1 = Math.min(img.h, y0 + 1), y0 = y1 - 1;
+    const w = x1 - x0, h = y1 - y0;
+    let a;
+    if (sg > 0) {
+      const m = 4, big = crop3(img, x0 - m, y0 - m, x1 + m, y1 + m), bl = blurSmall(big.a, big.w, big.h, sg), ox = x0 - big.x0, oy = y0 - big.y0;
+      a = new Float32Array(w * h * 3);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 3; c++) a[(y * w + x) * 3 + c] = bl[((oy + y) * big.w + ox + x) * 3 + c];
+    } else a = crop3(img, x0, y0, x0 + w, y0 + h).a;
+    const n = w * h, dark = new Float32Array(n); let hi = 1;
+    for (let i = 0; i < n; i++) {
+      const r = a[i * 3], g = a[i * 3 + 1], b = a[i * 3 + 2];
+      let v = Math.max(paper[0] - r, paper[1] - g, paper[2] - b);
+      if (halo && halo[(y0 + Math.floor(i / w)) * img.w + x0 + (i % w)] && r - Math.max(g, b) > 15 && g - b < 40) v = paper[0] - r;
+      dark[i] = v; if (v > hi) hi = v;
+    }
+    const norm = new Float32Array(n); let ink = 0;
+    for (let i = 0; i < n; i++) { let c = Math.min(1, Math.max(0, dark[i] / hi)); if (gm !== 1) c = Math.pow(c, gm); norm[i] = 255 - 255 * c; ink += c; }
+    const off = line.vert ? (x0 + x1) / 2 - line.mid : (y0 + y1) / 2 - line.mid;
+    let mask = null, mf = 0;
+    if (zone) {
+      const z = new Float32Array(n); let any = 0;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (zone[(y0 + y) * img.w + x0 + x]) { z[y * w + x] = 1; any++; }
+      if (any) { mask = z; mf = any / n; }
+    }
+    return { h, w, off, norm: { d: norm, w, h }, small: PC.resizeArea(norm, w, h, 8, 8), ink, mask, mf };
+  }
+  const pre = (q, f, ink) => {
+    if (Math.abs(q.h - f.h) > 2 || Math.abs(q.w - f.w) > 2 || Math.abs(q.off - f.off) > 3) return false;
+    let s = 0; for (let k = 0; k < 64; k++) s += Math.abs(q.small[k] - f.small[k]);
+    return s / 64 <= 40 && Math.abs(q.ink - f.ink) <= ink * Math.max(q.ink, f.ink);
+  };
+
+  // ---- 字形どうしの差(赤字の所を除いて比べる) ----
+  // 0.33画素刻みで位置を合わせ(双線形補間はx・yに分けて計算できる)、5×5の範囲で平均した差の最大値の、いちばん小さいもの。
+  // ma(aの側)が1の画素は比べない。tol を渡すと、tol 未満が見つかった時点で打ち切る(「tol未満か」だけを使うとき)
+  const SH = [-1, -2 / 3, -1 / 3, 0, 1 / 3, 2 / 3, 1];
+  function shiftX(src, W, H, dx, dst) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const sx = x - dx, fx = Math.floor(sx), ax = sx - fx, r = y * W;
+      const p = fx >= 0 && fx < W ? src[r + fx] : 255, q = fx + 1 >= 0 && fx + 1 < W ? src[r + fx + 1] : 255;
+      dst[r + x] = (1 - ax) * p + ax * q;
+    }
+  }
+  function shiftY(src, W, H, dy, dst) {
+    for (let y = 0; y < H; y++) {
+      const sy = y - dy, fy = Math.floor(sy), ay = sy - fy, ok0 = fy >= 0 && fy < H, ok1 = fy + 1 >= 0 && fy + 1 < H;
+      for (let x = 0; x < W; x++) { const p = ok0 ? src[fy * W + x] : 255, q = ok1 ? src[(fy + 1) * W + x] : 255; dst[y * W + x] = (1 - ay) * p + ay * q; }
+    }
+  }
+  function box5(src, W, H, tmp, dst) {   // 5×5の平均(端は鏡映)。内側は折り返しの計算を省く
+    for (let y = 0; y < H; y++) {
+      const r = y * W;
+      for (let x = 0; x < W; x++) {
+        if (x >= 2 && x < W - 2) tmp[r + x] = src[r + x - 2] + src[r + x - 1] + src[r + x] + src[r + x + 1] + src[r + x + 2];
+        else { let s = 0; for (let k = -2; k <= 2; k++) s += src[r + r101(x + k, W)]; tmp[r + x] = s; }
+      }
+    }
+    for (let y = 0; y < H; y++) {
+      const r = y * W;
+      if (y >= 2 && y < H - 2) {
+        const a = r - 2 * W, b = r - W, c = r + W, d = r + 2 * W;
+        for (let x = 0; x < W; x++) dst[r + x] = (tmp[a + x] + tmp[b + x] + tmp[r + x] + tmp[c + x] + tmp[d + x]) / 25;
+      } else for (let x = 0; x < W; x++) { let s = 0; for (let k = -2; k <= 2; k++) s += tmp[r101(y + k, H) * W + x]; dst[r + x] = s / 25; }
+    }
+  }
+  // 作業用の配列は使い回す(字形の比較は数万回になるため)
+  let SCR = null;
+  const scratch = n => {
+    if (!SCR || SCR.n < n) { const m = Math.max(n, 8192), f = () => new Float32Array(m); SCR = { n: m, A: f(), B0: f(), M: f(), wb: f(), tmp: f(), bd: f(), D: f(), Bs: f(), BX: SH.map(f) }; }
+    return SCR;
+  };
+  const placeInto = (c, g, W, H) => { c.fill(255, 0, W * H); const oy = (H - g.h) >> 1, ox = (W - g.w) >> 1; for (let y = 0; y < g.h; y++) c.set(g.d.subarray(y * g.w, y * g.w + g.w), (oy + y) * W + ox); return c; };
+  PC.maskedDiff = (a, b, ma, tol = 0) => {
+    const H = Math.max(a.h, b.h) + 6, W = Math.max(a.w, b.w) + 6, n = W * H, S = scratch(n);
+    const A = placeInto(S.A, a, W, H), B0 = placeInto(S.B0, b, W, H), { tmp, bd, D, Bs } = S;
+    let M = null, wb = null;
+    if (ma) {
+      M = S.M; M.fill(1, 0, n); wb = S.wb;
+      const oy = (H - a.h) >> 1, ox = (W - a.w) >> 1;
+      for (let y = 0; y < a.h; y++) for (let x = 0; x < a.w; x++) M[(oy + y) * W + ox + x] = 1 - ma[y * a.w + x];
+      box5(M, W, H, tmp, wb);
+    }
+    // x方向にずらした版を先に作る(双線形補間はx・yに分けられる)
+    SH.forEach((dx, k) => shiftX(B0, W, H, dx, S.BX[k]));
+    let best = 1e9;
+    for (const dy of SH) for (let xi = 0; xi < SH.length; xi++) {
+      shiftY(S.BX[xi], W, H, dy, Bs);
+      if (M) for (let i = 0; i < n; i++) D[i] = Math.abs(A[i] - Bs[i]) * M[i];
+      else for (let i = 0; i < n; i++) D[i] = Math.abs(A[i] - Bs[i]);
+      box5(D, W, H, tmp, bd);
+      let mx = 0;
+      if (M) { for (let i = 0; i < n; i++) if (wb[i] >= 0.4) { const v = bd[i] / Math.max(wb[i], 1e-3); if (v > mx) mx = v; } }
+      else for (let i = 0; i < n; i++) if (bd[i] > mx) mx = bd[i];
+      if (mx < best) best = mx;
+      if (best < tol) return best;
+    }
+    return best;
+  };
+
+  // ---- スキャンの文字のブロック(修正後のブロックを手がかりにする) ----
+  // 赤字を消した跡(にじみ)で離れた文字どうしがつながらないよう、赤字のまわり(zone)を除いてブロックを作る。
+  // ブロックの向き(横組み・縦組み)と読む順番は、重なる修正後のブロックに合わせる(余白の書き込みなどで変わらないように)。
+  // 修正後のどのブロックにも重ならないブロック(余白の書き込み、修正後で消えた文章)は最後に読む
+  function guided(O, oink, nb, zone, w, h) {
+    const nlab = nb.lab, bOf = new Map(nb.map((b, k) => [b.cid, k])), gi = new Uint8Array(oink.length);
+    for (let i = 0; i < gi.length; i++) gi[i] = oink[i] && !zone[i] ? 1 : 0;
+    const text = b => b.kind === 'htext' || b.kind === 'vtext';
+    const ob = PC.blocks(O, gi, true), lab = ob.lab, byCid = new Map(ob.map(b => [b.cid, b]));
+    const norder = [...PC.xycut(nb.filter(b => b.kind === 'htext'), false), ...PC.xycut(nb.filter(b => b.kind === 'vtext'), true)];
+    const rank = new Map(norder.map((b, r) => [nb.indexOf(b), r]));
+    // スキャンのブロックごとに、いちばん多く重なる修正後のブロック
+    const votes = new Map();
+    for (let i = 0; i < gi.length; i++) if (gi[i] && lab[i] && nlab[i]) { const k = bOf.get(nlab[i]); if (k === undefined) continue; let m = votes.get(lab[i]); if (!m) votes.set(lab[i], m = new Map()); m.set(k, (m.get(k) || 0) + 1); }
+    const own = [...PC.xycut(ob.filter(b => b.kind === 'htext'), false), ...PC.xycut(ob.filter(b => b.kind === 'vtext'), true)];
+    const ownRank = new Map(own.map((b, r) => [b, r]));
+    for (const b of ob) {
+      let bk = -1, bc = 0; for (const [k, v] of votes.get(b.cid) || []) if (v > bc) { bc = v; bk = k; }
+      b.lid = b.cid;
+      if (bk >= 0 && text(nb[bk]) && text(b)) { b.kind = nb[bk].kind; b.rank = rank.get(bk); }
+      else b.rank = Infinity;
+    }
+    const order = ob.filter(text).sort((p, q) => (p.rank - q.rank) || ((ownRank.get(p) ?? 1e9) - (ownRank.get(q) ?? 1e9)));
+    // 赤字のまわりのインクは、そこを含むブロック(膨らませた範囲)に入れる
+    const olab = new Int32Array(w * h);
+    for (let i = 0; i < oink.length; i++) if (oink[i] && lab[i] && byCid.has(lab[i])) olab[i] = lab[i];
+    // 修正後の画素のブロック番号(ぼかした描画のインクが、ブロックの枠から少しはみ出しても拾えるように、膨らませた範囲で決める)
+    const nl2 = new Int32Array(w * h); for (let i = 0; i < nlab.length; i++) if (nlab[i]) { const k = bOf.get(nlab[i]); if (k !== undefined && text(nb[k])) nl2[i] = k + 1; }
+    return { oblocks: order, olab, norder: norder.map(b => ({ kind: b.kind, lid: nb.indexOf(b) + 1, box: b.box })), nlab: nl2 };
+  }
+  // 赤字を消した跡: ほとんど赤字の範囲に入っていて、行の高さに比べてとても細い字形(取り消し線・引き出し線のにじみ)
+  function dropRemnants({ toks, lines }, zone, w) {
+    const keep = toks.map(t => {
+      const L = lines[t.line], em = L.vert ? L.box[2] - L.box[0] : L.box[3] - L.box[1], [x0, y0, x1, y1] = t.box;
+      if (Math.min(x1 - x0, y1 - y0) > 0.3 * em) return true;
+      let z = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (zone[y * w + x]) z++;
+      return z < 0.85 * (x1 - x0) * (y1 - y0);
+    });
+    const idx = new Map(), T = [];
+    toks.forEach((t, k) => { if (keep[k]) { idx.set(k, T.length); T.push(t); } });
+    for (const l of lines) l.toks = l.toks.filter(k => keep[k]).map(k => idx.get(k));
+    for (const l of lines) if (l.toks.length) l.mid = median(l.toks.map(k => l.vert ? (T[k].box[0] + T[k].box[2]) / 2 : (T[k].box[1] + T[k].box[3]) / 2));
+    return { toks: T, lines };
+  }
+  // ブロックの番号ごとに、インクのある範囲
+  function boxesByLab(ink, lab, w) {
+    const bb = new Map();
+    for (let i = 0; i < ink.length; i++) if (ink[i] && lab[i]) {
+      const x = i % w, y = (i - x) / w; let q = bb.get(lab[i]);
+      if (!q) bb.set(lab[i], q = [x, y, x + 1, y + 1]);
+      else { if (x < q[0]) q[0] = x; if (y < q[1]) q[1] = y; if (x + 1 > q[2]) q[2] = x + 1; if (y + 1 > q[3]) q[3] = y + 1; }
+    }
+    return bb;
+  }
+
+  // ---- 1ページの照合 ----
+  //   W: 修正後に重ねたスキャン(RGBA)、N: 修正後の描画(RGBA)。どちらも200dpi・同じ大きさ
+  PC.ScanPage = class {
+    constructor(W, N, opt = {}) {
+      Object.assign(this, { tolS: 40, tolL: 45, tolM: 80 }, opt);
+      Object.assign(this, { W, N, w: N.w, h: N.h, Wi: { w: N.w, h: N.h, d: W.d, ch: 4 } });
+    }
+    // step(説明, 0〜1): 進み具合の表示
+    async init(step = () => {}) {
+      const { W, N, w, h } = this;
+      step('赤字を除いています', 0.05); await PC.tick();
+      const { O, core, pen, pr } = PC.cleanScan(W, N);
+      this.O = O; this.core = core; this.pen = pen; this.zone = morph(core, w, h, 'dilate', 11, 11);
+      // 赤ペンのにじみが届く範囲(印刷の赤のまわりは除く)
+      const far = morph(core, w, h, 'dilate', 21, 21), prd = morph(pr, w, h, 'dilate', 7, 7);
+      this.halo = new Uint8Array(w * h); for (let i = 0; i < far.length; i++) this.halo[i] = far[i] && !prd[i] ? 1 : 0;
+      const oink = PC.textInk(O); this.oink = oink; this.oblocks = PC.blocks(O, oink);
+      // 修正後の描画を、スキャンの紙の色・文字の黒に合わせる(赤字のまわりは測らない)
+      const nink = PC.textInk(N), nb = PC.blocks(N, nink, true), tO = region(this.oblocks, w, h), avoid = morph(core, w, h, 'dilate', 15, 15);
+      this.nblocks = nb;
+      for (let i = 0; i < tO.length; i++) if (avoid[i]) tO[i] = 0;
+      const [pO, iO] = levels(O, tO), [pN0, iN] = levels(N, region(nb, w, h)); this.iO = iO;
+      this.coef = [0, 1, 2].map(c => { const a = (pO[c] - iO[c]) / Math.max(1, pN0[c] - iN[c]); return [a, pO[c] - a * pN0[c]]; });
+      this.Nt = { w, h, d: tone(N, this.coef), ch: 3 };
+      this.pO = levels(W, region(this.oblocks, w, h))[0];
+      const g = guided(O, oink, nb, this.zone, w, h); this.norder = g.norder; this.nlab = g.nlab; this.gblocks = g.oblocks;
+      // 修正後の行(描画から求める)を、スキャンの行の切り分けの手がかりにする
+      const guide = PC.tokens(N, nink, g.norder, { ordered: true, lab: g.nlab }).lines.filter(l => l.toks.length).map(l => ({ box: l.box, vert: l.vert }));
+      ({ toks: this.ot, lines: this.ol } = dropRemnants(PC.tokens(O, oink, g.oblocks, { ordered: true, lab: g.olab, guide }), this.zone, w));
+      this.of = this.ot.map(t => feats(this.Wi, t.box, this.ol[t.line], this.pO, this.zone, 0, 1, this.halo));
+      // 赤字の指示が付いた字形(取り消し線・囲み・書き込み・挿入の両隣)。赤字で隠れて比べにくいので、ここだけは
+      // 「変わっていない」寄りに比べる(誤って「変わった」とすると、直っていない赤字を見逃すため)。
+      // 引き出し線がたまたま横切っただけの字は、ふつうの基準で比べる(本当の修正を見逃さないため)
+      this.instructed = new Set();
+      const pre0 = PC.anchors(morph(pen, w, h, 'open', 2, 2), w, h, this.ol.filter(l => l.toks.length), this.ot, this.oblocks.filter(b => b.kind === 'image')).an;
+      for (const a of pre0) {
+        if (a.kind === 'tokens') a.toks.forEach(k => this.instructed.add(k));
+        else if (a.kind === 'insert') [a.at - 1, a.at].forEach(k => { if (k >= 0 && k < this.ot.length) this.instructed.add(k); });
+      }
+      this.sg = 1.0; this.gm = 1.0;
+      await this.run(true, step, 0.1, 0.55);
+      // 2回目: 1回目で対応した字の組で、ぼけと太さを合わせ直す
+      step('ぼけ・太さを合わせています', 0.55); await PC.tick();
+      const pairs = [];
+      for (const [tag, i1, i2, j1] of this.ops) if (tag === 'equal') for (let q = 0; q < i2 - i1; q++) if (!this.of[i1 + q].mask) pairs.push([i1 + q, j1 + q]);
+      pairs.sort((p, q) => this.cmp(p[0], p[1]) - this.cmp(q[0], q[1]));
+      const P = pairs.slice(0, 80);
+      let best = null;
+      for (const sg of [0.7, 0.85, 1.0, 1.2, 1.4, 1.7]) for (const gm of [1.0, 0.85, 0.7]) {
+        let s = 0;
+        for (const [i, j] of P) s += PC.maskedDiff(this.of[i].norm, feats(this.Nt, this.nt[j].box, this.nl[this.nt[j].line], this.pN, null, sg, gm).norm, null);
+        s = P.length ? s / P.length : 0;
+        if (!best || s < best[0]) best = [s, sg, gm];
+        await PC.tick();
+      }
+      if (best[1] !== this.sg || best[2] !== this.gm) { this.sg = best[1]; this.gm = best[2]; await this.run(false, step, 0.6, 1); }
+      return this;
+    }
+    async run(first, step, f0, f1) {
+      const { w, h } = this, at = f => f0 + (f1 - f0) * f;
+      step('字形を照合しています', at(0)); await PC.tick();
+      this.Nsf = blurF3(this.Nt.d, w, h, this.sg);
+      const sim = toU8(this.Nsf, w, h), sink = PC.textInk(sim);
+      this.sim = sim;
+      if (first) this.pN = levels(sim, region(this.nblocks, w, h))[0];
+      const bb = boxesByLab(sink, this.nlab, w), nbk = this.norder.map(b => ({ ...b, box: bb.get(b.lid) || b.box }));
+      ({ toks: this.nt, lines: this.nl } = PC.tokens(sim, sink, nbk, { ordered: true, lab: this.nlab }));
+      this.nf = this.nt.map(t => feats(this.Nt, t.box, this.nl[t.line], this.pN, null, this.sg, this.gm));
+      this.cache = new Map();
+      // 修正後の字形に番号を振る(修正後どうしは描画なので厳しめで安定)
+      const protos = [], nids = [];
+      this.nf.forEach((f, j) => {
+        let k = protos.findIndex(p => pre(p.f, f, 0.15) && PC.maskedDiff(p.f.norm, f.norm, null, 30) < 30);
+        if (k < 0) { protos.push({ f, j }); k = protos.length - 1; }
+        nids.push(k);
+      });
+      // スキャンの字形は、修正後の番号のうちいちばん近いもの(厳しめ)
+      const oids = []; this.obest = [];
+      for (let i = 0; i < this.of.length; i++) {
+        const f = this.of[i]; let bd = 1e9, bk = -1;
+        // 形の粗い差が小さい順に比べ、とても近いもの(差15未満)が見つかれば打ち切る(修正後の字形は差30以上で別の番号なので、それより近い別の字はない)
+        const cand = [];
+        protos.forEach((p, k) => { if (pre(p.f, f, f.mask ? 1.0 : 0.25)) { let s = 0; for (let q = 0; q < 64; q++) s += Math.abs(p.f.small[q] - f.small[q]); cand.push([s, k]); } });
+        cand.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+        for (const [, k] of cand) { const d = PC.maskedDiff(f.norm, protos[k].f.norm, f.mask); if (d < bd) { bd = d; bk = k; } if (bd < 15) break; }
+        oids.push(bd < this.tolS ? bk : -1 - i); this.obest.push([bk, bd]);
+        if (i % 60 === 59) { step('字形を照合しています', at(0.1 + 0.5 * i / this.of.length)); await PC.tick(); }
+      }
+      this.protos = protos; this.oids = oids; this.nids = nids;
+      const firstOps = PC.opcodes(oids, nids);
+      // 行ごとの雑音の大きさ(1回目で同じとした字どうしの差の中央値)。基準はその2.6倍(35〜tolL)
+      const per = new Map();
+      for (const [tag, i1, i2, j1] of firstOps) if (tag === 'equal') for (let q = 0; q < i2 - i1; q++) {
+        const i = i1 + q; if (this.of[i].mask) continue;
+        const l = this.ot[i].line; if (!per.has(l)) per.set(l, []); per.get(l).push(this.cmp(i, j1 + q));
+      }
+      step('並びを比べています', at(0.65)); await PC.tick();
+      const allv = [].concat(...per.values()), pmed = allv.length ? median(allv) : 20, clip = (v, cap = this.tolL) => Math.min(cap, Math.max(35, v));
+      // 小さい字(行の高さ24画素未満、およそ8.5ポイント未満)は、スキャンの雑音が大きいので上限をゆるめる
+      const capOf = l => { const L = this.ol[l], e = L.vert ? L.box[2] - L.box[0] : L.box[3] - L.box[1]; return e >= 30 ? this.tolL : e <= 22 ? 70 : this.tolL + (70 - this.tolL) * (30 - e) / 8; };
+      this.thr = new Map(); for (const [l, vs] of per) this.thr.set(l, clip(2.6 * (vs.length >= 4 ? median(vs) : pmed), capOf(l)));
+      this.thrDef = clip(2.6 * pmed);
+      this.ops = [];
+      for (const op of firstOps) {
+        const [tag, i1, i2, j1, j2] = op;
+        if (tag === 'equal' || i2 === i1 || j2 === j1 || (i2 - i1) + (j2 - j1) > 3000 || (i2 - i1) * (j2 - j1) > 250000) { this.ops.push(op); continue; }
+        for (const [t2, a1, a2, b1, b2] of PC.opcodesBy(i2 - i1, j2 - j1, (x, y) => this.same(i1 + x, j1 + y))) this.ops.push([t2, i1 + a1, i1 + a2, j1 + b1, j1 + b2]);
+      }
+    }
+    th(i) { const l = this.ot[i].line; return this.thr.has(l) ? this.thr.get(l) : this.thrDef; }
+    same(i, j) {
+      const a = this.of[i], b = this.nf[j];
+      if (Math.abs(a.h - b.h) > 3 || Math.abs(a.w - b.w) > 3) return false;
+      return this.cmp(i, j) < (a.mask && this.instructed.has(i) ? this.tolM : this.th(i));
+    }
+    cmp(i, j) {
+      const key = i * 1048576 + j;
+      if (!this.cache.has(key)) this.cache.set(key, PC.maskedDiff(this.of[i].norm, this.nf[j].norm, this.of[i].mask));
+      return this.cache.get(key);
+    }
+    // 赤字でほとんど隠れた字形だけが並ぶ区間(小さい字の取り消し線など)は、字形を比べても決められない。
+    // スキャンと修正後で、その区間の端から端までの位置が同じなら「変わっていない」とみなす(「直っていない」の側に倒す)。
+    // 戻り値: 差分として扱わない op の番号の集合
+    heavyBlocks(H = 0.6) {
+      const { ops, ot, nt, ol, of } = this, off = new Map();
+      for (const [tag, i1, i2, j1] of ops) if (tag === 'equal') for (let q = 0; q < i2 - i1; q++) {
+        const i = i1 + q; if (of[i].mask) continue;
+        const l = ot[i].line; if (!off.has(l)) off.set(l, []); off.get(l).push([ot[i].box[0] - nt[j1 + q].box[0], ot[i].box[1] - nt[j1 + q].box[1]]);
+      }
+      const lo = l => off.has(l) ? [median(off.get(l).map(v => v[0])), median(off.get(l).map(v => v[1]))] : [0, 0];
+      const nbox = (j, l) => { const [dx, dy] = lo(l), b = nt[j].box; return [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy]; };
+      const hn = (j, l) => {
+        const [x0, y0, x1, y1] = nbox(j, l).map(Math.round); let s = 0, c = 0;
+        for (let y = Math.max(0, y0); y < Math.min(this.h, y1); y++) for (let x = Math.max(0, x0); x < Math.min(this.w, x1); x++) { s += this.zone[y * this.w + x] ? 1 : 0; c++; }
+        return c > 0 && s / c >= H;
+      };
+      // 赤字でほとんど隠れた字形。赤字のそばで欠けて小さくなった字のかけら(行の高さの6割未満)も含める
+      const em = i => { const L = ol[ot[i].line]; return L.vert ? L.box[2] - L.box[0] : L.box[3] - L.box[1]; };
+      const ho = i => of[i].mask && (of[i].mf >= H || (of[i].mf >= 0.2 && (ol[ot[i].line].vert ? of[i].w : of[i].h) < 0.6 * em(i)));
+      const oline = k => {
+        const [, i1, i2] = ops[k];
+        if (i2 > i1) { const ls = new Set(ot.slice(i1, i2).map(t => t.line)); return ls.size === 1 ? [...ls][0] : null; }
+        return i1 > 0 ? ot[i1 - 1].line : i1 < ot.length ? ot[i1].line : null;
+      };
+      const ok = (k, l) => {
+        const [, i1, i2, j1, j2] = ops[k];
+        if (l === null) return false;
+        for (let i = i1; i < i2; i++) if (ot[i].line !== l || !ho(i)) return false;
+        if (new Set(nt.slice(j1, j2).map(t => t.line)).size > 1) return false;
+        for (let j = j1; j < j2; j++) if (!hn(j, l)) return false;
+        return true;
+      };
+      const drop = new Set();
+      for (let k = 0; k < ops.length;) {
+        if (ops[k][0] === 'equal' || !ok(k, oline(k))) { k++; continue; }
+        const l = oline(k); let a = k, b = k;
+        while (a > 0 && ok(a - 1, l) && ops[a - 1][2] - ops[a - 1][1] + ops[a - 1][4] - ops[a - 1][3] > 0) a--;
+        while (b + 1 < ops.length && ok(b + 1, l)) b++;
+        const ob = [], nb = [];
+        for (let q = a; q <= b; q++) { const [, i1, i2, j1, j2] = ops[q]; for (let i = i1; i < i2; i++) ob.push(ot[i].box); for (let j = j1; j < j2; j++) nb.push(nbox(j, l)); }
+        // 字の数が合わない区間(赤字で字が欠けて切り分けが崩れた所)だけを対象にする。1字ずつ対応する所は、見えている部分の差を信じる
+        let uneven = false; for (let q = a; q <= b; q++) if (ops[q][2] - ops[q][1] !== ops[q][4] - ops[q][3]) uneven = true;
+        if (uneven && ob.length && nb.length) {
+          // 区間のすぐ前・すぐ後の対応した字のずれ(行に沿った向き)で、修正後の位置をスキャンの位置に直して比べる。
+          // 前後でずれが違えば、区間の中で字数が変わった(文章が詰まった・延びた)ということなので、変わっていないとはみなさない
+          const L = ol[l], em = L.vert ? L.box[2] - L.box[0] : L.box[3] - L.box[1], [s0, s1] = L.vert ? [1, 3] : [0, 2];
+          const near = (q, dir) => {
+            for (let k2 = q + dir; k2 >= 0 && k2 < ops.length; k2 += dir) {
+              const [t, i1, i2, j1, j2] = ops[k2];
+              if (t !== 'equal' || i2 === i1) continue;
+              const i = dir < 0 ? i2 - 1 : i1, j = dir < 0 ? j2 - 1 : j1;
+              return ot[i].line === l ? ot[i].box[s0] - nt[j].box[s0] : null;
+            }
+            return null;
+          };
+          let dl = near(a, -1), dr = near(b, 1);
+          if (dl === null && dr === null) dl = dr = lo(l)[L.vert ? 1 : 0];
+          else if (dl === null) dl = dr; else if (dr === null) dr = dl;
+          const u = union(ob), v = union(nb), base = lo(l)[L.vert ? 1 : 0];   // nb は行の中央値でずらしてあるので戻す
+          const v0 = v[s0] - base + dl, v1 = v[s1] - base + dr;
+          if (Math.abs(dl - dr) <= 0.4 * em && Math.abs(u[s0] - v0) <= 0.5 * em && Math.abs(u[s1] - v1) <= 0.5 * em) for (let q = a; q <= b; q++) if (ops[q][0] !== 'equal') drop.add(q);
+        }
+        k = b + 1;
+      }
+      return drop;
+    }
+    // 赤以外の書き込み(鉛筆・黒ペンなど)の字形: 修正後のどのブロックにも重ならないブロックで、修正後の字とほとんど形が合わないもの
+    handwriting() {
+      const blk = new Map(this.gblocks.map(b => [b.box.join(','), b])), hw = new Set(), per = new Map();
+      this.ot.forEach((t, i) => {
+        const b = blk.get(this.ol[t.line].blk.join(','));
+        if (!b || b.rank !== Infinity) return;
+        if (!per.has(b)) per.set(b, []);
+        per.get(b).push(i);
+      });
+      for (const ks of per.values()) if (ks.filter(i => this.obest[i][1] < 60).length < 0.3 * ks.length) ks.forEach(i => hw.add(i));
+      return hw;
+    }
+    // ---- 1段目: 違いの候補をすべて挙げる ----
+    // [{ tag, oi: [i1, i2], nj: [j1, j2], pj, obox, nbox, hw, heavy }]
+    //   hw: 赤以外の書き込みだけの候補、heavy: 赤字で字がほとんど隠れていて、前後の位置が合う候補
+    candidates() {
+      const out = [], drop = this.heavyBlocks(), { ot, nt } = this, hw = this.hw || (this.hw = this.handwriting());
+      const ops = [];   // 書き込みの字形は、ほかの字形と別の候補にする
+      for (const op of this.ops) {
+        const [tag, i1, i2, j1, j2] = op;
+        if (tag === 'equal' || i2 === i1) { ops.push(op); continue; }
+        let a = i1; const mixed = [];
+        for (let i = i1 + 1; i <= i2; i++) if (i === i2 || hw.has(i) !== hw.has(a)) { mixed.push([a, i, hw.has(a)]); a = i; }
+        if (mixed.length === 1) { ops.push(op); continue; }
+        const rest = mixed.filter(m => !m[2]);
+        for (const [a1, a2, isHw] of mixed) if (isHw) ops.push(['delete', a1, a2, j1, j1]);
+        if (rest.length) ops.push([j2 > j1 ? 'replace' : 'delete', rest[0][0], rest[rest.length - 1][1], j1, j2]);
+        else if (j2 > j1) ops.push(['insert', i2, i2, j1, j2]);
+      }
+      ops.forEach(([tag, i1, i2, j1, j2]) => {
+        if (tag === 'equal') return;
+        const c = { tag, oi: [i1, i2], nj: [j1, j2], pj: j1 > 0 ? j1 - 1 : null, obox: i2 > i1 ? union(ot.slice(i1, i2).map(t => t.box)) : null, nbox: j2 > j1 ? union(nt.slice(j1, j2).map(t => t.box)) : null };
+        c.hw = i2 > i1 && j2 === j1 && ot.slice(i1, i2).every((t, k) => hw.has(i1 + k));
+        c.heavy = this.ops.some((o, q) => drop.has(q) && o[1] === i1 && o[2] === i2 && o[3] === j1 && o[4] === j2);
+        const p = out[out.length - 1];   // 同じ行で1字以内に隣り合う候補はまとめる(書き込みどうし・それ以外どうしだけ)
+        if (p && p.hw === c.hw && i1 - p.oi[1] <= 1 && j1 - p.nj[1] <= 1 && p.oi[1] > 0 && i1 < ot.length && ot[i1].line === ot[p.oi[1] - 1].line) {
+          p.oi = [p.oi[0], i2]; p.nj = [p.nj[0], j2]; p.tag = 'replace'; p.heavy = p.heavy && c.heavy;
+          p.obox = union([p.obox, c.obox].filter(Boolean)); p.nbox = union([p.nbox, c.nbox].filter(Boolean));
+        } else out.push(c);
+      });
+      return out;
+    }
+    // ---- 2段目: 候補ごとに、本当に違うかを別の方法で確かめ直す ----
+    // 誤検出と確かめられた候補だけを消し、確かめられないものは残す(見逃しを出さないため)。
+    // 戻り値: 誤検出なら、その理由。残すなら null
+    verify(c, log = null) {
+      const no = m => { if (log) log.push(m); return null; };
+      if (c.hw) return '赤以外の書き込み';
+      if (c.heavy) return '赤字で字が隠れているが、前後の字の位置が合う';
+      const { ot, nt, ol, nl } = this, [i1, i2] = c.oi, [j1, j2] = c.nj;
+      if (j2 === j1) return no('修正後にない字');   // 修正後にない字(消えた字)は、そのまま残す
+      // 修正後の字を行ごとに分け、それぞれスキャンのどこに重なるかを探す
+      const segs = []; for (let j = j1; j < j2; j++) { const s = segs[segs.length - 1]; if (s && nt[s[s.length - 1]].line === nt[j].line) s.push(j); else segs.push([j]); }
+      const pairs = this.pairList || (this.pairList = this.pairs());
+      const off = (i, j) => [ot[i].box[0] - nt[j].box[0], ot[i].box[1] - nt[j].box[1]];
+      const marked = ot.slice(i1, i2).some((t, k) => this.of[i1 + k].mask && this.instructed.has(i1 + k));
+      const th = i1 < i2 ? this.th(i1) : this.thrDef, boxes = [];
+      for (const js of segs) {
+        const L = nl[nt[js[0]].line], em = L.vert ? L.box[2] - L.box[0] : L.box[3] - L.box[1], ax = L.vert ? 1 : 0;
+        // 前後の対応した字(同じ行)のずれ。前と後でずれが違えば、間で字数が変わった(本当の挿入・削除)
+        let before = null, after = null;
+        for (const [i, j] of pairs) { if (j < js[0] && nt[j].line === nt[js[0]].line) before = [i, j]; if (j > js[js.length - 1] && nt[j].line === nt[js[0]].line && !after) after = [i, j]; }
+        const sameO = q => q && (i1 >= i2 || ot[q[0]].line === ot[Math.min(Math.max(i1, 0), ot.length - 1)].line);
+        const dl = before && sameO(before) ? off(...before) : null, dr = after && sameO(after) ? off(...after) : null;
+        if (dl && dr && Math.abs(dl[ax] - dr[ax]) > 0.4 * em) return no(`前後のずれが違う ${dl} ${dr}`);
+        // ずれの見込みは複数試す(前後の字の対応がずれていることがあるため): 前後の字のずれ・区間どうしの重なり・ずれなし
+        const bases = [dl, dr, [0, 0]];
+        if (i1 < i2) { const ob = union(ot.slice(i1, i2).map(t => t.box)), nb = union(js.map(j => nt[j].box)); bases.push([ob[0] - nb[0], ob[1] - nb[1]]); }
+        let at = null;
+        for (const b0 of bases) { if (!b0) continue; const r = this.locate(js, b0); if (r && (!at || r[2] < at[2])) at = r; }
+        if (!at) return no('位置が見つからない');
+        for (const j of js) {
+          const [x0, y0, x1, y1] = nt[j].box, b = [x0 + at[0], y0 + at[1], x1 + at[0], y1 + at[1]], f = feats(this.Wi, b, nl[nt[j].line], this.pO, this.zone, 0, 1, this.halo);
+          const dd = PC.maskedDiff(f.norm, this.nf[j].norm, f.mask);
+          if (dd >= (f.mask && marked ? this.tolM : th)) return no(`字${j}の差 ${dd.toFixed(0)} 基準 ${th.toFixed(0)} ずれ ${at}`);
+          boxes.push(b);
+        }
+      }
+      // スキャン側に、修正後の字では説明できないインク(消えた字・増えた記号)がないか。ごく薄いインク(鉛筆など)は数えない
+      if (i1 < i2) {
+        const { w } = this, cov = (x, y) => boxes.some(b => x >= b[0] - 2 && x < b[2] + 2 && y >= b[1] - 2 && y < b[3] + 2);
+        const dark = (this.pO[0] + this.pO[1] + this.pO[2] - this.iO[0] - this.iO[1] - this.iO[2]) / 3;
+        let all = 0, rest = 0;
+        for (let i = i1; i < i2; i++) {
+          const [x0, y0, x1, y1] = ot[i].box;
+          for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+            const g = y * w + x; if (!this.oink[g] || this.zone[g]) continue;
+            const d = this.W.d, v = Math.max(this.pO[0] - d[g * 4], this.pO[1] - d[g * 4 + 1], this.pO[2] - d[g * 4 + 2]);
+            if (v < 0.35 * dark) continue;
+            all++; if (!cov(x, y)) rest++;
+          }
+        }
+        if (rest > Math.max(12, (marked ? 0.06 : 0.03) * all)) return no(`説明できないインク ${rest}/${all}`);
+      }
+      return '字の切り分け・位置の違い(同じ字)';
+    }
+    // 修正後の字の並び js を、スキャンのどこに重なるか。base(ずれの見込み)のまわり±6画素で、赤字の所を除いていちばん合う位置
+    locate(js, base) {
+      const { nt, W, w, h } = this, nb = union(js.map(j => nt[j].box)), bw = nb[2] - nb[0], bh = nb[3] - nb[1];
+      if (bw <= 0 || bh <= 0) return null;
+      const A = new Float32Array(bw * bh);
+      for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+        const s = ((nb[1] + y) * w + nb[0] + x) * 3, v = Math.max(this.pN[0] - this.Nsf[s], this.pN[1] - this.Nsf[s + 1], this.pN[2] - this.Nsf[s + 2]);
+        A[y * bw + x] = 255 - 255 * Math.min(1, Math.max(0, v / 200));
+      }
+      let best = null;
+      for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) {
+        const x0 = nb[0] + Math.round(base[0]) + dx, y0 = nb[1] + Math.round(base[1]) + dy;
+        if (y0 < 0 || x0 < 0 || y0 + bh > h || x0 + bw > w) continue;
+        let s = 0, c = 0;
+        for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+          const g = (y0 + y) * w + x0 + x; if (this.zone[g]) continue;
+          const r = W.d[g * 4], gg = W.d[g * 4 + 1], bb = W.d[g * 4 + 2];
+          const v = this.halo[g] && r - Math.max(gg, bb) > 15 && gg - bb < 40 ? this.pO[0] - r : Math.max(this.pO[0] - r, this.pO[1] - gg, this.pO[2] - bb);
+          s += Math.abs(A[y * bw + x] - (255 - 255 * Math.min(1, Math.max(0, v / 200)))); c++;
+        }
+        const e = c ? s / c : 0;
+        if (!best || e < best[0]) best = [e, x0 - nb[0], y0 - nb[1]];
+      }
+      return best ? [best[1], best[2], best[0]] : null;
+    }
+    // 差分の一覧(1段目の候補のうち、2段目で誤検出と確かめられなかったもの)。消した候補と理由は removed に残す
+    changes() {
+      const all = this.candidates(), ok = all.map(c => this.verify(c));
+      this.removed = [];
+      // 残った候補は、隣り合う候補(間に対応した字が1つ以下。2段目で消えたものも含む)とまとめても確かめる
+      // (字の切れ方の違いで、ずれが前後の候補に分かれることがあるため)
+      const near = (p, q) => !p.hw && !q.hw && q.oi[0] - p.oi[1] <= 1 && q.nj[0] - p.nj[1] <= 1;
+      all.forEach((c, k) => {
+        if (ok[k] || c.hw) return;
+        for (let span = 1; span <= 3 && !ok[k]; span++) for (let a = k - span; a <= k && !ok[k]; a++) {
+          const b = a + span; if (a < 0 || b >= all.length) continue;
+          let linked = true; for (let q = a; q < b; q++) if (!near(all[q], all[q + 1])) linked = false;
+          if (!linked) continue;
+          const why = this.verify({ tag: 'replace', oi: [all[a].oi[0], all[b].oi[1]], nj: [all[a].nj[0], all[b].nj[1]] });
+          if (why) ok[k] = why + '（前後の候補とまとめて確認）';
+        }
+      });
+      const out = [];
+      all.forEach((c, k) => { if (ok[k]) this.removed.push({ c, why: ok[k] }); else out.push(c); });
+      return out;
+    }
+    // 見た目で対応づいた字形の組 [スキャンの番号, 修正後の番号]
+    pairs() { const P = []; for (const [tag, i1, i2, j1] of this.ops) if (tag === 'equal') for (let q = 0; q < i2 - i1; q++) P.push([i1 + q, j1 + q]); return P; }
+    // 写真・図版: スキャン(赤字を消したもの)の画像を、修正後(スキャンに寄せた描画)から探す。相関0.9以上で見つかれば変化なし/移動
+    imageChanges() {
+      const { w, h } = this, out = [], og = PC.gray(this.O), ng = PC.toMat(PC.gray(this.sim), w, h);
+      const iou = (a, c) => Math.max(0, Math.min(a[2], c[2]) - Math.max(a[0], c[0])) * Math.max(0, Math.min(a[3], c[3]) - Math.max(a[1], c[1]));
+      for (const b of this.oblocks.filter(x => x.kind === 'image')) {
+        const [x0, y0, x1, y1] = b.box, t = PC.sub(og, w, x0, y0, x1, y1, h), tpl = PC.toMat(t.a, t.w, t.h), res = new cv.Mat();
+        cv.matchTemplate(ng, tpl, res, cv.TM_CCOEFF_NORMED);
+        const mm = cv.minMaxLoc(res); tpl.delete(); res.delete();
+        if (mm.maxVal >= 0.9) {
+          if (Math.abs(mm.maxLoc.x - x0) <= 6 && Math.abs(mm.maxLoc.y - y0) <= 6) continue;
+          out.push({ kind: 'moved', obox: b.box, nbox: [mm.maxLoc.x, mm.maxLoc.y, mm.maxLoc.x + x1 - x0, mm.maxLoc.y + y1 - y0] }); continue;
+        }
+        let best = null; for (const c of this.nblocks.filter(x => x.kind === 'image')) if (!best || iou(b.box, c.box) > iou(b.box, best.box)) best = c;
+        if (!best || iou(b.box, best.box) === 0) { out.push({ kind: 'removed', obox: b.box }); continue; }
+        out.push({ kind: 'changed', obox: b.box, nbox: best.box });
+      }
+      ng.delete();
+      return out;
+    }
+    // 照合のあとは使わない大きな画像を手放す
+    release() { this.Nt = this.Nsf = this.sim = this.N = this.oink = this.halo = null; this.cache = null; }
+  };
+})();
+
 // ---- analyze.js ----
-// 照合の本体: 初校 × 朱書き(紙スキャン/デジタル注釈) × 修正後 → 要確認箇所の一覧
+// 照合の本体: 赤字原稿(紙のスキャン/注釈を入れたPDF) × 修正後PDF → 要確認箇所の一覧
 'use strict';
 (function () {
   const { ov, union } = PC;
   PC.CAT = {
     A: '赤字あり・変更あり（内容を人が確認）', A_IMG: '赤字あり・画像の変更あり（人が確認）',
     B: '赤字あり・変更なし（修正漏れの疑い）', B2: '続きの赤字（軽）',
-    C1: '全体指示・以下同様で説明できる変更', C2: '指示外の変更（文字・組み）', C3: '指示外の変更（画像・図版・色・位置）',
-    D: '全体指示・以下同様の展開', E: '見た目では差が出ない文字データの変更',
+    C1: '全体・以下同様で説明できる変更', C2: '指示外の変更（文字・組み）', C3: '指示外の変更（画像・図版・色・位置）',
+    D: '全体・以下同様の直し忘れの候補', E: '見た目では分からない文字の違い',
     F: '指示箇所に結びつかない赤字（人が読む）', F2: '引き出し線・注記（指示箇所に付随）', G: '全体指示として読み取った注記',
-    M: 'ママ・イキ（変更しない指示）どおり変更なし',
+    M: 'ママ・イキ（変更しない指示）どおり変更なし', H: '赤以外の書き込み（鉛筆・黒など）',
   };
   const KEEP = /ママ|イキ/;
 
@@ -1133,7 +1861,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const b = q[1]; return vert ? [b[0], b[1] - 2, b[2], b[1] + 2] : [b[0] - 2, b[1], b[0] + 2, b[3]];
   }
   // ピンポイントの違い: 変わった範囲の文字データを比べ、違う字だけを取り出す(表示用の並びと、違う字の位置)
-  //   segs: [['=', 同じ字], ['-', 初校だけの字], ['+', 修正後だけの字], ...]。前後の字(ctx)も添える
+  //   segs: [['=', 同じ字], ['-', 修正前だけの字], ['+', 修正後だけの字], ...]。前後の字(ctx)も添える
   function pinDiff(A, B, pre, post) {
     const ops = PC.opcodes(A.map(c => c[0]), B.map(c => c[0])), segs = [], ob = [], nb = [];
     const str = (X, i, j) => X.slice(i, j).map(c => c[0]).join('');
@@ -1151,13 +1879,20 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 
   // 文字の並び(コードポイント単位)の中から、文字列sの出現位置をすべて探す
   function findAll(cs, s) {
+    if (s instanceof RegExp) {   // 型で探す(1字=1要素の並びを文字列にして、一致した範囲を要素の番号に戻す)
+      const str = cs.map(c => c[0]).join(''), pos = [], out = []; let k = 0;
+      cs.forEach(c => { pos.push(k); k += c[0].length; }); pos.push(k);
+      const at = new Map(pos.map((v, i) => [v, i]));
+      for (const m of str.matchAll(new RegExp(s.source, 'gu'))) { const a = at.get(m.index), b = at.get(m.index + m[0].length); if (a !== undefined && b !== undefined && b > a) out.push([a, b]); }
+      return out;
+    }
     const target = [...s], n = target.length, out = [];
     if (!n) return out;
     for (let i = 0; i + n <= cs.length; i++) { let ok = true; for (let k = 0; k < n && ok; k++) ok = cs[i + k][0] === target[k]; if (ok) out.push([i, i + n]); }
     return out;
   }
 
-  // 初校と修正後で字形の並びがまったく同じブロック(位置が近いもの同士を組にする)
+  // 修正前と修正後で字形の並びがまったく同じブロック(位置が近いもの同士を組にする)
   function sameBlocks(ot, ol, nt, nl, oids, nids) {
     const perBlock = (T, L, ids) => {
       const d = new Map();
@@ -1187,107 +1922,249 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     return out;
   }
 
-  // 表示用の画像(初校＋赤字を薄く／修正後を薄く)をJPEGにして手放す
+
+  // 表示用の画像(赤字原稿を薄く／修正後を薄く)をJPEGにして手放す
+  const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
   async function toThumb(img) {
-    const c = PC.toCanvas(img);
+    const c = PC.toCanvas(blend(img));
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
     return { url: URL.createObjectURL(blob), w: img.w, h: img.h };
   }
 
-  // opts: { oldDoc, newDoc, mode: 'scan'|'digital'|'none', scans(PC.scanSource), annDoc, rules, progress(msg, frac) }
+  // 差分に、文字(修正前→修正後)とピンポイントの違いを付ける(注釈PDF・スキャン共通)
+  function describe(ch, ot, ol, nt, nl, oc, nc) {
+    const tt = (cs, T, a, b) => { let s = ''; for (let k = Math.max(0, a); k < Math.min(T.length, b); k++) s += tokText(cs, T[k].box); return s; };
+    for (const c of ch) {
+      if (!c.obox) { const k = Math.max(0, c.oi[0] - 1), b = ot[k].box; c.obox = ol[ot[k].line].vert ? [b[0], b[3] - 3, b[2], b[3] + 3] : [b[2] - 3, b[1], b[2] + 3, b[3]]; }
+      if (!c.nbox && (c.pj !== null || c.nj[0] < nt.length)) {
+        if (c.pj !== null) { const b = nt[c.pj].box; c.nbox = nl[nt[c.pj].line].vert ? [b[0], b[3] - 3, b[2], b[3] + 3] : [b[2] - 3, b[1], b[2] + 3, b[3]]; }
+        else { const b = nt[c.nj[0]].box; c.nbox = nl[nt[c.nj[0]].line].vert ? [b[0], b[1] - 3, b[2], b[1] + 3] : [b[0] - 3, b[1], b[0] + 3, b[3]]; }
+      }
+      c.kind = 'text';
+      c.before = tt(oc, ot, c.oi[0], c.oi[1]); c.after = tt(nc, nt, c.nj[0], c.nj[1]);
+      c.show = `${tt(oc, ot, c.oi[0] - 1, c.oi[1] + 1)}→${tt(nc, nt, c.nj[0] - 1, c.nj[1] + 1)}`;
+      c.nline = nl.filter(l => l.toks.length && c.nbox && ov(l.box, c.nbox)).map(l => tt(nc, nt, l.toks[0], l.toks[l.toks.length - 1] + 1)).join('');
+      const A = tokChars(oc, ot, c.oi[0], c.oi[1]), B = tokChars(nc, nt, c.nj[0], c.nj[1]);
+      if (A.length || B.length) c.diff = pinDiff(A, B, tokChars(oc, ot, c.oi[0] - 6, c.oi[0]), tokChars(oc, ot, c.oi[1], c.oi[1] + 6));   // 文字データがなければ作らない
+    }
+  }
+  // 指示に使われなかった赤字のまとまり(注記・印鑑など)
+  //   書き込みの字の間(全角の空き)でまとまりが分かれないよう、横に広めに膨らませてまとめる。
+  //   丸の中に字がある印鑑(閉じた輪で、中に印刷の字がない)は stamp とする
+  function restBoxesOf(rm, used, w, h) {
+    const rest = new Uint8Array(rm.length); for (let k = 0; k < rm.length; k++) rest[k] = rm[k] && !used[k] ? 1 : 0;
+    const rc = PC.cc(PC.morph(rest, w, h, 'dilate', 45, 25), w, h), comps = new Map();
+    for (let i = 0; i < rest.length; i++) if (rest[i]) { const l = rc.lab[i]; let c = comps.get(l); if (!c) comps.set(l, c = []); c.push(i); }
+    const out = [];
+    for (const [j, px] of comps) {
+      if (px.length < 60) continue;
+      const s = rc.st[j], b = [s.x0, s.y0, s.x1 + 1, s.y1 + 1];
+      const bw = b[2] - b[0], bh = b[3] - b[1];
+      let stamp = false;
+      if (bw >= 60 && bh >= 60 && bw < 3.5 * PC.DPI / 2.54 && bh < 3.5 * PC.DPI / 2.54 && bw / bh > 0.7 && bw / bh < 1.4) {   // 3.5cm角までの丸いもの
+        const m = new Uint8Array(bw * bh); for (const i of px) m[(Math.floor(i / w) - b[1]) * bw + (i % w) - b[0]] = 255;
+        const cm = PC.toMat(PC.morph(m, bw, bh, 'close', 5, 5), bw, bh), cn = new cv.MatVector(), hi = new cv.Mat();
+        cv.findContours(cm, cn, hi, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
+        for (let k = 0; k < cn.size(); k++) { const c = cn.get(k); if (hi.intPtr(0, k)[3] >= 0 && cv.contourArea(c) >= 0.25 * bw * bh) stamp = true; c.delete(); }
+        cm.delete(); cn.delete(); hi.delete();
+      }
+      out.push({ box: b, px, stamp });
+    }
+    return out;
+  }
+  // 指示箇所(赤字)につながる書き込みのうち、指示箇所からいちばん遠い所(引き出し線の先)のまわり = 何に直すかの書き込み
+  function noteBoxOf(r, abox, w) {
+    const cx = (abox[0] + abox[2]) / 2, cy = (abox[1] + abox[3]) / 2; let fx = 0, fy = 0, fd = -1;
+    for (const i of r.px) { const x = i % w, y = Math.floor(i / w), d = (x - cx) ** 2 + (y - cy) ** 2; if (d > fd) { fd = d; fx = x; fy = y; } }
+    let b = null;
+    for (const i of r.px) { const x = i % w, y = Math.floor(i / w); if (Math.abs(x - fx) > 260 || Math.abs(y - fy) > 260) continue; b = b ? [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x + 1), Math.max(b[3], y + 1)] : [x, y, x + 1, y + 1]; }
+    return b;
+  }
+  const imageShow = c => { c.show = { changed: '画像・図版の変化', moved: '画像・図版の移動', removed: '画像・図版の削除' }[c.kind]; };
+
+  // 注釈を入れたPDFのページ: 注釈を消した描画が修正前、注釈ありとの描画の差が赤字
+  async function annotPage(src, p, nw, nc, cb, step) {
+    const { doc, i } = src.page(p);
+    const old = await PC.renderPage(doc, i, PC.DPI, false), oc = await PC.textChars(doc, i);
+    step('文字のまとまりを解析', 0.1); await PC.tick();
+    const oink = PC.textInk(old), nink = PC.textInk(nw);
+    const ob = PC.blocks(old, oink), nb = PC.blocks(nw, nink);
+    const { toks: ot, lines: ol } = PC.tokens(old, oink, ob), { toks: nt, lines: nl } = PC.tokens(nw, nink, nb);
+    step('字形を照合', 0.25); await PC.tick();
+    const oids = [], nids = [];
+    for (let k = 0; k < ot.length; k++) { oids.push(cb.id(old, ot[k], ol[ot[k].line])); if (k % 80 === 79) await PC.tick(); }
+    for (let k = 0; k < nt.length; k++) { nids.push(cb.id(nw, nt[k], nl[nt[k].line])); if (k % 80 === 79) await PC.tick(); }
+    step('変更箇所を検出', 0.55); await PC.tick();
+    const sk = sameBlocks(ot, ol, nt, nl, oids, nids), lookPairs = [], ch = PC.textChanges(cb, ot, nt, oids, nids, old, nw, ol, nl, sk, lookPairs);
+    const oi_ = [], ni_ = []; for (let k = 0; k < oids.length; k++) if (!sk[0].has(k)) oi_.push(k); for (let k = 0; k < nids.length; k++) if (!sk[1].has(k)) ni_.push(k);
+    const pairs = PC.pairs(oi_.map(k => oids[k]), ni_.map(k => nids[k])).map(([a, b]) => [oi_[a], ni_[b]]);
+    if (sk[0].size === sk[1].size) { const a = [...sk[0]].sort((x, y) => x - y), b = [...sk[1]].sort((x, y) => x - y); a.forEach((k, i) => pairs.push([k, b[i]])); }
+    const merged = [];   // 同じ行で1字以内に隣接する差分は1件にまとめる
+    for (const c of ch) {
+      const q = merged[merged.length - 1];
+      if (q && c.oi[0] - q.oi[1] <= 1 && c.nj[0] - q.nj[1] <= 1 && q.oi[1] > 0 && c.oi[0] < ot.length && ot[c.oi[0]].line === ot[q.oi[1] - 1].line) {
+        q.oi = [q.oi[0], c.oi[1]]; q.nj = [q.nj[0], c.nj[1]]; q.tag = 'replace';
+        q.obox = union([q.obox, c.obox].filter(Boolean)); q.nbox = union([q.nbox, c.nbox].filter(Boolean));
+      } else merged.push(c);
+    }
+    describe(merged, ot, ol, nt, nl, oc, nc);
+    merged.push(...layoutChanges(ot, ol, nt, nl, pairs));
+    const im = PC.imageChanges(old, nw, ob, nb); im.forEach(imageShow);
+    step('赤字を読み取り', 0.7); await PC.tick();
+    const notes = await PC.annotations(doc, i), withA = await PC.renderPage(doc, i, PC.DPI, true);
+    const { rm, shown } = PC.fromAnnots(withA, old, notes);
+    const { an, used } = PC.anchors(rm, old.w, old.h, ol.filter(l => l.toks.length), ot, ob.filter(b => b.kind === 'image'));
+    for (const n of notes) {   // 挿入の注釈は位置情報から直接読む
+      if (n.type !== 'Caret') continue;
+      const [x0, y0, x1] = n.box;
+      for (const l of ol) {
+        const lb = l.box, h = lb[3] - lb[1];
+        if (!l.vert && lb[1] - 0.3 * h <= y0 && y0 <= lb[3] + 0.6 * h && lb[0] <= x0 && x0 <= lb[2]) {
+          const ks = l.toks.filter(k => (x0 - h / 2 <= ot[k].box[2] && ot[k].box[2] <= x1 + h / 2) || (x0 - h / 2 <= ot[k].box[0] && ot[k].box[0] <= x1 + h / 2));
+          if (ks.length) { an.push({ kind: 'insert', at: Math.min(...ks) + 1, span: [Math.min(...ks), Math.max(...ks) + 1], how: '挿入(注釈)', box: n.box.map(Math.trunc), stroke: -1, note: n.text }); break; }
+        }
+      }
+    }
+    // 取り消し線・下線・マーカーの注釈: 引いた範囲に重なる字形を指示箇所にする
+    const MK = { StrikeOut: '取消線(注釈)', Underline: '下線(注釈)', Squiggly: '波線(注釈)', Highlight: 'マーカー(注釈)' };
+    for (const n of notes) {
+      if (!PC.MARKUP.has(n.type) || !n.quads.length) continue;
+      const area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]), inter = (p_, q) => area([Math.max(p_[0], q[0]), Math.max(p_[1], q[1]), Math.min(p_[2], q[2]), Math.min(p_[3], q[3])]);
+      const toks = new Set(); ot.forEach((t, k) => { if (n.quads.some(q => inter(t.box, q) >= 0.4 * area(t.box))) toks.add(k); });
+      const box = union(n.quads).map(Math.trunc);
+      if (toks.size) an.push({ kind: 'tokens', toks, how: MK[n.type], box, stroke: -1, note: n.text });
+      else if (ob.some(b => b.kind === 'image' && ov(b.box, box))) an.push({ kind: 'image', how: MK[n.type], box, stroke: -1, note: n.text });
+    }
+    for (const a of an) if (a.note === undefined) a.note = (notes.find(n => n.type !== 'Caret' && ov(n.box, a.box, 8)) || {}).text || (notes.find(n => n.type === 'Caret' && ov(n.box, a.box, 2)) || {}).text || '';
+    return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, w: old.w };
+  }
+
+  // スキャンの字形の文字(推定): 見た目で対応づいた修正後の字の文字。対応しない字形は、見た目がいちばん近い修正後の字の文字
+  // (十分近いときだけ)、なければ「□」
+  function synthChars(sp, nc) {
+    const pm = new Map(sp.pairs()), out = [];
+    sp.ot.forEach((t, i) => {
+      let j = pm.get(i);
+      const paired = j !== undefined;
+      if (!paired) { const [k, d] = sp.obest[i]; j = k >= 0 && d < sp.tolS && sp.of[i].mf < 0.6 ? sp.protos[k].j : -1; }   // 似た別の字を当てないよう厳しめ
+      const cs = j >= 0 ? tokChars(nc, sp.nt, j, j + 1) : [];
+      if (cs.length) cs.forEach(([c]) => out.push([c, t.box]));
+      else if (!paired) out.push(['□', t.box]);
+    });
+    return out;
+  }
+  // 紙の赤字原稿(スキャン)のページ: スキャンを修正後に重ねて字形を比べる。修正前の文字は、修正後の文字から推定する
+  async function scanPage(src, p, nw, nc, step) {
+    step('スキャンを読み込み', 0.02); await PC.tick();
+    const { img, dpi } = await src.image(p);
+    step('位置を合わせています', 0.05); await PC.tick();
+    const { W, matched } = PC.registerScan(img, nw, dpi);
+    const sp = await new PC.ScanPage(W, nw).init((s, f) => step(s, 0.08 + 0.77 * f));
+    const pairs = sp.pairs(), oc = synthChars(sp, nc), ch = sp.changes();
+    describe(ch, sp.ot, sp.ol, sp.nt, sp.nl, oc, nc);
+    ch.push(...layoutChanges(sp.ot, sp.ol, sp.nt, sp.nl, pairs));
+    step('写真・図版を比べています', 0.86); await PC.tick();
+    const im = sp.imageChanges(); im.forEach(imageShow);
+    step('赤字を読み取り', 0.9); await PC.tick();
+    const { w, h } = nw, rm = PC.morph(sp.pen, w, h, 'open', 2, 2);
+    // 赤以外の書き込みだけの行は、赤字の指す先にしない(書き込みに重ねた赤字は「読み取れない赤字」になる)
+    const hw = sp.hw || (sp.hw = sp.handwriting());
+    const { an, used } = PC.anchors(rm, w, h, sp.ol.filter(l => l.toks.length && !l.toks.every(k => hw.has(k))), sp.ot, sp.oblocks.filter(b => b.kind === 'image'));
+    // 修正後で赤く印刷されている字の範囲に収まる赤は、赤字ではなく「赤い文字そのものが変わった」可能性が高い
+    // (修正前のPDFがないため、変わった赤い文字は印刷の赤と見分けられない)。指示どおりの変更とはみなさない
+    const nred = PC.redMask(nw), zone = new Uint8Array(w * h);
+    for (const t of sp.nt) {
+      const [x0, y0, x1, y1] = t.box; let r = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (nred[y * w + x]) r++;
+      if (r < 0.15 * (x1 - x0) * (y1 - y0)) continue;
+      for (let y = Math.max(0, y0 - 3); y < Math.min(h, y1 + 3); y++) zone.fill(1, y * w + Math.max(0, x0 - 3), y * w + Math.min(w, x1 + 3));
+    }
+    const sc = PC.cc(PC.morph(rm, w, h, 'dilate', 5, 5), w, h), inZ = new Float64Array(sc.n), all = new Float64Array(sc.n);
+    for (let k = 0; k < rm.length; k++) if (rm[k]) { const l = sc.lab[k]; all[l]++; if (zone[k]) inZ[l]++; }
+    for (const a of an) { a.note = ''; a.printedLike = a.stroke > 0 && all[a.stroke] > 0 && inZ[a.stroke] >= 0.9 * all[a.stroke]; }
+    const res = { kind: 'scan', ot: sp.ot, ol: sp.ol, nt: sp.nt, nl: sp.nl, ch, im, an, notes: [], pairs, oc, nc, restBoxes: restBoxesOf(rm, used, w, h), left: W, right: nw, matched, w };
+    if (window.__pcDebug) { res.sp = sp; res.removed = sp.removed.map(r => ({ oi: r.c.oi, nj: r.c.nj, obox: r.c.obox, nbox: r.c.nbox, why: r.why })); } else sp.release();
+    return res;
+  }
+
+  // 見た目が似た別の字(修正後の文字データだけで調べる): カタカナの間の漢字・記号、漢字の間のカタカナ
+  const TO_KATA = { '一': 'ー', '−': 'ー', '‐': 'ー', '－': 'ー', '―': 'ー', '─': 'ー', '口': 'ロ', '力': 'カ', '工': 'エ', '二': 'ニ', '八': 'ハ', '卜': 'ト', '夕': 'タ', '才': 'オ' };
+  const TO_KAN = { 'ー': '一', 'ロ': '口', 'カ': '力', 'エ': '工', 'ニ': '二', 'ハ': '八', 'ト': '卜', 'タ': '夕', 'オ': '才' };
+  const isKata = c => /^[ァ-ヺー]$/.test(c), isKan = c => /^\p{Script=Han}$/u.test(c);
+  function lookalikeChars(cs) {
+    const out = [], near = (a, b) => { const s = Math.max(a[2] - a[0], a[3] - a[1], b[2] - b[0], b[3] - b[1]); return Math.hypot((a[0] + a[2] - b[0] - b[2]) / 2, (a[1] + a[3] - b[1] - b[3]) / 2) < 1.6 * s; };
+    for (let i = 1; i + 1 < cs.length; i++) {
+      const [c, b] = cs[i], [a, pb] = cs[i - 1], [z, qb] = cs[i + 1];
+      let want = null;
+      if (TO_KATA[c] && isKata(a) && isKata(z)) want = TO_KATA[c];
+      else if (TO_KAN[c] && isKan(a) && isKan(z)) want = TO_KAN[c];
+      if (want && near(pb, b) && near(b, qb)) out.push({ c, want, box: b, ctx: [a, z] });
+    }
+    return out;
+  }
+
+  // ---- 全体に関わる修正(全体指示・以下同様)を赤字原稿から読み取るための小道具 ----
+  const isWord = s => [...s].length >= 2 && !s.includes('□') && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}A-Za-z]/u.test(s);
+  const known = s => [...s].filter(c => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}A-Za-z]/u.test(c)).length;   // □以外の、語になる字の数
+  // 修正後の文字の並びで、枠に入る文字(text)の前後n字。枠に中心が入る文字がなければ、近くにある同じ文字列を探す
+  function ctxOf(cs, b, text, n = 8) {
+    if (!b) return null;
+    let i0 = -1, i1 = -1;
+    cs.forEach(([, r], i) => { const cx = (r[0] + r[2]) / 2, cy = (r[1] + r[3]) / 2; if (cx >= b[0] - 3 && cx <= b[2] + 3 && cy >= b[1] - 3 && cy <= b[3] + 3) { if (i0 < 0) i0 = i; i1 = i; } });
+    if (i0 < 0 && text) {
+      const bx = (b[0] + b[2]) / 2, by = (b[1] + b[3]) / 2; let best = 60;
+      for (const [s, e] of findAll(cs, text)) { const u = union(cs.slice(s, e).map(c => c[1])), d = Math.hypot((u[0] + u[2]) / 2 - bx, (u[1] + u[3]) / 2 - by); if (d < best) { best = d; i0 = s; i1 = e - 1; } }
+    }
+    if (i0 < 0) return null;
+    return [cs.slice(Math.max(0, i0 - n), i0).map(c => c[0]).join(''), cs.slice(i1 + 1, i1 + 1 + n).map(c => c[0]).join('')];
+  }
+  // どの箇所にも共通する前後の文字(同じ変更が何か所にもあるとき、語の形にそろえる)
+  function commonCtx(cx) {
+    if (!cx.length || cx.some(c => !c)) return ['', ''];
+    let [L, R] = cx[0];
+    for (const [l, r] of cx) {
+      let k = 0; while (k < L.length && k < l.length && L[L.length - 1 - k] === l[l.length - 1 - k]) k++;
+      L = L.slice(L.length - k);
+      k = 0; while (k < R.length && k < r.length && R[k] === r[k]) k++;
+      R = R.slice(0, k);
+    }
+    const stop = /[\s、。，．,.・：:；;！!？?（）()「」『』【】［］\[\]]/;   // 句読点・かっこの外までは広げない
+    while (L && stop.test(L[0])) L = L.slice(1);
+    for (let k = L.length - 1; k >= 0; k--) if (stop.test(L[k])) { L = L.slice(k + 1); break; }
+    for (let k = 0; k < R.length; k++) if (stop.test(R[k])) { R = R.slice(0, k); break; }
+    return [L, R];
+  }
+  // □(推定できなかった字)を含む語の型: □は1〜3字の、句読点・空白以外の字
+  const patternOf = s => new RegExp([...s].map(c => c === '□' ? '[^\\s、。，．,.]{1,3}' : c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(''), 'u');
+  // 推定できなかった字(□)はどの字とも合うとみなして、同じ並びか
+  const fits = (a, b) => { const x = [...a], y = [...b]; return x.length === y.length && x.every((c, k) => c === '□' || y[k] === '□' || c === y[k]); };
+  const mergeKnown = (a, b) => { const y = [...b]; return [...a].map((c, k) => (c === '□' ? y[k] : c)).join(''); };
+  // 「A」→「B」の変わった部分だけ(前後の同じ文字を除く)
+  function splitCore(frm, to) {
+    const a = [...frm], b = [...to]; let s = 0, e = 0;
+    while (s < a.length && s < b.length && a[s] === b[s]) s++;
+    while (e < a.length - s && e < b.length - s && a[a.length - 1 - e] === b[b.length - 1 - e]) e++;
+    return { b: a.slice(s, a.length - e).join(''), a: b.slice(s, b.length - e).join(''), head: a.slice(0, s).join(''), tail: a.slice(a.length - e).join('') };
+  }
+  const coreOf = (frm, to) => { const c = splitCore(frm, to); return [c.b, c.a]; };
+
+  // opts: { marks: PC.markSource(...), newDoc, progress(msg, frac) }
   PC.analyze = async opts => {
-    const { oldDoc, newDoc, mode } = opts, prog = opts.progress || (() => {});
-    const rules = (opts.rules || []).map(r => ({ ...r })), cb = new PC.Codebook(), P = [], npages = oldDoc.numPages;
+    const { marks: src, newDoc } = opts, prog = opts.progress || (() => {});
+    const cb = new PC.Codebook(), P = [], npages = src.numPages, warn = [];
+    let blank = null;
     for (let p = 0; p < npages; p++) {
       const step = (s, f) => prog(`${p + 1} / ${npages} ページ：${s}`, (p + f) / npages);
-      step('描画', 0.02); await PC.tick();
-      const old = await PC.renderPage(oldDoc, p, PC.DPI, false);
-      const nw = p < newDoc.numPages ? await PC.renderPage(newDoc, p, PC.DPI, false) : { w: old.w, h: old.h, d: new Uint8ClampedArray(old.d.length).fill(255) };
-      const oc = await PC.textChars(oldDoc, p), nc = p < newDoc.numPages ? await PC.textChars(newDoc, p) : [];
-      step('文字のまとまりを解析', 0.1); await PC.tick();
-      const oink = PC.textInk(old), nink = PC.textInk(nw);
-      const ob = PC.blocks(old, oink), nb = PC.blocks(nw, nink);
-      const { toks: ot, lines: ol } = PC.tokens(old, oink, ob), { toks: nt, lines: nl } = PC.tokens(nw, nink, nb);
-      step('字形を照合', 0.25); await PC.tick();
-      const oids = [], nids = [];
-      for (let k = 0; k < ot.length; k++) { oids.push(cb.id(old, ot[k], ol[ot[k].line])); if (k % 80 === 79) await PC.tick(); }
-      for (let k = 0; k < nt.length; k++) { nids.push(cb.id(nw, nt[k], nl[nt[k].line])); if (k % 80 === 79) await PC.tick(); }
-      step('変更箇所を検出', 0.55); await PC.tick();
-      const sk = sameBlocks(ot, ol, nt, nl, oids, nids), lookPairs = [], ch = PC.textChanges(cb, ot, nt, oids, nids, old, nw, ol, nl, sk, lookPairs);
-      const oi_ = [], ni_ = []; for (let k = 0; k < oids.length; k++) if (!sk[0].has(k)) oi_.push(k); for (let k = 0; k < nids.length; k++) if (!sk[1].has(k)) ni_.push(k);
-      const pairs = PC.pairs(oi_.map(k => oids[k]), ni_.map(k => nids[k])).map(([a, b]) => [oi_[a], ni_[b]]);
-      if (sk[0].size === sk[1].size) { const a = [...sk[0]].sort((x, y) => x - y), b = [...sk[1]].sort((x, y) => x - y); a.forEach((k, i) => pairs.push([k, b[i]])); }
-      const ePairs = [...pairs, ...lookPairs];   // 文字データでの裏取りは、見た目が同じとした組すべてで行う
-      const merged = [];   // 同じ行で1字以内に隣接する差分は1件にまとめる
-      for (const c of ch) {
-        const q = merged[merged.length - 1];
-        if (q && c.oi[0] - q.oi[1] <= 1 && c.nj[0] - q.nj[1] <= 1 && q.oi[1] > 0 && c.oi[0] < ot.length && ot[c.oi[0]].line === ot[q.oi[1] - 1].line) {
-          q.oi = [q.oi[0], c.oi[1]]; q.nj = [q.nj[0], c.nj[1]]; q.tag = 'replace';
-          q.obox = union([q.obox, c.obox].filter(Boolean)); q.nbox = union([q.nbox, c.nbox].filter(Boolean));
-        } else merged.push(c);
-      }
-      const tt = (cs, T, a, b) => { let s = ''; for (let k = Math.max(0, a); k < Math.min(T.length, b); k++) s += tokText(cs, T[k].box); return s; };
-      for (const c of merged) {
-        if (!c.obox) { const k = Math.max(0, c.oi[0] - 1), b = ot[k].box; c.obox = ol[ot[k].line].vert ? [b[0], b[3] - 3, b[2], b[3] + 3] : [b[2] - 3, b[1], b[2] + 3, b[3]]; }
-        if (!c.nbox && (c.pj !== null || c.nj[0] < nt.length)) {
-          if (c.pj !== null) { const b = nt[c.pj].box; c.nbox = nl[nt[c.pj].line].vert ? [b[0], b[3] - 3, b[2], b[3] + 3] : [b[2] - 3, b[1], b[2] + 3, b[3]]; }
-          else { const b = nt[c.nj[0]].box; c.nbox = nl[nt[c.nj[0]].line].vert ? [b[0], b[1] - 3, b[2], b[1] + 3] : [b[0] - 3, b[1], b[0] + 3, b[3]]; }
-        }
-        c.kind = 'text';
-        c.before = tt(oc, ot, c.oi[0], c.oi[1]); c.after = tt(nc, nt, c.nj[0], c.nj[1]);
-        c.show = `${tt(oc, ot, c.oi[0] - 1, c.oi[1] + 1)}→${tt(nc, nt, c.nj[0] - 1, c.nj[1] + 1)}`;
-        c.nline = nl.filter(l => l.toks.length && c.nbox && ov(l.box, c.nbox)).map(l => tt(nc, nt, l.toks[0], l.toks[l.toks.length - 1] + 1)).join('');
-        const A = tokChars(oc, ot, c.oi[0], c.oi[1]), B = tokChars(nc, nt, c.nj[0], c.nj[1]);
-        if (A.length || B.length) c.diff = pinDiff(A, B, tokChars(oc, ot, c.oi[0] - 6, c.oi[0]), tokChars(oc, ot, c.oi[1], c.oi[1] + 6));   // 文字データがなければ作らない
-      }
-      merged.push(...layoutChanges(ot, ol, nt, nl, pairs));
-      const im = PC.imageChanges(old, nw, ob, nb);
-      for (const c of im) c.show = { changed: '画像・図版の変化', moved: '画像・図版の移動', removed: '画像・図版の削除' }[c.kind];
-
-      step('赤字を読み取り', 0.7); await PC.tick();
-      let rm, shown, notes = [];
-      const scan = mode === 'scan' ? await opts.scans.get(p) : null;
-      if (scan) ({ rm, shown } = PC.fromScan(scan, old));
-      else if (mode === 'digital' && p < opts.annDoc.numPages) {
-        notes = await PC.annotations(opts.annDoc, p);
-        const withA = await PC.renderPage(opts.annDoc, p, PC.DPI, true), without = await PC.renderPage(opts.annDoc, p, PC.DPI, false);
-        ({ rm, shown } = PC.fromAnnots(withA, without, notes));
-      } else { rm = new Uint8Array(old.w * old.h); shown = old; }
-      const { an, used } = PC.anchors(rm, old.w, old.h, ol.filter(l => l.toks.length), ot, ob.filter(b => b.kind === 'image'));
-      for (const n of notes) {   // デジタルの挿入注釈は位置情報から直接読む
-        if (n.type !== 'Caret') continue;
-        const [x0, y0, x1] = n.box;
-        for (const l of ol) {
-          const lb = l.box, h = lb[3] - lb[1];
-          if (!l.vert && lb[1] - 0.3 * h <= y0 && y0 <= lb[3] + 0.6 * h && lb[0] <= x0 && x0 <= lb[2]) {
-            const ks = l.toks.filter(k => (x0 - h / 2 <= ot[k].box[2] && ot[k].box[2] <= x1 + h / 2) || (x0 - h / 2 <= ot[k].box[0] && ot[k].box[0] <= x1 + h / 2));
-            if (ks.length) { an.push({ kind: 'insert', at: Math.min(...ks) + 1, span: [Math.min(...ks), Math.max(...ks) + 1], how: '挿入(注釈)', box: n.box.map(Math.trunc), stroke: -1, note: n.text }); break; }
-          }
-        }
-      }
-      // 取り消し線・下線・マーカーの注釈: 引いた範囲に重なる字形を指示箇所にする
-      const MK = { StrikeOut: '取消線(注釈)', Underline: '下線(注釈)', Squiggly: '波線(注釈)', Highlight: 'マーカー(注釈)' };
-      for (const n of notes) {
-        if (!PC.MARKUP.has(n.type) || !n.quads.length) continue;
-        const area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]), inter = (p, q) => area([Math.max(p[0], q[0]), Math.max(p[1], q[1]), Math.min(p[2], q[2]), Math.min(p[3], q[3])]);
-        const toks = new Set(); ot.forEach((t, k) => { if (n.quads.some(q => inter(t.box, q) >= 0.4 * area(t.box))) toks.add(k); });
-        const box = union(n.quads).map(Math.trunc);
-        if (toks.size) an.push({ kind: 'tokens', toks, how: MK[n.type], box, stroke: -1, note: n.text });
-        else if (ob.some(b => b.kind === 'image' && ov(b.box, box))) an.push({ kind: 'image', how: MK[n.type], box, stroke: -1, note: n.text });
-      }
-      for (const a of an) if (a.note === undefined) a.note = (notes.find(n => n.type !== 'Caret' && ov(n.box, a.box, 8)) || {}).text || (notes.find(n => n.type === 'Caret' && ov(n.box, a.box, 2)) || {}).text || '';
-      // 指示に使われなかった赤字のまとまり(注記・印鑑など)
-      const rest = new Uint8Array(rm.length); for (let k = 0; k < rm.length; k++) rest[k] = rm[k] && !used[k] ? 1 : 0;
-      const rc = PC.cc(PC.morph(rest, old.w, old.h, 'dilate', 25, 25), old.w, old.h), restBoxes = [];
-      for (let j = 1; j < rc.n; j++) {
-        const s = rc.st[j], b = [s.x0, s.y0, s.x1 + 1, s.y1 + 1]; let cnt = 0;
-        for (let y = b[1]; y < b[3]; y++) for (let x = b[0]; x < b[2]; x++) if (rest[y * old.w + x]) cnt++;
-        if (cnt >= 60) restBoxes.push(b);
-      }
-      step('表示用の画像を作成', 0.9); await PC.tick();
-      const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
-      const thumbs = { left: await toThumb(blend(shown)), right: await toThumb(blend(nw)) };
-      P.push({ ot, ol, nt, nl, ch: merged, im, an, notes, pairs: ePairs, oc, nc, restBoxes, thumbs });
+      step('描画', 0.01); await PC.tick();
+      const kind = await src.kind(p);
+      let nw, nc = [];
+      if (p < newDoc.numPages) { nw = await PC.renderPage(newDoc, p, PC.DPI, false); nc = await PC.textChars(newDoc, p); blank = blank || nw; }
+      else { const r = blank || await PC.renderPage(newDoc, newDoc.numPages - 1, PC.DPI, false); nw = { w: r.w, h: r.h, d: new Uint8ClampedArray(r.d.length).fill(255) }; }
+      const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step) : await scanPage(src, p, nw, nc, step);
+      if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、赤字原稿と修正後の位置がうまく合いません（ページの順番・向きを確かめてください）`);
+      step('表示用の画像を作成', 0.96); await PC.tick();
+      d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right) }; d.left = d.right = null;
+      P.push(d);
     }
 
     if (window.__pcDebug) PC._last = P;   // 自動テストでの調査用
@@ -1298,60 +2175,85 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       for (const a of d.an) a.hit = [];
       for (const c of [...d.ch, ...d.im]) {
         c.status = null;
+        if (c.hw) continue;   // 赤以外の書き込みは、修正の対象ではない
         for (const a of d.an) {
           if (KEEP.test(a.note || '') && a.kind === 'tokens' && c.kind === 'text' && meets(a.toks, c.oi[0], Math.max(c.oi[1], c.oi[0] + 1))) { a.hit.push(c); continue; }
           let m = false;
           if (c.kind === 'text' && a.kind === 'tokens') { const [lo, hi] = c.oi; m = meets(a.toks, lo - (c.tag === 'layout' ? 1 : 0), Math.max(hi, lo + 1)); }
           else if (c.kind === 'text' && a.kind === 'insert') { const [lo, hi] = a.span || [a.at - 1, a.at + 1]; m = (lo <= c.oi[0] && c.oi[0] <= hi) || (lo <= c.oi[1] && c.oi[1] <= hi); }
           else if (c.kind !== 'text' && a.kind === 'image') m = ov(c.obox, a.box, 5);
+          if (m && a.printedLike) { a.hit.push(c); continue; }
           if (m) { c.status = c.kind === 'text' ? 'A' : 'A_IMG'; c.anchor = a; a.hit.push(c); }
         }
       }
     }
 
-    // 以下同様・全体指示の展開
-    const occCache = new Map();
-    const occurrences = s => {
-      if (!occCache.has(s)) {
-        const res = [];
-        P.forEach((d, q) => { for (const [i, e] of findAll(d.oc, s)) res.push([q, union(d.oc.slice(i, e).map(c => c[1]))]); });
-        occCache.set(s, res);
-      }
-      return occCache.get(s);
-    };
-    const expansions = [];
-    const expand = (src, frm, to, scope, origin) => {
-      for (const [q, r] of occurrences(frm)) {
-        if (src && q === src[0] && ov(r, src[1], 2)) continue;
-        const hitc = P[q].ch.find(c => c.tag !== 'layout' && ov(c.obox, r, 2));
-        let st = hitc && hitc.nline.includes(to) ? '展開済み' : (hitc ? '別の変更あり' : '変更なし（展開漏れの候補）');
-        if (hitc && st === '展開済み' && hitc.status === null) { hitc.status = 'C1'; hitc.why = origin; }
-        if (scope === 'after' && src && (q < src[0] || (q === src[0] && (r[1] < src[1][1] || (r[1] === src[1][1] && r[0] < src[1][0]))))) st += '（指示より前なので対象外の可能性）';
-        expansions.push({ page: q + 1, frm, to, status: st, origin, box: r.map(Math.trunc) });
-      }
-    };
+    // ---- 全体に関わる修正(全体指示・以下同様): 手で登録しなくても、赤字原稿から読み取る ----
+    //  1) 注釈のコメント「全体…「A」→「B」」  2) 同じ変更が2か所以上(全体指示と推定)  3) 赤字どおり変わった語(以下同様の候補)
+    const rules = [], textCh = [];
+    P.forEach((d, p) => d.ch.forEach(c => { if (c.kind === 'text' && c.tag !== 'layout' && c.before && !c.hw) textCh.push([p, c]); }));
+    for (const d of P) for (const n of d.notes) {
+      const m = n.text.match(/「(.+?)」\s*(?:→|を)\s*「(.+?)」/);
+      if (m && n.text.includes('全体')) { rules.push({ frm: m[1], to: m[2], core: coreOf(m[1], m[2]), how: '全体指示', check: '未統一' }); n.rule = true; }
+    }
+    const groups = [];
+    for (const [p, c] of textCh) {
+      const [b, a] = coreOf(c.before, c.after), g = groups.find(g => g.after === a && fits(g.before, b));
+      if (g) { g.xs.push([p, c]); g.before = mergeKnown(g.before, b); } else groups.push({ before: b, after: a, xs: [[p, c]] });
+    }
+    for (const g of groups) {
+      if (g.xs.length < 2 || rules.some(r => r.core[1] === g.after && fits(r.core[0], g.before))) continue;
+      if (g.before.includes('□') ? known(g.before) < 1 : !isWord(g.before)) continue;
+      // 変わった部分の前後に、どの箇所にも共通する文字があれば含めて語にする(「い合わ→合」→「お問い合わせ→お問合せ」)
+      const cx = g.xs.map(([p, c]) => {
+        const x = ctxOf(P[p].nc, c.nbox, c.after), { head, tail } = splitCore(c.before, c.after);
+        return x ? [x[0] + head, tail + x[1]] : null;
+      });
+      const [L, R] = commonCtx(cx);
+      if (window.__pcDebug) (PC._ctx = PC._ctx || []).push({ g: g.before + '→' + g.after, cx, L, R });
+      // 表示は前後を含めた語、探すのは変わった部分(前後の字が違う箇所の直し忘れも見つけるため)。
+      // 推定できなかった字(□)があるときは、前後の字も含めて、□を1〜3字のどの字とも合うとみなして探す
+      const wild = g.before.includes('□'), pat = L + g.before + R;
+      if (wild && known(pat) < 3) continue;
+      rules.push({ frm: pat, to: L + g.after + R, core: [g.before, g.after], search: wild ? patternOf(pat) : g.before, how: `同じ変更が${g.xs.length}か所`, check: '未統一' });
+    }
     P.forEach((d, p) => {
       for (const a of d.an) for (const c of a.hit) {
         if (c.kind !== 'text' || !c.before || c.tag === 'layout') continue;
-        const scope = (a.note || '').includes('以下同様') ? 'after' : 'candidate';
-        if (scope === 'candidate' && !(c.after && [...c.before].length >= 2 && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}A-Za-z]/u.test(c.before))) continue;
-        expand([p, c.obox], c.before, c.after, scope, scope === 'after' ? '以下同様' : '同じ語の他の箇所（以下同様の候補）');
+        const after = (a.note || '').includes('以下同様');
+        if (!after && !(c.after && isWord(c.before))) continue;
+        const [b, ca] = coreOf(c.before, c.after);
+        if (rules.some(r => r.core[1] === ca && fits(r.core[0], b))) continue;
+        rules.push({ frm: c.before, to: c.after, core: [b, ca], how: after ? '以下同様' : '同じ語の他の箇所（以下同様の候補）', check: '変更なし（展開漏れの候補）', after, src: [p, c.nbox] });
       }
     });
-    for (const d of P) for (const n of d.notes) {
-      const m = n.text.match(/「(.+?)」\s*(?:→|を)\s*「(.+?)」/);
-      if (m && n.text.includes('全体')) { rules.push({ frm: m[1], to: m[2], src: '注釈' }); n.rule = true; }
-    }
-    for (const r of rules) if (r.frm) expand(null, r.frm, r.to, 'all', '全体指示');
-    const remain = [];
+    const leaks = [], seen = new Set();
     for (const r of rules) {
-      if (!r.frm) continue;
-      P.forEach((d, q) => { for (const [i, e] of findAll(d.nc, r.frm)) remain.push({ page: q + 1, frm: r.frm, to: r.to, box: union(d.nc.slice(i, e).map(c => c[1])).map(Math.trunc) }); });
+      // 赤字のない同じ変更は「全体・以下同様で説明できる変更」
+      for (const [p, c] of textCh) {
+        if (c.status !== null) continue;
+        const [b, a] = coreOf(c.before, c.after);
+        if (a !== r.core[1] || !fits(b, r.core[0])) continue;
+        if ([...r.to].length > [...r.core[1]].length && c.nbox && !around(P[p].nc, c.nbox, [...r.to].length + 3).includes(r.to)) continue;
+        c.status = 'C1'; c.why = r.how;
+      }
+      // 修正後に「A」が残っている箇所は、直し忘れの候補
+      P.forEach((d, q) => {
+        for (const [i, e] of findAll(d.nc, r.search || r.frm)) {
+          const nb = union(d.nc.slice(i, e).map(c => c[1])).map(Math.trunc), key = q + ':' + nb.join(','), found = d.nc.slice(i, e).map(c => c[0]).join('');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          let check = r.check;
+          if (r.after && r.src && (q < r.src[0] || (q === r.src[0] && r.src[1] && (nb[1] < r.src[1][1] || (nb[1] === r.src[1][1] && nb[0] < r.src[1][0]))))) check += '（指示より前なので対象外の可能性）';
+          leaks.push({ page: q + 1, frm: r.frm.includes('□') ? found : r.frm, to: r.to, nbox: nb, how: r.how, check });
+        }
+      });
     }
 
-    // 文字データでの裏取り: 見た目で「同じ」と対応づいた字形どうしで、文字データが違うもの
+    // 文字データでの裏取り(注釈PDFのページ): 見た目で「同じ」と対応づいた字形どうしで、文字データが違うもの
     const lookalike = [];
     P.forEach((d, p) => {
+      if (d.kind !== 'annot') return;
       // 文字データを字形に割り当てる: 字形の枠に中心が入る文字、なければ同じ行の中で字形の幅(縦組みは高さ)に入る文字
       const owner = (cs, T, L) => {
         const res = new Map();
@@ -1364,23 +2266,26 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         return res;
       };
       const oo = owner(d.oc, d.ot, d.ol), no = owner(d.nc, d.nt, d.nl);
-      for (const [k, m] of d.pairs) if (oo.has(k) && no.has(m) && oo.get(k) !== no.get(m) && !d.ch.some(c => ov(d.ot[k].box, c.obox, 2))) lookalike.push({ page: p + 1, show: `${oo.get(k)}→${no.get(m)}`, box: d.ot[k].box });
+      for (const [k, m] of d.pairs) if (oo.has(k) && no.has(m) && oo.get(k) !== no.get(m) && !d.ch.some(c => ov(d.ot[k].box, c.obox, 2))) lookalike.push({ page: p + 1, show: `${oo.get(k)}→${no.get(m)}`, box: d.ot[k].box, nbox: d.nt[m].box });
     });
 
-    // 初校の枠に対応する修正後の枠(見た目で対応づいた字形の組から求める)
+    // 修正前の枠 ⇄ 修正後の枠(見た目で対応づいた字形の組から求める)
+    const pm = d => d.pmap || (d.pmap = new Map(d.pairs)), rpm = d => d.rmap || (d.rmap = new Map(d.pairs.map(([a, b]) => [b, a])));
     const mapBox = (d, box) => {
-      if (!d.pmap) d.pmap = new Map(d.pairs);
-      const ks = []; d.ot.forEach((t, k) => { if (ov(t.box, box)) ks.push(k); });
-      const nb = ks.filter(k => d.pmap.has(k)).map(k => d.nt[d.pmap.get(k)].box);
+      const nb = []; d.ot.forEach((t, k) => { if (ov(t.box, box) && pm(d).has(k)) nb.push(d.nt[pm(d).get(k)].box); });
       return nb.length ? union(nb) : null;
     };
-    const tokBox = (d, k) => (d.pmap || (d.pmap = new Map(d.pairs))).has(k) ? d.nt[d.pmap.get(k)].box : null;
+    const backBox = (d, box) => {
+      const ob = []; d.nt.forEach((t, k) => { if (ov(t.box, box) && rpm(d).has(k)) ob.push(d.ot[rpm(d).get(k)].box); });
+      return ob.length ? union(ob) : null;
+    };
+    const tokBox = (d, k) => pm(d).has(k) ? d.nt[pm(d).get(k)].box : null;
     // 結果の一覧
     const F = [];
     const add = (page, cat, box, show = '', how = '', note = '', check = '', nbox = null) => F.push({ id: F.length, page, cat, label: PC.CAT[cat], box: box.map(Math.trunc), nbox: nbox ? nbox.map(Math.trunc) : null, show, how, note, check });
     P.forEach((d, p) => {
       for (const c of [...d.ch, ...d.im]) {
-        const st = c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
+        const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
         let chk = '';
         if (a.note && c.kind === 'text' && c.tag !== 'layout') {   // 指示文(注釈のコメント)が、修正後の該当箇所の前後にあるか
           // 「目指し（以下同様）」のような添え書きは外す(指示文全体がかっこ書きなら外さない)
@@ -1391,10 +2296,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
           else { const ctx = c.nbox ? around(d.nc, c.nbox, [...want].length + 3) : ''; chk = want && ctx.includes(want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
         }
         add(p + 1, st, c.obox, c.show + (c.look === 'color' ? '（色のみ）' : ''), a.how || c.why || '', a.note || '', chk, c.nbox);
-        if (c.diff) Object.assign(F[F.length - 1], { segs: c.diff.segs, same: c.diff.same, pboxes: c.diff.ob, pnboxes: c.diff.nb });
-        if (c.tag === 'layout') F[F.length - 1].kind = 'layout';
-        if (c.kind !== 'text') F[F.length - 1].kind = 'image';
-        if (c.look === 'color') F[F.length - 1].color = true;
+        const f = F[F.length - 1];
+        if (c.anchor) Object.defineProperty(f, 'anchorRef', { value: c.anchor, enumerable: false });
+        if (c.diff) Object.assign(f, { segs: c.diff.segs, same: c.diff.same, pboxes: c.diff.ob, pnboxes: c.diff.nb });
+        if (c.tag === 'layout') f.kind = 'layout';
+        if (c.kind !== 'text') f.kind = 'image';
+        if (c.look === 'color') f.color = true;
+        if (d.kind === 'scan') f.scan = true;
       }
       const done = new Set(d.an.filter(a => a.hit.length).map(a => a.stroke)), f0 = F.length;
       const along = (b, v) => v ? [b[1], b[3]] : [b[0], b[2]];   // 行の向きに沿った範囲
@@ -1418,21 +2326,43 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
           show = `${pre}｜${post}（挿入位置）`; nb = union([tokBox(d, at - 1), tokBox(d, at)].filter(Boolean));
         } else { show = textIn(d.oc, a.box); nb = mapBox(d, a.box); }
         add(p + 1, cat, a.box, show, a.how, a.note || '', '', nb);
+        Object.defineProperty(F[F.length - 1], 'anchorRef', { value: a, enumerable: false });
         if (a.kind === 'insert') F[F.length - 1].ins = show.replace('（挿入位置）', '').split('｜');
         Object.assign(F[F.length - 1], { stroke: a.stroke, thin: !!a.thin, li: a.li, vert: a.vert, span: a.span, lh: a.h });
       }
       // まとめたあとで行のほぼ全長(かつ字2つ分より長く)にわたる細い線は、引き出し線の可能性として示す
       for (const f of F.slice(f0)) if (f.thin && f.span) { const [s, e] = along(f.box, f.vert); if (e - s >= 0.9 * f.span && e - s > 2 * f.lh) f.how += '（細い線：引き出し線の可能性）'; }
-      for (const b of d.restBoxes) {
+      for (const r of d.restBoxes) {
+        const b = r.box;
+        if (r.stamp) continue;   // 印鑑は指示ではない
         if (d.notes.some(n => n.rule && ov(n.box, b))) { add(p + 1, 'G', b); continue; }
-        add(p + 1, d.an.some(a => ov(b, a.box, 30)) ? 'F2' : 'F', b);
+        const a = d.an.find(a => ov(b, a.box, 30));
+        if (!a) { add(p + 1, 'F', b); continue; }
+        add(p + 1, 'F2', b);
+        // 指示箇所の項目に、何に直すかの書き込みを添える
+        const nb = noteBoxOf(r, a.box, d.w);
+        if (nb) for (const f of F) if (f.page === p + 1 && f.anchorRef === a && !f.noteBox) f.noteBox = nb;
       }
     });
-    for (const e of expansions) { add(e.page, 'D', e.box, `${e.frm}→${e.to}`, e.origin, '', e.status, mapBox(P[e.page - 1], e.box)); Object.assign(F[F.length - 1], { frm: e.frm, to: e.to }); }
-    for (const r of remain) { add(r.page, 'D', r.box, `${r.frm}（修正後に残っている）`, '全体指示', '', '未統一'); Object.assign(F[F.length - 1], { frm: r.frm, to: r.to, nbox: r.box, onNew: true }); }
-    for (const l of lookalike) { const [x, y] = l.show.split('→'); add(l.page, 'E', l.box, l.show, '', '', '', mapBox(P[l.page - 1], l.box)); F[F.length - 1].segs = [['-', x], ['+', y]]; }
+    for (const e of leaks) {
+      const d = P[e.page - 1], ob = backBox(d, e.nbox);
+      add(e.page, 'D', ob || e.nbox, `${e.frm}→${e.to}`, e.how, '', e.check, e.nbox);
+      Object.assign(F[F.length - 1], { frm: e.frm, to: e.to, onNew: !ob });
+    }
+    for (const l of lookalike) { const [x, y] = l.show.split('→'); add(l.page, 'E', l.box, l.show, '', '', '', l.nbox); F[F.length - 1].segs = [['-', x], ['+', y]]; }
+    // 見た目が似た別の字: 修正後の文字データだけで調べる(紙の赤字原稿でも分かるように)。すでに出ている箇所は除く
+    P.forEach((d, p) => {
+      for (const l of lookalikeChars(d.nc)) {
+        if (F.some(f => f.page === p + 1 && f.nbox && ov(f.nbox, l.box, 2) && (f.cat === 'E' || f.cat === 'C2' || f.cat === 'A'))) continue;
+        const ob = backBox(d, l.box);
+        add(p + 1, 'E', ob || l.box, `${l.c}→${l.want}`, '', '', '', l.box);
+        Object.assign(F[F.length - 1], { lint: { c: l.c, want: l.want, ctx: l.ctx }, onNew: !ob });
+      }
+    });
     prog('完了', 1);
-    return { findings: F, pages: P.map(d => d.thumbs), rules };
+    // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
+    const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
+    return { findings: F, pages: P.map(d => d.thumbs), rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
   };
 })();
 
@@ -1441,18 +2371,18 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 'use strict';
 (function () {
   const $ = id => document.getElementById(id), esc = PC.esc;
-  const COLOR = { A: 'A', A_IMG: 'A', M: 'M', B: 'B', B2: 'B2', C1: 'C1', C2: 'C', C3: 'C', D: 'D', E: 'E', F: 'F', F2: 'F', G: 'F' };
+  const COLOR = { A: 'A', A_IMG: 'A', M: 'M', B: 'B', B2: 'B2', C1: 'C1', C2: 'C', C3: 'C', D: 'D', E: 'E', F: 'F', F2: 'F', G: 'F', H: 'F' };
   const isLeak = f => f.cat === 'D' && (f.check.includes('漏れ') || f.check === '未統一');
   const isLight = f => f.cat === 'B2' || (f.how || '').includes('引き出し線の可能性');
   // 確認が必要なものほど上に出す。need: 直す必要がありそうなもの
   const GROUPS = [
-    { key: 'B', label: '直っていない', test: f => f.cat === 'B' || f.cat === 'B2', c: 'B', need: true },
+    { key: 'B', label: '直っていない', test: f => f.cat === 'B', c: 'B', need: true },
     { key: 'C', label: '指示にない変更', test: f => f.cat === 'C2' || f.cat === 'C3', c: 'C', need: true },
-    { key: 'D', label: '直し忘れ（全体指示・以下同様）', test: isLeak, c: 'D', need: true },
-    { key: 'E', label: '文字だけ違う（見た目は同じ）', test: f => f.cat === 'E', c: 'E', need: true },
+    { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, c: 'D', need: true },
+    { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', c: 'E', need: true },
     { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG', c: 'A' },
-    { key: 'F', label: '読み取れない赤字（人が読む）', test: f => f.cat === 'F', c: 'F' },
-    { key: 'C1', label: '全体指示どおり変わった', test: f => f.cat === 'C1', c: 'C1' },
+    { key: 'F', label: '読み取れない赤字', test: f => f.cat === 'F', c: 'F' },
+    { key: 'C1', label: '全体・以下同様どおり', test: f => f.cat === 'C1', c: 'C1' },
     { key: 'minor', label: '参考', test: () => true, c: 'F', minor: true },
   ];
   const groupOf = f => GROUPS.find(g => g.test(f));
@@ -1461,17 +2391,18 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     if (f.cat === 'B' || f.cat === 'B2') return isLight(f) ? ['直っていない？', (f.how || '').includes('引き出し線') ? '細い線なので、引き出し線かもしれません' : '前の赤字の続き（行の折り返しなど）の可能性。念のため確認'] : ['直っていない', '赤字が修正後に反映されていません'];
     if (f.cat === 'C2') return f.kind === 'layout' ? ['指示にない変更', '赤字がないのに、改行・段落が変わっています'] : ['指示にない変更', '赤字がないのに変わっています。意図した変更か確認'];
     if (f.cat === 'C3') return ['指示にない変更', '赤字がないのに、画像・色・位置が変わっています'];
-    if (f.cat === 'E') return ['文字だけ違う', '見た目は同じですが、文字データが違います（検索・テキストに影響）'];
+    if (f.cat === 'E') return f.lint ? ['似た別の字？', `「${f.lint.c}」になっています。「${f.lint.want}」では？`] : ['文字だけ違う', '見た目は同じですが、文字データが違います（検索・テキストに影響）'];
     if (f.cat === 'A' || f.cat === 'A_IMG') return ['赤字どおり変わった', f.cat === 'A_IMG' ? '画像・図版の中身を確認' : '指示どおりの中身か確認'];
     if (f.cat === 'F') return ['読み取れない赤字', 'どの文字への指示か読み取れませんでした。赤字を読んで確認'];
-    if (f.cat === 'C1') return ['全体指示どおり', '全体指示・以下同様として変わっています'];
+    if (f.cat === 'C1') return ['全体・以下同様どおり', (f.how || '').startsWith('同じ変更') ? `赤字のない箇所ですが、同じ変更がほかにもあります（${f.how}）` : '全体指示・以下同様として変わっています'];
     if (f.cat === 'M') return ['ママ・イキ', '変更しない指示どおり、変わっていません'];
     if (f.cat === 'G') return ['全体指示の注記', ''];
     if (f.cat === 'F2') return ['引き出し線・注記', ''];
+    if (f.cat === 'H') return ['赤以外の書き込み', ''];
     if (f.cat === 'D') {
-      if (f.check === '未統一') return ['直し忘れ', `修正後に「${f.frm}」が残っています`];
-      if (f.check.includes('漏れ')) return f.how === '同じ語の他の箇所（以下同様の候補）' ? ['同じ語が他にもある', '以下同様の指示なら、ここも直す'] : ['直し忘れ', '全体指示・以下同様がここに反映されていません'];
-      return f.check.startsWith('展開済み') ? ['全体指示どおり', '全体指示・以下同様として変わっています'] : ['要確認', '全体指示・以下同様の語が、別の形に変わっています'];
+      if (f.check === '未統一') return ['直し忘れ', (f.how || '').startsWith('同じ変更') ? `ほかでは「${f.to}」に直っています（${f.how}）` : '全体指示が反映されていません'];
+      if (f.check.includes('漏れ')) return f.how === '同じ語の他の箇所（以下同様の候補）' ? ['同じ語が他にもある', '以下同様の指示なら、ここも直す'] : ['直し忘れ', '以下同様がここに反映されていません'];
+      return ['要確認', '全体・以下同様の語が、別の形に変わっています'];
     }
     return [f.label || f.cat, ''];
   }
@@ -1485,7 +2416,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // segs → [{t:'=', s} | {t:'x', del, ins}]
   function groupsOf(segs) {
     const G = [];
-    for (const [t, s] of segs) {
+    for (const [t, s0] of segs) {
+      const s = geta(s0);
       const g = G[G.length - 1];
       if (t === '=') { if (g && g.t === '=') g.s += s; else G.push({ t: '=', s }); }
       else { const h = g && g.t === 'x' ? g : (G.push({ t: 'x', del: '', ins: '' }), G[G.length - 1]); if (t === '-') h.del += s; else h.ins += s; }
@@ -1503,30 +2435,32 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       n += g.ins ? `<ins>${esc(longCut(g.ins))}</ins>` : '<span class="gap" title="ここにあった字が消えた"></span>';
       shown++;
     }
-    return `<div class="rows"><span class="lb">初校</span><span class="tx">${o}</span><span class="lb">修正後</span><span class="tx">${n}</span></div>`;
+    return `<div class="rows"><span class="lb">修正前</span><span class="tx">${o}</span><span class="lb">修正後</span><span class="tx">${n}</span></div>`;
   }
   // 項目の中身: 何が違うか(どの種類でも、なるべく短く)
   function whatHtml(f) {
     const q = s => `「${esc(clipMid(s || ''))}」`;
+    if (f.lint) { const [a, z] = f.lint.ctx.map(esc); return `<div class="rows"><span class="lb">修正後</span><span class="tx">${a}<mark>${esc(f.lint.c)}</mark>${z}</span><span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.lint.want)}</ins>${z}</span></div>`; }
     if (f.segs && !f.same) return diffRows(f.segs);
     if (f.same) return `<div class="what">文字は同じで、${f.color ? '色' : '見た目（書体・太さ・位置・色など）'}だけが違います</div>`;
-    if (f.cat === 'B' || f.cat === 'B2') return f.ins ? `<div class="what">${q(f.ins[0])}と${q(f.ins[1])}の間に入れる赤字 → 修正後も何も入っていません</div>` : `<div class="what">${f.show ? '赤字の箇所 ' + q(f.show) : 'この位置の赤字'} → 修正後も変わっていません</div>`;
+    if (f.cat === 'B' || f.cat === 'B2') return f.ins ? `<div class="what">${q(geta(f.ins[0]))}と${q(geta(f.ins[1]))}の間に入れる赤字 → 修正後も何も入っていません</div>` : `<div class="what">${f.show ? '赤字の箇所 ' + q(geta(f.show)) : 'この位置の赤字'} → 修正後も変わっていません</div>`;
     if (f.cat === 'D') {   // 指示(全体指示・以下同様)と、修正後の状態を分けて示す
       const now = f.check === '未統一' || f.check.includes('漏れ') ? `<span class="tx ng">${q(f.frm)}のまま</span>` : f.check.startsWith('展開済み') ? `<span class="tx okc">${q(f.to)}に直っている</span>` : '<span class="tx">別の形に変わっている（切り抜きで確認）</span>';
-      return `<div class="rows"><span class="lb">指示</span><span class="tx"><del>${esc(f.frm)}</del> → <ins>${esc(f.to || '')}</ins>${f.how ? `<span class="more">（${esc(f.how === '同じ語の他の箇所（以下同様の候補）' ? '別の箇所の赤字' : f.how)}）</span>` : ''}</span><span class="lb">修正後</span>${now}</div>`;
+      return `<div class="rows"><span class="lb">${(f.how || '').startsWith('同じ変更') ? 'ほかの箇所' : '指示'}</span><span class="tx"><del>${esc(f.frm)}</del> → <ins>${esc(f.to || '')}</ins>${f.how ? `<span class="more">（${esc(f.how === '同じ語の他の箇所（以下同様の候補）' ? '別の箇所の赤字' : f.how)}）</span>` : ''}</span><span class="lb">ここ</span>${now}</div>`;
     }
     if (f.cat === 'M') return `<div class="what">${q(f.show)}</div>`;
     if (f.kind === 'layout' || f.kind === 'image') return `<div class="what">${esc(f.show.replace(/[（）]/g, ''))}</div>`;
     if (f.cat === 'C2' || f.cat === 'A' || f.cat === 'C1') return '<div class="what">見た目が変わっています（文字データがないため、切り抜きで確認）</div>';
-    return f.show ? `<div class="what">${esc(clipMid(f.show))}</div>` : '';
+    return f.show ? `<div class="what">${esc(clipMid(geta(f.show)))}</div>` : '';
   }
   // CSV用の短い文: 「旧→新」をか所ごとに
   function diffText(f) {
+    if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
     if (f.segs && !f.same) return groupsOf(f.segs).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
     if (f.same) return '見た目だけの違い';
     if (f.cat === 'D') return `${f.frm}→${f.to}`;
     if (f.ins) return `${f.ins[0]}｜${f.ins[1]}の間に挿入`;
-    return f.show || '';
+    return geta(f.show || '');
   }
   const markOf = f => {   // 指示文(注釈のコメント)と、自動確認の結果
     if (!f.note) return '';
@@ -1535,14 +2469,14 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     return `<div class="meta">指示：「${esc(f.note)}」${res ? ` <span class="${cls}">${esc(res)}</span>` : ''}</div>`;
   };
 
-  const S = { res: null, imgs: [], sel: null, page: 0, off: new Set(), verdict: {}, key: '', lists: { old: [], nw: [], marks: [] }, loading: new Set() };
+  const geta = s => String(s ?? '').replace(/□/g, '〓');   // スキャンで読めなかった字は「〓」(ゲタ)で示す
+  const S = { res: null, imgs: [], sel: null, page: 0, off: new Set(), verdict: {}, key: '', lists: { marks: [], nw: [] }, loading: new Set() };
 
   // ---- 入力: 各欄に複数のファイル。選んだときに中身を読み込んでおき(あとで元のファイルが変わっても照合できるように)、ページ数を数える ----
-  const mode = () => document.querySelector('input[name=mode]:checked').value;
-  const KIND = { old: { input: 'fOld', list: 'lOld', tot: 'tOld', label: '初校' }, nw: { input: 'fNew', list: 'lNew', tot: 'tNew', label: '修正後' }, marks: { input: 'fMarks', list: 'lMarks', tot: 'tMarks', label: '朱書き' } };
-  const accepts = (kind, f) => PC.isPdf(f) || (kind === 'marks' && mode() === 'scan' && /^image\//.test(f.type));
+  const KIND = { marks: { input: 'fMarks', list: 'lMarks', tot: 'tMarks' }, nw: { input: 'fNew', list: 'lNew', tot: 'tNew' } };
+  const accepts = (kind, f) => PC.isPdf(f) || (kind === 'marks' && /^image\//.test(f.type));
   const byName = (a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true });
-  const READ_ERR = '読み込めません。選んだあとでファイルが移動・上書き・削除された、ほかのアプリで開いて使用中、クラウド（OneDrive など）にしかない、などが考えられます。パソコン内（デスクトップなど）にコピーしてから、選び直してください。';
+  const READ_ERR = '読み込めません。パソコン内（デスクトップなど）にコピーしてから、選び直してください。';
   async function load(e) {
     try { e.buf = await e.file.arrayBuffer(); } catch (err) { e.err = READ_ERR + '（' + (err && err.name || err) + '）'; return; }
     await countPages(e);
@@ -1573,35 +2507,31 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   const clearList = kind => { S.lists[kind] = []; S.doneMsg = ''; refresh(); };
   const total = kind => S.lists[kind].reduce((n, e) => n + (e.pages || 0), 0);
   function renderFiles(kind) {
-    const k = KIND[kind], L = S.lists[kind], unit = kind === 'marks' && mode() === 'scan' ? '枚' : 'ページ';
-    $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : e.pages + unit}</span>` +
+    const k = KIND[kind], L = S.lists[kind];
+    $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : e.pages + (PC.isPdf(e) ? 'ページ' : '枚')}</span>` +
       `<span class="ops"><button data-op="up" data-i="${i}" title="上へ" ${i === 0 ? 'disabled' : ''}>↑</button> <button data-op="down" data-i="${i}" title="下へ" ${i === L.length - 1 ? 'disabled' : ''}>↓</button> <button data-op="del" data-i="${i}" title="外す">×</button></span>` +
       (e.err ? `<div class="em">${esc(e.err)}</div>` : '') + '</li>').join('');
     $(k.list).querySelectorAll('button').forEach(b => b.onclick = () => { const i = +b.dataset.i; b.dataset.op === 'up' ? move(kind, i, -1) : b.dataset.op === 'down' ? move(kind, i, 1) : removeAt(kind, i); });
-    $(k.tot).innerHTML = L.length > 1 ? `<span>合計 ${total(kind)}${unit}（${L.length}ファイル）</span><button>すべて外す</button>` : '';
+    $(k.tot).innerHTML = L.length > 1 ? `<span>合計 ${total(kind)}ページ（${L.length}ファイル）</span><button>すべて外す</button>` : '';
     const btn = $(k.tot).querySelector('button'); if (btn) btn.onclick = () => clearList(kind);
   }
   // 照合に渡すもの(選んだときに読み込んだ中身)
-  const files = () => { const pick = kind => S.lists[kind].map(e => ({ name: e.name, size: e.size, type: e.type, buf: e.buf })); return { old: pick('old'), nw: pick('nw'), marks: pick('marks'), mode: mode() }; };
+  const files = () => { const pick = kind => S.lists[kind].map(e => ({ name: e.name, size: e.size, type: e.type, buf: e.buf })); return { marks: pick('marks'), nw: pick('nw') }; };
   const refresh = () => {
-    const m = mode(), all = [...S.lists.old, ...S.lists.nw, ...S.lists.marks];
-    ['old', 'nw', 'marks'].forEach(renderFiles);
-    $('fMarks').disabled = m === 'none'; $('pMarks').classList.toggle('disabled', m === 'none');
-    $('fMarks').accept = m === 'scan' ? '.pdf,application/pdf,image/*' : '.pdf,application/pdf';
-    $('modeHint').textContent = { scan: 'カラー・300dpiで、初校と同じページ順にスキャンしたPDF（または画像）', digital: 'Acrobatなどで初校PDFに注釈（取り消し線・挿入・手書き・コメント）を入れたPDF', none: '朱書きなしで、初校と修正後の違いだけを一覧にします' }[m];
+    const all = [...S.lists.marks, ...S.lists.nw];
+    Object.keys(KIND).forEach(renderFiles);
     const bad = all.some(e => e.err), busy = all.some(e => e.pages == null && !e.err);
-    const ready = PC.libsReady && S.lists.old.length && S.lists.nw.length && (m === 'none' || S.lists.marks.length) && !bad && !busy;
+    const ready = PC.libsReady && S.lists.marks.length && S.lists.nw.length && !bad && !busy;
     $('run').disabled = !ready;
     if (S.running) return;
-    let msg = !PC.libsReady ? '部品を読み込んでいます…' : S.doneMsg;
+    let msg = !PC.libsReady ? '準備中…' : S.doneMsg;
     if (!msg) {
       if (bad) msg = '読めないファイルがあります。リストから外すか、選び直してください';
       else if (busy) msg = 'ファイルを読み込んでいます…';
-      else if (!ready) msg = m === 'none' ? '初校PDF・修正後PDFを選んでください' : '初校PDF・修正後PDF・朱書きを選んでください';
+      else if (!ready) msg = '赤字原稿と修正後PDFを選んでください';
       else {
-        const o = total('old'), n = total('nw'), k = total('marks');
-        msg = `準備ができました（初校 ${o}ページ／修正後 ${n}ページ` + (m === 'scan' ? `／スキャン ${k}枚` : m === 'digital' ? `／注釈PDF ${k}ページ` : '') + '）';
-        if (o !== n || (m !== 'none' && k !== o)) msg += '　※ページ数がそろっていません。同じ通し番号のページどうしを比べます';
+        const k = total('marks'), n = total('nw');
+        msg = k === n ? `${k}ページを照合します` : `ページ数が違います（赤字原稿 ${k}／修正後 ${n}）。同じ順番のページどうしを比べます`;
       }
       if (S.addMsg) msg += '　' + S.addMsg;
     }
@@ -1611,54 +2541,39 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const inp = $(KIND[kind].input);
     inp.addEventListener('change', () => { add(kind, inp.files); inp.value = ''; });   // 同じファイルを外したあとでも選び直せるように空にする
     const box = document.querySelector(`.step[data-kind="${kind}"]`);
-    box.addEventListener('dragover', ev => { if (kind === 'marks' && mode() === 'none') return; ev.preventDefault(); box.classList.add('over'); });
+    box.addEventListener('dragover', ev => { ev.preventDefault(); box.classList.add('over'); });
     box.addEventListener('dragleave', () => box.classList.remove('over'));
-    box.addEventListener('drop', ev => { ev.preventDefault(); box.classList.remove('over'); if (kind === 'marks' && mode() === 'none') return; add(kind, ev.dataTransfer.files); });
+    box.addEventListener('drop', ev => { ev.preventDefault(); box.classList.remove('over'); add(kind, ev.dataTransfer.files); });
   });
-  document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => { S.lists.marks = []; S.addMsg = ''; S.doneMsg = ''; refresh(); }));
-  const addRule = (frm = '', to = '') => {
-    const row = document.createElement('div'); row.className = 'row';
-    row.innerHTML = `<input placeholder="変更前（例：お問い合わせ）" value="${esc(frm)}"><span>→</span><input placeholder="変更後（例：お問合せ）" value="${esc(to)}"><button class="btn small" title="削除">×</button>`;
-    row.querySelector('button').onclick = () => row.remove();
-    $('rules').appendChild(row);
-  };
-  $('addRule').onclick = () => addRule();
-  const rules = () => [...$('rules').querySelectorAll('.row')].map(r => { const [a, b] = r.querySelectorAll('input'); return { frm: a.value.trim(), to: b.value.trim() }; }).filter(r => r.frm);
 
   // ---- 照合の実行 ----
   const progress = (msg, frac) => { $('pmsg').textContent = msg; $('pbar').style.width = Math.round(frac * 100) + '%'; };
-  async function run(f, ruleList) {
+  async function run(f) {
     S.running = true; $('run').disabled = true; $('err').textContent = ''; progress('ファイルを開いています', 0);
     const t0 = performance.now();
     try {
-      const oldDoc = await PC.openPdfs(f.old), newDoc = await PC.openPdfs(f.nw);
-      let scans = null, annDoc = null;
-      if (f.mode === 'scan') scans = await PC.scanSource(f.marks);
-      if (f.mode === 'digital') annDoc = await PC.openPdfs(f.marks);
-      const warn = [];
-      if (oldDoc.numPages !== newDoc.numPages) warn.push(`ページ数が違います（初校 ${oldDoc.numPages}／修正後 ${newDoc.numPages}）。同じページ番号どうしを比べます。`);
-      if (scans && scans.count !== oldDoc.numPages) warn.push(`スキャンの枚数（${scans.count}）が初校のページ数（${oldDoc.numPages}）と違います。`);
-      if (annDoc && annDoc.numPages !== oldDoc.numPages) warn.push(`注釈PDFのページ数（${annDoc.numPages}）が初校のページ数（${oldDoc.numPages}）と違います。`);
-      const res = await PC.analyze({ oldDoc, newDoc, mode: f.mode, scans, annDoc, rules: ruleList, progress });
-      res.seconds = (performance.now() - t0) / 1000; res.warn = warn; res.oldParts = oldDoc.parts; res.newParts = newDoc.parts;
-      S.key = 'pc:' + [...f.old, ...f.nw, ...f.marks].map(x => x.name + ':' + x.size).join('|');
+      const marks = await PC.markSource(f.marks), newDoc = await PC.openPdfs(f.nw);
+      const res = await PC.analyze({ marks, newDoc, progress });
+      if (marks.numPages !== newDoc.numPages) res.warn.unshift(`ページ数が違います（赤字原稿 ${marks.numPages}／修正後 ${newDoc.numPages}）。同じ順番のページどうしを比べました。`);
+      res.seconds = (performance.now() - t0) / 1000; res.markParts = marks.parts; res.newParts = newDoc.parts;
+      S.key = 'pc:' + [...f.marks, ...f.nw].map(x => x.name + ':' + x.size).join('|');
       try { S.verdict = JSON.parse(localStorage.getItem(S.key) || '{}'); } catch (e) { S.verdict = {}; }
       await show(res);
-      S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）。下の一覧で確認してください`; progress(S.doneMsg, 1);
+      S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1);
       return res;
     } catch (e) {
       console.error(e); $('err').textContent = '照合できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
       throw e;
     } finally { S.running = false; refresh(); }
   }
-  $('run').onclick = () => run(files(), rules()).catch(() => {});
+  $('run').onclick = () => run(files()).catch(() => {});
 
   // ---- 結果の表示 ----
   async function show(res) {
     S.res = res; S.sel = null; S.page = 0;
     S.imgs = await Promise.all(res.pages.map(async p => { const L = new Image(), R = new Image(); L.src = p.left.url; R.src = p.right.url; await Promise.all([L.decode(), R.decode()]); return { L, R, w: p.left.w, h: p.left.h }; }));
     $('results').classList.remove('hidden');
-    const F = res.findings, ruleNote = res.rules.length ? `／全体指示 ${res.rules.length}件を適用` : '';
+    const F = res.findings, ruleNote = res.rules.length ? '／全体の直し：' + res.rules.map(r => `「${r.frm}」→「${r.to}」`).join('、') : '';
     $('sumNote').textContent = `${res.pages.length}ページ・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '');
     const card = g => {
       const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && isLight(f)).length;
@@ -1670,16 +2585,16 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     $('summary').querySelectorAll('.sum').forEach(el => el.onclick = () => { const k = el.dataset.g; S.off.has(k) ? S.off.delete(k) : S.off.add(k); el.classList.toggle('off'); renderList(); drawPage(); });
     $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
     $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; drawPage(); });
-    $('legend').innerHTML = [['B', '直っていない'], ['C', '指示にない変更'], ['D', '直し忘れ'], ['E', '文字だけ違う'], ['A', '赤字どおり'], ['C1', '全体指示どおり'], ['F', '読み取れない赤字']].map(([c, l]) => `<span style="--c: var(--c-${c})"><i></i>${l}</span>`).join('');
+    $('legend').innerHTML = [['B', '直っていない'], ['C', '指示にない変更'], ['D', '直し忘れ'], ['E', '文字だけ違う'], ['A', '赤字どおり'], ['C1', '全体・以下同様どおり'], ['F', '読み取れない赤字']].map(([c, l]) => `<span style="--c: var(--c-${c})"><i></i>${l}</span>`).join('');
     renderList(); drawPage();
   }
 
-  // ページの表示名。初校か修正後が複数のファイルに分かれていれば、どのファイルの何ページ目かも示す
-  const multi = () => S.res && ((S.res.oldParts || []).length > 1 || (S.res.newParts || []).length > 1);
+  // ページの表示名。赤字原稿か修正後が複数のファイルに分かれていれば、どのファイルの何ページ目かも示す
+  const multi = () => S.res && ((S.res.markParts || []).length > 1 || (S.res.newParts || []).length > 1);
   const pageLabel = p => {
     if (!multi()) return `p.${p}`;
-    const o = PC.pageOf(S.res.oldParts, p - 1), n = PC.pageOf(S.res.newParts, p - 1);
-    return `p.${p}（初校 ${o ? o.name + ' の' + o.page + 'ページ目' : 'なし'}／修正後 ${n ? n.name + ' の' + n.page + 'ページ目' : 'なし'}）`;
+    const o = PC.pageOf(S.res.markParts, p - 1), n = PC.pageOf(S.res.newParts, p - 1);
+    return `p.${p}（赤字原稿 ${o ? o.name + ' の' + o.page + 'ページ目' : 'なし'}／修正後 ${n ? n.name + ' の' + n.page + 'ページ目' : 'なし'}）`;
   };
   const visible = f => {
     const g = groupOf(f);
@@ -1697,12 +2612,11 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     if (!F.length) { list.innerHTML = '<div class="empty">表示する項目はありません</div>'; return; }
     list.innerHTML = F.map(f => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
-      const more = [f.how && '読み取り方：' + esc(f.how), '判定：' + esc(f.label), f.check && !f.note ? '確認：' + esc(f.check) : ''].filter(Boolean).join('<br>');
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${f.id}" style="--c: var(--c-${COLOR[f.cat]})">
         <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}</span></div>
         ${whatHtml(f)}${markOf(f)}
-        <div class="crops"><figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>初校＋朱書き</figcaption></figure><figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>修正後</figcaption></figure></div>
-        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"><details class="more"><summary>詳しく</summary>${more}</details></div>
+        <div class="crops"><figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>赤字原稿</figcaption></figure><figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>修正後</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
+        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"></div>
       </div>`;
     }).join('');
     // 切り抜きは画面に入ったものから描く
@@ -1731,11 +2645,12 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   function drawCrops(el) {
     const f = S.res.findings[+el.dataset.id], im = S.imgs[f.page - 1], col = getComputedStyle(document.documentElement).getPropertyValue('--c-' + COLOR[f.cat]).trim();
     el.querySelectorAll('canvas').forEach(c => {
-      const side = c.dataset.side, [x0, y0, x1, y1] = cropBox(f, side), w = x1 - x0, h = y1 - y0, ctx = c.getContext('2d');
+      const side = c.dataset.side, [x0, y0, x1, y1] = side === 'N' ? [f.noteBox[0] - 15, f.noteBox[1] - 15, f.noteBox[2] + 15, f.noteBox[3] + 15] : cropBox(f, side), w = x1 - x0, h = y1 - y0, ctx = c.getContext('2d');
       const W = c.width = 360, H = c.height = Math.max(60, Math.min(220, Math.round(W * h / w)));
       const s = Math.min(W / w, H / h), ox = (W - w * s) / 2, oy = (H - h * s) / 2;
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-      ctx.drawImage(side === 'L' ? im.L : im.R, x0, y0, w, h, ox, oy, w * s, h * s);
+      ctx.drawImage(side === 'R' ? im.R : im.L, x0, y0, w, h, ox, oy, w * s, h * s);
+      if (side === 'N') return;   // 書き込みには枠を付けない
       for (const b of marks(f, side)) {
         const r = [ox + (b[0] - x0 - 3) * s, oy + (b[1] - y0 - 3) * s, (b[2] - b[0] + 6) * s, (b[3] - b[1] + 6) * s];
         ctx.globalAlpha = 0.18; ctx.fillStyle = col; ctx.fillRect(...r); ctx.globalAlpha = 1;
@@ -1751,7 +2666,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     S.page = f.page - 1; drawPage(true);
   }
 
-  // ページ表示: 左に初校＋朱書き、右に修正後。判定の枠を重ねる
+  // ページ表示: 左に赤字原稿、右に修正後。判定の枠を重ねる
   let geo = null;
   function drawPage(scrollToSel) {
     if (!S.res) return;
@@ -1786,9 +2701,9 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // ---- 出力 ----
   $('csv').onclick = () => {
     const V = { ok: 'OK', fix: '要修正', hold: '保留' }, q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
-    const rows = [['No.', 'ページ', '初校のファイル', '初校のページ', '修正後のファイル', '修正後のページ', '区分', '結論', 'すること', '違い（初校→修正後）', '指示文', '自動確認', '確認', 'メモ', '読み取り方', '位置（初校・200dpi）']];
+    const rows = [['No.', 'ページ', '赤字原稿のファイル', '赤字原稿のページ', '修正後のファイル', '修正後のページ', '区分', '結論', 'すること', '違い（修正前→修正後）', '指示文', '自動確認', '確認', 'メモ', '補足', '位置（赤字原稿・200dpi）']];
     S.res.findings.filter(f => f.cat !== 'F2').sort(cmp).forEach((f, i) => {
-      const v = S.verdict[f.id] || {}, o = PC.pageOf(S.res.oldParts, f.page - 1) || {}, n = PC.pageOf(S.res.newParts, f.page - 1) || {}, [title, todo] = verdictOf(f);
+      const v = S.verdict[f.id] || {}, o = PC.pageOf(S.res.markParts, f.page - 1) || {}, n = PC.pageOf(S.res.newParts, f.page - 1) || {}, [title, todo] = verdictOf(f);
       rows.push([i + 1, f.page, o.name, o.page, n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f), f.note, f.check, V[v.v] || '', v.memo || '', f.how, f.box.join(' ')]);
     });
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
@@ -1798,14 +2713,14 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 
   // ---- 起動 ----
   PC.ready = async () => {
-    PC.libsReady = true; $('libstate').textContent = 'オフラインで動作：ファイルは外部に送信されません';
+    PC.libsReady = true;
     // 部品の準備より先に選ばれていたファイルのページ数を数える
-    await Promise.all([...S.lists.old, ...S.lists.nw, ...S.lists.marks].map(countPages)); refresh();
+    await Promise.all([...S.lists.marks, ...S.lists.nw].map(countPages)); refresh();
   };
   refresh();
   // 自動テスト用の入口(画面操作と同じ処理を呼ぶ。f を省くと画面で選んだファイルを使う)
   const settled = async () => { while (S.loading.size) await Promise.all([...S.loading]); };
-  window.__pc = { run: async (f, ruleList) => { await settled(); return run(f || files(), ruleList || []); }, settled, files, add, get state() { return S; } };
+  window.__pc = { run: async f => { await settled(); return run(f || files()); }, settled, files, add, get state() { return S; } };
 })();
 </script>
 <script type="module">
