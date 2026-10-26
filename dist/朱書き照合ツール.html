@@ -3015,6 +3015,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const out = [], t = nfkc(pg.s);
     for (const m of t.matchAll(/(?<![\d-])0[1-9]\d{0,3}-\d{1,4}-\d{1,4}(?![\d-])/g)) {   // 00 で始まる番号(国際電話)・架空の 000 は見ない
       const n = m[0].replace(/-/g, '').length, mobile = /^0[5789]0/.test(m[0].replace(/-/g, '')), free = /^0120|^0800/.test(m[0].replace(/-/g, ''));
+      if (n < 9 || n > 12) continue;   // 「01-02-03」のような短い番号(品番・日付など)は電話番号とみなさない
       const ok = free ? (m[0].startsWith('0120') ? n === 10 : n === 11) : mobile ? n === 11 : n === 10;
       if (!ok) out.push({ pg, i: m.index, n: m[0].length, kind: 'phone', level: 'need', want: '', msg: `電話番号の桁数が合いません（${n}桁）` });
     }
@@ -3026,9 +3027,9 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   //   送りがなを省いた書き方(「申込」など)は、うしろに漢字が続くとき(「申込書」「取扱店」など、複合語の決まった書き方)は数えない
   const YURE = [
     ['問い合わせ', '問合せ', '問い合せ', '問合わせ'], ['申し込み', '申込み', '申込'], ['受け付け', '受付け'], ['取り扱い', '取扱い', '取扱'],
-    ['売り切れ', '売切れ', '売切'], ['引き換え', '引換え', '引換'], ['振り込み', '振込み', '振込'], ['お届け', 'お届け'],
+    ['売り切れ', '売切れ', '売切'], ['引き換え', '引換え', '引換'], ['振り込み', '振込み', '振込'],
     ['ください', '下さい'], ['いたします', '致します'], ['できる', '出来る'], ['および', '及び'], ['または', '又は'], ['ならびに', '並びに'], ['すべて', '全て'],
-  ].map(g => [...new Set(g)]);
+  ];
   function yure(pages) {
     const out = [];
     const hits = w => pages.flatMap(pg => [...pg.s.matchAll(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/\p{Script=Han}$/u.test(w) ? '(?!\\p{Script=Han})' : ''), 'gu'))].map(m => ({ pg, i: m.index, n: w.length })));
@@ -4677,7 +4678,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     return nm(S.res.newParts, n) + n.page + 'ページ目' + (wide ? (c < 0.4 ? '・左側' : c > 0.6 ? '・右側' : '') : '');
   };
   //   結果のページは原稿のページごと(データファイルのページは、載っている成果物のページごとに分かれることがある)
-  const srcOf = p => { const pg = S.res.pages[p - 1]; return pg.src != null ? pg.src : p - 1; };
+  const srcOf = p => { const pg = S.res.pages[p - 1]; return pg.kind === 'newonly' ? null : pg.src != null ? pg.src : p - 1; };   // 成果物だけのページは原稿なし
   const srcName = p => { const pg = S.res.pages[p - 1], o = PC.pageOf(S.res.markParts, srcOf(p)); return pg.label || (o ? nm(S.res.markParts, o) + o.page + 'ページ目' : ''); };
   const pageLabel = p => S.res.pages[p - 1].kind === 'newonly' ? `p.${p}（成果物 ${newPlace(p)} だけを確認）` : `p.${p}（原稿 ${srcName(p)} → 成果物 ${newPlace(p) || 'なし'}）`;
   // ページの対応の一覧(結果の概要に出す)。対応のない原稿のページが続くときはまとめる。同じデータファイルのページは1つにまとめる
@@ -4829,8 +4830,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const V = { ok: 'OK', fix: '要修正', hold: '保留' }, q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
     const rows = [['No.', 'ページ', '原稿のファイル', '原稿のページ', '成果物のファイル', '成果物のページ', '区分', '結論', 'すること', '違い（原稿→成果物）', '指示', '自動確認', '確認', 'メモ', '補足', '位置（原稿・200dpi）']];
     S.res.findings.filter(f => f.cat !== 'F2').sort(cmp).forEach((f, i) => {
-      const v = S.verdict[f.id] || {}, pg = S.res.pages[f.page - 1], nq = pg.q, o = PC.pageOf(S.res.markParts, srcOf(f.page)) || {}, n = (nq >= 0 && PC.pageOf(S.res.newParts, nq)) || {}, [title, todo] = verdictOf(f);
-      rows.push([i + 1, f.page, o.name, [(pg.label && pg.label.replace(o.name, '').trim()) || o.page, f.refs ? f.refs.join('・') : f.ref].filter(Boolean).join(' '), n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).auto ? '自動で確認済み' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f) + (f.more ? `（同じ違い 全${f.more}か所）` : '') + (f.goneN ? `（ほか${f.goneN - 1}つ続けて成果物にない）` : ''), f.note, f.check, V[v.v] || '', v.memo || '', [f.how, f.oldSame ? '旧版と同じ' : f.vsOld === 'same' ? '旧版と同じ' : f.vsOld === 'changed' ? '旧版から変わった' : ''].filter(Boolean).join('／'), f.box.join(' ')]);
+      const v = S.verdict[f.id] || {}, pg = S.res.pages[f.page - 1], nq = pg.q, o = (srcOf(f.page) != null && PC.pageOf(S.res.markParts, srcOf(f.page))) || {}, n = (nq >= 0 && PC.pageOf(S.res.newParts, nq)) || {}, [title, todo] = verdictOf(f);
+      rows.push([i + 1, f.page, o.name, [(pg.label && pg.label.replace(o.name, '').trim()) || o.page, f.refs ? f.refs.join('・') : f.ref].filter(Boolean).join(' '), n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).auto ? '自動で確認済み' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f) + (f.more ? `（同じ違い 全${f.more}か所）` : '') + (f.goneN ? `（ほか${f.goneN - 1}つ続けて成果物にない）` : ''), f.note, f.check, V[v.v] || '', v.memo || '', [f.how, f.oldSame || f.vsOld === 'same' ? '旧版と同じ' : f.vsOld === 'changed' && !f.fromOld ? '旧版から変わった' : ''].filter(Boolean).join('／'), f.box.join(' ')]);
     });
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '照合結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
