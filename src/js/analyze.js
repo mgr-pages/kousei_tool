@@ -118,6 +118,36 @@
   }
 
 
+  // 字の見た目(レイアウトの指示の確認に使う): 枠の中のインク(暗い・色のある画素)の、インクを囲む範囲での割合(太さ)・高さ・平均の色
+  function styleOf(img, box) {
+    if (!box) return null;
+    const x0 = Math.max(0, Math.floor(box[0])), y0 = Math.max(0, Math.floor(box[1])), x1 = Math.min(img.w, Math.ceil(box[2])), y1 = Math.min(img.h, Math.ceil(box[3]));
+    let n = 0, r = 0, g = 0, b = 0, ix0 = Infinity, iy0 = Infinity, ix1 = -1, iy1 = -1;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const k = (y * img.w + x) * 4, R = img.d[k], G = img.d[k + 1], Bv = img.d[k + 2], mx = Math.max(R, G, Bv), mn = Math.min(R, G, Bv), lum = 0.3 * R + 0.59 * G + 0.11 * Bv;
+      if (!(lum < 150 || (mx - mn > 80 && lum < 215))) continue;
+      n++; r += R; g += G; b += Bv; if (x < ix0) ix0 = x; if (x > ix1) ix1 = x; if (y < iy0) iy0 = y; if (y > iy1) iy1 = y;
+    }
+    if (n < 8) return null;
+    return { ink: n / ((ix1 - ix0 + 1) * (iy1 - iy0 + 1)), h: iy1 - iy0 + 1, color: [r / n, g / n, b / n] };
+  }
+  // 書式の指示(太字・大きさ・色)が、修正前→修正後の見た目の変化で確かめられるか。返り値: 確認の文 または null(判定できない指示)
+  const COLORS = { 赤: [345, 25], 朱: [0, 30], 青: [190, 250], 緑: [80, 165], オレンジ: [20, 45], 黄: [45, 70], 紫: [255, 320], ピンク: [300, 350] };
+  const hueOf = ([R, G, B]) => { const mx = Math.max(R, G, B), mn = Math.min(R, G, B), d = mx - mn; if (!d) return { h: 0, s: 0 }; let h = mx === R ? ((G - B) / d) % 6 : mx === G ? (B - R) / d + 2 : (R - G) / d + 4; h *= 60; if (h < 0) h += 360; return { h, s: d / mx }; };
+  function styleCheck(note, o, n) {
+    const t = note.replace(/\s/g, ''), OK = '書式の指示どおり（自動確認OK）', NG = '書式の指示どおりになっていない可能性（要確認）';
+    if (!o || !n) return null;
+    if (/太字|太く|ボールド/.test(t)) return n.ink >= o.ink * 1.12 ? OK : NG;
+    if (/細字|細く/.test(t)) return n.ink <= o.ink * 0.9 ? OK : NG;
+    if (/大きく|拡大|大きめ/.test(t)) return n.h >= o.h * 1.08 ? OK : NG;
+    if (/小さく|縮小|小さめ/.test(t)) return n.h <= o.h * 0.93 ? OK : NG;
+    const named = Object.keys(COLORS).find(c => t.includes(c));
+    if (named && /色|字|に/.test(t)) { const { h, s } = hueOf(n.color), [a, b] = COLORS[named]; return s > 0.3 && (a <= b ? h >= a && h <= b : h >= a || h <= b) ? OK : NG; }
+    if (/黒/.test(t) && /色|字|に/.test(t)) { const { s } = hueOf(n.color); return s < 0.25 && Math.max(...n.color) < 120 ? OK : NG; }
+    if (/色/.test(t) && /変|かえ|カエ/.test(t)) return Math.hypot(...o.color.map((v, k) => v - n.color[k])) > 40 ? OK : NG;
+    return null;
+  }
+
   // 表示用の画像(赤字原稿を薄く／修正後を薄く)をJPEGにして手放す
   const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
   //   大きなページ(A3・見開きなど)は長い辺を2400画素までに縮める(w, h は元の大きさ。表示のときに縮めた分を戻す)
@@ -236,6 +266,7 @@
       else if (ob.some(b => b.kind === 'image' && ov(b.box, box))) an.push({ kind: 'image', how: MK[n.type], box, stroke: -1, note: n.text });
     }
     for (const a of an) if (a.note === undefined) a.note = (notes.find(n => n.type !== 'Caret' && ov(n.box, a.box, 8)) || {}).text || (notes.find(n => n.type === 'Caret' && ov(n.box, a.box, 2)) || {}).text || '';
+    for (const c of merged) if (c.obox && c.nbox) c.sty = { o: styleOf(old, c.obox), n: styleOf(nw, c.nbox) };   // 書式の指示の確認用
     return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, w: old.w };
   }
 
@@ -489,7 +520,7 @@
     return unit && (digit(ops[h.s - 1]) || digit(ops[h.e]));
   }
   // 自動確認の結果の文 → 'ok'(指示どおり)・'ng'(指示どおりでない可能性)・null(人が確認)
-  const autoOf = chk => (/自動確認OK/.test(chk) ? 'ok' : /見当たらない|されていない/.test(chk) ? 'ng' : null);
+  const autoOf = chk => (/自動確認OK/.test(chk) ? 'ok' : /見当たらない|されていない|なっていない/.test(chk) ? 'ng' : null);
   // 内容で照合したページの指示(書き込み・コメント)の自動確認: 指示の文から、成果物にあるはずの文字・なくなるはずの文字を取り出し、
   // 原稿のページが当たる成果物の範囲で調べる。返り値: { auto, check } または null(文字では判定できない指示)
   //   quads: 取り消し線などが引かれた範囲(あれば、「トル」だけの指示はその下の字が消えたかを見る)
@@ -502,6 +533,7 @@
       const drop = under.map(i => d.A.chars[i].c).join('');
       return under.every(i => st.get(i) === 'd') ? { auto: 'ok', check: '削除を確認（自動確認OK）', drop } : { auto: 'ng', check: '削除されていない可能性（要確認）', drop };
     }
+    if (!/[「『"“]/.test(text)) { const r = layoutInstr(d, text, quads, st); if (r !== undefined) return r; }
     const tgt = PC.instrTarget(text);
     if (!tgt) return null;
     const fk = s => [...String(s).replace(/\s/g, '')].map(PC.fold).join('').replace(d.A.loose ? /(?<=\d)[,，](?=\d)/g : /(?!)/g, '');
@@ -520,6 +552,41 @@
     for (let k = ks.indexOf(x); k >= 0 && x; k = ks.indexOf(x, k + 1)) occ.push(near.slice(k, k + [...x].length));
     const gone = occ.length ? occ.some(is => is.every(i => st.get(i) === 'd')) : !area.includes(x);
     return gone ? { auto: 'ok', check: '削除を確認（自動確認OK）' } : { auto: 'ng', check: '削除されていない可能性（要確認）' };
+  }
+  // 書式の指示(太字・大きさ・色)を、指示の付いた原稿の字(取り消し線・マーカーなどの範囲)に対応する成果物の字で確かめる
+  //   大きさ: ページの字の大きさの中央値に対する比が、原稿より1割以上大きい(小さい)か。太字: 書体の名前、なければ線の太さ(ページの字より25%以上)
+  //   返り値: undefined(書式の指示ではない) / null(書式の指示だが判定できない) / { auto, check }
+  const BOLD = /bold|heavy|black|demi|semibold|extrabold|ultra|W[6-9]\b|-(?:B|H|E|U|DB|EB)\b|-Bo/i;
+  function layoutInstr(d, text, quads, st) {
+    const t = String(text).replace(/\s/g, ''), named = Object.keys(COLORS).find(c => t.includes(c));
+    const kind = /太字|太く|ボールド/.test(t) ? 'bold' : /細字|細く/.test(t) ? 'thin' : /大きく|拡大|大きめ/.test(t) ? 'big' : /小さく|縮小|小さめ/.test(t) ? 'small' : named && /色|字|に/.test(t) ? 'color' : null;
+    if (!kind) return undefined;
+    if (!quads || !quads.length) return null;
+    const A = d.A, B = d.nq.B, map = new Map();
+    for (const b of d.blocks) if (!b.instr) for (const o of b.ops) if (o.length === 3) map.set(b.s + o[1], o[2]);
+    const ai = A.chars.map((c, i) => i).filter(i => { const [x, y] = PC.center(A.chars[i].box); return quads.some(q => x >= q[0] && x <= q[2] && y >= q[1] - 2 && y <= q[3] + 2); });
+    const bj = ai.map(i => map.get(i)).filter(j => j != null);
+    if (!ai.length || bj.length < 0.5 * ai.length) return null;   // 指示の付いた字が、成果物のどの字か分からない
+    const med = xs => { const v = xs.filter(x => x > 0).sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 0; };
+    let ok;
+    if (kind === 'big' || kind === 'small') {
+      const sA = i => A.items[A.chars[i].it].size, sB = j => B.items[B.chars[j].it].size;
+      const rA = med(ai.map(sA)) / med(A.chars.map((_, i) => sA(i))), rB = med(bj.map(sB)) / med(B.chars.map((_, j) => sB(j)));
+      if (!rA || !rB) return null;
+      ok = kind === 'big' ? rB >= rA * 1.1 : rB <= rA * 0.9;
+    } else if (kind === 'bold' || kind === 'thin') {
+      const fonts = bj.map(j => B.items[B.chars[j].it].font || ''), byName = fonts.filter(f => BOLD.test(f)).length >= 0.5 * fonts.length;
+      const ink = med(bj.map(j => (B.chars[j].sty || {}).ink || 0)), page = med(B.chars.map(c => (c.sty || {}).ink || 0));
+      if (!page || !ink) return null;
+      const bold = byName || ink >= page * 1.25;
+      ok = kind === 'bold' ? bold : !bold && ink <= page * 0.95;
+    } else {
+      const cs = bj.map(j => B.chars[j].sty).filter(Boolean);
+      if (!cs.length) return null;
+      const col = [0, 1, 2].map(k => cs.reduce((t, c) => t + c.color[k], 0) / cs.length), { h, s } = hueOf(col), [a, b] = COLORS[named];
+      ok = s > 0.3 && (a <= b ? h >= a && h <= b : h >= a || h <= b);
+    }
+    return ok ? { auto: 'ok', check: '書式の指示どおり（自動確認OK）' } : { auto: 'ng', check: '書式の指示どおりになっていない可能性（要確認）' };
   }
   const instrCheck = t => /後送/.test(t) ? '後送（素材はあとから届く）' : /\.(png|jpe?g|psd|ai|pdf|tiff?|eps|gif)\b|ファイル名/i.test(t) ? '使う画像・素材の指定' : '指示どおりか確認';
   function contentFindings(d, p, add0) {
@@ -644,6 +711,7 @@
       if (NQ.has(q)) return NQ.get(q);
       const img = await PC.renderPage(newDoc, q, PC.DPI, false), B = await PC.pageText(newDoc, q);
       PC.snapChars(B, img, PC.S);
+      for (const c of B.chars) c.sty = styleOf(img, c.box.map(x => x * PC.S));   // 字の見た目(書式の指示の確認用)
       const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), usedFree: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
       NQ.set(q, v);
       return v;
@@ -775,7 +843,7 @@
     }
     P.forEach((d, p) => {
       for (const a of d.an) for (const c of a.hit) {
-        if (c.kind !== 'text' || !c.before || c.tag === 'layout') continue;
+        if (c.kind !== 'text' || !c.before || c.tag === 'layout' || c.before === c.after) continue;   // 字が同じ(見た目だけの変化)ものは直しの語にしない
         const after = (a.note || '').includes('以下同様');
         if (!after && !(c.after && isWord(c.before))) continue;
         const [b, ca] = coreOf(c.before, c.after);
@@ -850,6 +918,11 @@
       for (const c of [...d.ch, ...d.im]) {
         const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
         let chk = '', wantUsed = '';
+        if (a.note && c.kind === 'text' && c.tag === 'layout') {   // 改行・追い込みの指示: 段落の始まりが指示どおりに変わったか
+          const t = a.note.replace(/\s/g, '');
+          if (/改行|改段|段落/.test(t)) chk = (c.show || '').includes('追加') ? '改行を確認（自動確認OK）' : '改行の指示どおりになっていない可能性（要確認）';
+          else if (/追い込|追込|改行トル|改行なし/.test(t)) chk = (c.show || '').includes('解除') ? '追い込みを確認（自動確認OK）' : '追い込みの指示どおりになっていない可能性（要確認）';
+        }
         if (a.note && c.kind === 'text' && c.tag !== 'layout') {   // 指示文(注釈のコメント)が、修正後の該当箇所の前後にあるか
           // 「目指し（以下同様）」のような添え書きは外す(指示文全体がかっこ書きなら外さない)
           const strip = a.note.replace(/[（(][^）)]*(以下同様|全体|ママ|イキ|トル|同様)[^）)]*[）)]/g, '').replace(/\s/g, '');
@@ -858,7 +931,12 @@
           const tgt = PC.instrTarget(want), ctxOf = w => (c.nbox ? around(d.nc, c.nbox, [...w].length + 3) : '');
           if (tgt && tgt.want) { wantUsed = tgt.want; chk = ctxOf(tgt.want).includes(tgt.want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
           else if (tgt && tgt.drop) chk = c.tag === 'delete' || !c.after || !ctxOf(tgt.drop).includes(tgt.drop) ? '削除を確認（自動確認OK）' : '削除されていない可能性（要確認）';
-          else if (/太字|細字|書体|ゴシック|明朝|イタリック|斜体|色|サイズ|大きく|小さく|字下げ|改行|追い込み|写真|差し?替/.test(want)) chk = '書式・組みの指示（人が確認）';
+          else if (/太字|細字|書体|ゴシック|明朝|イタリック|斜体|色|サイズ|大きく|小さく|字下げ|改行|追い込み|写真|差し?替/.test(want) || /^(赤|青|緑|黒|白|朱|紫|ピンク|オレンジ|黄)(色|字)?(に|で)?(する|して)?$/.test(want)) {
+            // 同じ指示に結びついた変化(行の折り返しなどで分かれる)のどれかで指示どおりの見た目になっていれば、指示どおりとする
+            const sc = d.kind === 'annot' && c.sty ? styleCheck(want, c.sty.o, c.sty.n) : null;
+            const any = sc && (a.hit || []).some(h => h.sty && /OK/.test(styleCheck(want, h.sty.o, h.sty.n) || ''));
+            chk = sc ? (any ? '書式の指示どおり（自動確認OK）' : sc) : '書式・組みの指示（人が確認）';
+          }
           else if (/^(トル|トルツメ|トルママ|削除)$/.test(want)) chk = c.tag === 'delete' || !c.after ? '削除を確認（自動確認OK）' : '削除されていない可能性（要確認）';
           else { wantUsed = want; const ctx = ctxOf(want); chk = want && ctx.includes(want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
         }

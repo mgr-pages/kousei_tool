@@ -28,6 +28,8 @@ run "$O/variant_yen.xlsx" "$O/final.pdf" office_yen &
 run "$O/variant_master.xlsx" "$O/final.pdf" office_master &
 # 成果物だけで見る日本語のチェック(test/jcheck/make.py で作った模擬データ)
 run "$DATA/jcheck/genko.txt" "$DATA/jcheck/seika.pdf" jcheck &
+# 書式の指示(太字・大きさ・色)を注釈で入れた原稿と成果物(test/layout/make.py で作った模擬データ)
+run "$DATA/layout/genko.pdf" "$DATA/layout/seika.pdf" layout &
 wait
 for s in 1 2 3 4 5 6 7 8; do
   echo "紙 s$s: $(tail -1 "$OUT/paper_s$s.log" | cut -c1-60) | $(python3 "$EVAL" "$GT" "$OUT/paper_s$s.json" --csv "$OUT/paper_s$s.csv" | sed -n 1p)"
@@ -43,5 +45,7 @@ python3 test/office/evaluate.py test/office/gt.json "$OUT/office.json" | tail -n
 for k in yen master; do echo "データ原稿（$k）: $(python3 test/office/variants.py check $k "$OUT/office_$k.json")"; done
 echo "日本語チェック: $(tail -1 "$OUT/jcheck.log" | cut -c1-30) | $(python3 test/jcheck/evaluate.py test/jcheck/gt.json "$OUT/jcheck.json" | sed -n 1p)"
 python3 test/jcheck/evaluate.py test/jcheck/gt.json "$OUT/jcheck.json" | tail -n +2
+echo "書式の指示: $(tail -1 "$OUT/layout.log" | cut -c1-30) | $(python3 test/layout/evaluate.py test/layout/gt.json "$OUT/layout.json" | sed -n 1p)"
+python3 test/layout/evaluate.py test/layout/gt.json "$OUT/layout.json" | tail -n +2
 echo "複数ファイル（紙）: 1ファイルのときと$(same "$OUT/split_scan.json" "$OUT/paper_s1.json")"
 echo "複数ファイル（注釈）: 1ファイルのときと$(same "$OUT/split_digital.json" "$OUT/digital.json")"

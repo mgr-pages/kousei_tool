@@ -158,7 +158,8 @@
         const s0 = pg.chars.length;
         y = pg.put(b.text, M, y, width, size) + size * 0.4;
         if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'para']);
-        for (const n of b.notes || []) pg.notes.push({ type: 'Comment', box: [M, y - size * 2, W - M, y], text: n, quads: [] });
+        const pb = pg.chars.length > s0 ? PC.union(pg.chars.slice(s0).map(c => c.box)) : [M, y - size * 2, W - M, y];
+        for (const n of b.notes || []) pg.notes.push({ type: 'Comment', box: pb, text: n, quads: [pb] });   // コメントの付いた段落(書式の指示の確認に使う)
       } else {
         const ws = b.widths && b.widths.length === b.cells.length ? b.widths : b.cells.map(() => 1), tot = ws.reduce((a, c) => a + c, 0) || 1, cw = ws.map(v => (v / tot) * width), pad = 3;
         if (y + size * 3 > H - M && y > M + 1) start();

@@ -276,8 +276,17 @@
     const out = [], oi = [], ni = [];
     for (let k = 0; k < oids.length; k++) if (!skip[0].has(k)) oi.push(k);
     for (let k = 0; k < nids.length; k++) if (!skip[1].has(k)) ni.push(k);
-    for (const [tag, a1, a2, b1, b2] of PC.opcodes(oi.map(k => oids[k]), ni.map(k => nids[k]))) {
-      if (tag === 'equal') continue;
+    // 絞り込んだ並び(同じと分かったまとまりを除いたもの)で隣り合った違いでも、元の並びで間に除いたまとまりがあれば別の違いに分ける
+    //   (両側で同じ数に分かれるときだけ。違う行への指示が、間の行ごと1つの違いにまとまらないように)
+    const runs = (idx, s, e) => { const r = []; for (let q = s; q < e; q++) { if (r.length && idx[q] === idx[q - 1] + 1) r[r.length - 1][1] = q + 1; else r.push([q, q + 1]); } return r; };
+    const parts = [];
+    for (const [tag0, a1, a2, b1, b2] of PC.opcodes(oi.map(k => oids[k]), ni.map(k => nids[k]))) {
+      if (tag0 === 'equal') continue;
+      const ra = runs(oi, a1, a2), rb = runs(ni, b1, b2);
+      if (ra.length > 1 && ra.length === rb.length) ra.forEach((r, k) => parts.push(['replace', r[0], r[1], rb[k][0], rb[k][1]]));
+      else parts.push([tag0, a1, a2, b1, b2]);
+    }
+    for (const [tag, a1, a2, b1, b2] of parts) {
       // 絞り込んだ並びの位置を、元のトークン番号に戻す
       const i1 = a1 < oi.length ? oi[a1] : oids.length, i2 = a2 > a1 ? oi[a2 - 1] + 1 : i1;
       const j1 = b1 < ni.length ? ni[b1] : nids.length, j2 = b2 > b1 ? ni[b2 - 1] + 1 : j1;

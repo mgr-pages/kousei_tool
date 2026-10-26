@@ -20,6 +20,8 @@
 
   // ---- ページの文字データ: 1字ずつ { c: 字, k: 照合用の字, box, it: まとまりの番号 } ----
   //   同じ位置に同じ文字列が重ねて描かれたもの(縁取りの文字など)は1つにする
+  //   書体の名前(太字の指示の確認に使う)。ページを描画したあとでないと分からないため、分からなければ ''
+  const fontOf = (page, id) => { try { return page.commonObjs.has(id) ? String(page.commonObjs.get(id).name || '') : ''; } catch (e) { return ''; } };
   PC.pageText = async (doc, pno) => {
     const page = await doc.getPage(pno + 1), vp = page.getViewport({ scale: 1 }), tc = await page.getTextContent();
     const items = [], chars = [];
@@ -43,7 +45,7 @@
       const box = union(rects);
       if (items.some(q => q.s === it.str && iou(q.box, box) > 0.6)) { wide = false; continue; }
       const idx = items.length;
-      items.push({ s: it.str, box, vert, size });
+      items.push({ s: it.str, box, vert, size, font: fontOf(page, it.fontName) });
       // 全角の空白・2つ以上続く空白のあとの字には印(見出しと中身の区切りとして、まとまりを分ける)
       let ws = '';
       chs.forEach((ch, i) => { if (!ch.trim()) { ws += ch; return; } chars.push({ c: ch, k: PC.fold(ch), box: rects[i], it: idx, brk: wide || /\u3000|\s{2,}/.test(ws) }); ws = ''; wide = false; });

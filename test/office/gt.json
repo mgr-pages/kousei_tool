@@ -12,7 +12,7 @@
     { "id": "D1", "src": "2_notice.docx", "cat": ["T"], "has": "場", "to": "店", "what": "ご来場→ご来店" },
     { "id": "D2", "src": "2_notice.docx", "cat": ["T"], "has": "数に限りがあります", "what": "成果物にない文" },
     { "id": "D3", "src": "2_notice.docx", "cat": ["V"], "has": "50", "to": "５０", "what": "表の 50名→５０名(全角)" },
-    { "id": "D4", "src": "2_notice.docx", "cat": ["K"], "has": "見出しは大きく", "what": "Wordのコメント" },
+    { "id": "D4", "src": "2_notice.docx", "cat": ["K"], "has": "見出しは大きく", "auto": "ok", "what": "Wordのコメント「見出しは大きく」→ 成果物の見出しは本文より大きい（自動でOK）" },
     { "id": "P1", "src": "3_set.pptx", "cat": ["T"], "has": "15", "to": "20", "what": "15%→20%" },
     { "id": "X8", "src": "4_contact.txt", "cat": ["T"], "has": "7", "to": "8", "around": "時）", "what": "17時→18時(Shift_JISのテキスト)" },
     { "id": "C1", "src": "5_shops.csv", "cat": ["T"], "has": "4", "to": "5", "around": "-444", "what": "電話番号の末尾(Shift_JISのCSV)" }

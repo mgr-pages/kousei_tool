@@ -24,6 +24,8 @@ for e in gt['expect']:
         d, i, o, a = texts(f)
         if e['has'] not in d + o + i or ('to' in e and e['to'] not in i) or ('around' in e and e['around'] not in a):
             continue
+        if 'auto' in e and (f.get('auto') or 'none') != e['auto']:   # 指示どおりかの自動判定(ok・ng・none=人が確認)
+            continue
         hits.append(f)
     if hits:
         used.add(hits[0]['id']); ok += 1
