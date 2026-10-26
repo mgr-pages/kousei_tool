@@ -25,6 +25,8 @@ for e in gt['expect']:
             continue
         if 'to' in e and e['to'] not in i:
             continue
+        if 'auto' in e and (f.get('auto') or 'none') != e['auto']:   # 指示どおりかの自動判定(ok・ng・none=人が確認)
+            continue
         hits.append(f)
     need = e.get('count', 1)
     for f in hits[:need]:

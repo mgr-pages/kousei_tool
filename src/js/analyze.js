@@ -488,17 +488,62 @@
     }
     return unit && (digit(ops[h.s - 1]) || digit(ops[h.e]));
   }
+  // 自動確認の結果の文 → 'ok'(指示どおり)・'ng'(指示どおりでない可能性)・null(人が確認)
+  const autoOf = chk => (/自動確認OK/.test(chk) ? 'ok' : /見当たらない|されていない/.test(chk) ? 'ng' : null);
+  // 内容で照合したページの指示(書き込み・コメント)の自動確認: 指示の文から、成果物にあるはずの文字・なくなるはずの文字を取り出し、
+  // 原稿のページが当たる成果物の範囲で調べる。返り値: { auto, check } または null(文字では判定できない指示)
+  //   quads: 取り消し線などが引かれた範囲(あれば、「トル」だけの指示はその下の字が消えたかを見る)
+  function autoInstr(d, text, box, quads) {
+    const st = new Map();
+    for (const b of d.blocks) if (!b.instr) for (const o of b.ops) { if (o.length === 3) st.set(b.s + o[1], 'm'); else if (o[0] === '-') st.set(b.s + o[1], 'd'); }
+    if (/^(トル|トルツメ|削除|取る)$/.test(String(text).replace(/\s/g, '')) && quads && quads.length) {
+      const under = d.A.chars.map((c, i) => i).filter(i => { const [x, y] = PC.center(d.A.chars[i].box); return quads.some(q => x >= q[0] && x <= q[2] && y >= q[1] - 2 && y <= q[3] + 2); });
+      if (!under.length) return null;
+      const drop = under.map(i => d.A.chars[i].c).join('');
+      return under.every(i => st.get(i) === 'd') ? { auto: 'ok', check: '削除を確認（自動確認OK）', drop } : { auto: 'ng', check: '削除されていない可能性（要確認）', drop };
+    }
+    const tgt = PC.instrTarget(text);
+    if (!tgt) return null;
+    const fk = s => [...String(s).replace(/\s/g, '')].map(PC.fold).join('').replace(d.A.loose ? /(?<=\d)[,，](?=\d)/g : /(?!)/g, '');
+    const R = d.pr.region, M = 0.05 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+    const inR = c => { const [x, y] = PC.center(c.box); return x >= R[0] - M && x <= R[2] + M && y >= R[1] - M && y <= R[3] + M; };
+    const area = fk(d.nq.B.chars.filter(inR).map(c => c.c).join(''));
+    if (tgt.want) {
+      const w = fk(tgt.want);
+      if ([...w].length < 2) return null;   // 1字だけでは、たまたまある字と見分けられない
+      return area.includes(w) ? { auto: 'ok', check: '指示の文字が成果物にある（自動確認OK）' } : { auto: 'ng', check: '指示の文字が成果物に見当たらない（要確認）' };
+    }
+    // なくなるはずの文字: 指示の近くの原稿の字にあれば、その字が成果物に対応づいたまま(残っている)かを見る。なければ成果物の範囲にないことを確かめる
+    const x = fk(tgt.drop), A = d.A.chars;
+    const near = A.map((c, i) => i).filter(i => PC.gap(A[i].box, box) < 30);
+    const ks = near.map(i => A[i].k).join(''), occ = [];
+    for (let k = ks.indexOf(x); k >= 0 && x; k = ks.indexOf(x, k + 1)) occ.push(near.slice(k, k + [...x].length));
+    const gone = occ.length ? occ.some(is => is.every(i => st.get(i) === 'd')) : !area.includes(x);
+    return gone ? { auto: 'ok', check: '削除を確認（自動確認OK）' } : { auto: 'ng', check: '削除されていない可能性（要確認）' };
+  }
   const instrCheck = t => /後送/.test(t) ? '後送（素材はあとから届く）' : /\.(png|jpe?g|psd|ai|pdf|tiff?|eps|gif)\b|ファイル名/i.test(t) ? '使う画像・素材の指定' : '指示どおりか確認';
-  function contentFindings(d, p, add) {
+  function contentFindings(d, p, add0) {
+    const mine = [], add = (...a) => { const f = add0(...a); mine.push(f); return f; };   // このページで出した項目(指示との結びつけに使う)
     const k = PC.S, px = b => b && b.map(v => v * k), A = d.A.chars, B = d.nq.B.chars;
     const toNew = b => { const m = fwdOf(d, b), R = d.pr.region; return [Math.max(R[0], Math.min(m[0], R[2] - 20)), Math.max(R[1], Math.min(m[1], R[3] - 20)), Math.min(R[2], Math.max(m[2], R[0] + 20)), Math.min(R[3], Math.max(m[3], R[1] + 20))]; };
     const refOf = new Map((d.A.blocks || []).map(b => [b[0], b[4] || '']));   // データファイルの表の行番号(「3行目」)
+    // 取り消し線などに「トル」と付いた原稿の文は、成果物になくても書き込み(指示)とせず、消す指示の付いた文として扱う
+    //   (成果物にない文は、位置の手がかりがなく欄外の書き込みと見分けにくいため)
+    const delQ = d.annots.filter(n => /^(トル|トルツメ|削除|取る)$/.test(n.text.replace(/\s/g, '')) && n.quads && n.quads.length).flatMap(n => n.quads);
+    const underDel = c => { const [x, y] = PC.center(c.box); return delQ.some(q => x >= q[0] && x <= q[2] && y >= q[1] - 2 && y <= q[3] + 2); };
+    for (const b of d.blocks) {
+      if (!b.instr || b.found >= 0.8) continue;
+      const cs = A.slice(b.s, b.e);
+      if (cs.filter(underDel).length >= 0.8 * cs.length) { b.instr = false; b.ops = cs.map((_, i) => ['-', i]); }
+    }
     const pend = [];   // 違い(T)・書き方の違い(V)。同じ違いのくり返しは、あとで1件にまとめる
     for (const b of d.blocks) {
       const cs = A.slice(b.s, b.e), box = PC.union(cs.map(c => c.box));
       if (b.instr) {
         const hit = b.ops.filter(o => o.length === 3).map(o => B[o[2]]), found = b.found >= 0.8 && hit.length;
-        const f = add(p + 1, 'K', px(box), b.text, '原稿の書き込み', b.text, found ? '指示の文字が成果物にある（自動確認OK）' : instrCheck(b.text), px(found ? PC.union(hit.map(c => c.box)) : toNew(box)));
+        const a = found ? { auto: 'ok', check: '指示の文字が成果物にある（自動確認OK）' } : autoInstr(d, b.text, box);
+        const f = add(p + 1, 'K', px(box), b.text, '原稿の書き込み', b.text, a ? a.check : instrCheck(b.text), px(found ? PC.union(hit.map(c => c.box)) : toNew(box)));
+        if (a) f.auto = a.auto;
         if (!found) f.approx = true;
         if (refOf.get(b.s)) f.ref = refOf.get(b.s);
         continue;
@@ -552,7 +597,9 @@
     }
     for (const n of d.annots) {   // コメント(注釈): 書かれた指示を、成果物の対応する位置と並べて示す
       if (!n.text.trim()) continue;
-      const f = add(p + 1, 'K', px(n.box), n.text, 'コメント', n.text, instrCheck(n.text), px(toNew(n.box)));
+      const a = autoInstr(d, n.text, n.box, n.quads);
+      const f = add(p + 1, 'K', px(n.box), n.text, 'コメント', n.text, a ? a.check : instrCheck(n.text), px(toNew(n.box)));
+      if (a) { f.auto = a.auto; if (a.drop) f.dropText = a.drop; }
       f.approx = true;
       const rb = (d.A.blocks || []).find(b => b[4] && ov(PC.union(d.A.chars.slice(b[0], b[1]).map(c => c.box)), n.box));
       if (rb) f.ref = rb[4];
@@ -567,6 +614,20 @@
       const f = add(p + 1, e.cat, px(e.box), e.show, '', '', '', px(e.nbox));
       f.onNew = true;
       if (e.cat === 'N') Object.assign(f, { segs: [['+', e.show]], same: false, pnboxes: [px(e.nbox)] });
+    }
+    // 自動で指示どおりと確かめた指示の近くにある「原稿と違う」で、違いが指示の文字そのもの(「A」→「B」のA・B)のものは、指示どおりの違いとする
+    const fk = s => [...String(s || '').replace(/\s/g, '')].map(PC.fold).join('');
+    const far = 0.15 * k * Math.hypot(d.A.w || 0, d.A.h || 0);
+    for (const kf of mine.filter(f => f.cat === 'K' && f.auto === 'ok')) {
+      const tgt = PC.instrTarget(kf.note) || (kf.dropText ? { drop: kf.dropText } : null);
+      if (!tgt) continue;
+      const W = tgt.want ? fk(tgt.want) : '', X = tgt.drop ? fk(tgt.drop) : '';
+      for (const f of mine) {
+        if ((f.cat !== 'T' && f.cat !== 'N') || f.auto || f.more || f.goneN) continue;
+        const del = fk((f.segs || []).filter(g => g[0] === '-').map(g => g[1]).join('')), ins = fk((f.segs || []).filter(g => g[0] === '+').map(g => g[1]).join(''));
+        if (!(del || ins) || (del && del !== X) || (ins && ins !== W) || PC.gap(kf.box, f.box) > far) continue;
+        f.auto = 'ok'; f.byInstr = kf.note;
+      }
     }
   }
 
@@ -765,17 +826,23 @@
       if (d.kind === 'content') contentFindings(d, p, add);
       for (const c of [...d.ch, ...d.im]) {
         const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
-        let chk = '';
+        let chk = '', wantUsed = '';
         if (a.note && c.kind === 'text' && c.tag !== 'layout') {   // 指示文(注釈のコメント)が、修正後の該当箇所の前後にあるか
           // 「目指し（以下同様）」のような添え書きは外す(指示文全体がかっこ書きなら外さない)
           const strip = a.note.replace(/[（(][^）)]*(以下同様|全体|ママ|イキ|トル|同様)[^）)]*[）)]/g, '').replace(/\s/g, '');
           const want = strip || a.note.replace(/\s/g, '');
-          if (/太字|細字|書体|ゴシック|明朝|イタリック|斜体|色|サイズ|大きく|小さく|字下げ|改行|追い込み|写真|差し?替/.test(want)) chk = '書式・組みの指示（人が確認）';
+          // 「A」→「B」・「B」に修正・「A」トル のような指示は、何に直すか(B)・何を消すか(A)を取り出して調べる
+          const tgt = PC.instrTarget(want), ctxOf = w => (c.nbox ? around(d.nc, c.nbox, [...w].length + 3) : '');
+          if (tgt && tgt.want) { wantUsed = tgt.want; chk = ctxOf(tgt.want).includes(tgt.want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
+          else if (tgt && tgt.drop) chk = c.tag === 'delete' || !c.after || !ctxOf(tgt.drop).includes(tgt.drop) ? '削除を確認（自動確認OK）' : '削除されていない可能性（要確認）';
+          else if (/太字|細字|書体|ゴシック|明朝|イタリック|斜体|色|サイズ|大きく|小さく|字下げ|改行|追い込み|写真|差し?替/.test(want)) chk = '書式・組みの指示（人が確認）';
           else if (/^(トル|トルツメ|トルママ|削除)$/.test(want)) chk = c.tag === 'delete' || !c.after ? '削除を確認（自動確認OK）' : '削除されていない可能性（要確認）';
-          else { const ctx = c.nbox ? around(d.nc, c.nbox, [...want].length + 3) : ''; chk = want && ctx.includes(want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
+          else { wantUsed = want; const ctx = ctxOf(want); chk = want && ctx.includes(want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
         }
         add(p + 1, st, c.obox, c.show + (c.look === 'color' ? '（色のみ）' : ''), a.how || c.why || '', a.note || '', chk, c.nbox);
         const f = F[F.length - 1];
+        // 指示どおりかを自動で判定できたもの(1字だけの指示は、変わった字がその字そのものでなければ、たまたまある字と見分けられないので人が確認)
+        if (st === 'A' && chk) { const v = autoOf(chk); if (v && !(v === 'ok' && wantUsed && [...wantUsed].length < 2 && (c.after || '').replace(/\s/g, '') !== wantUsed)) f.auto = v; }
         if (c.anchor) Object.defineProperty(f, 'anchorRef', { value: c.anchor, enumerable: false });
         if (c.diff) Object.assign(f, { segs: c.diff.segs, same: c.diff.same, pboxes: c.diff.ob, pnboxes: c.diff.nb });
         if (c.tag === 'layout') f.kind = 'layout';

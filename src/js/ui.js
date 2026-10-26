@@ -7,13 +7,16 @@
   const isLight = f => f.cat === 'B2' || (f.how || '').includes('引き出し線の可能性');
   // 確認が必要なものほど上に出す。need: 直す必要がありそうなもの
   const GROUPS = [
+    // 指示どおりかを自動で判定できたもの: 指示どおりでない可能性(NG)は先頭に、指示どおり(OK)は一覧から外して「参考」へ
+    { key: 'NG', label: '指示どおりになっていない', test: f => f.auto === 'ng', c: 'B', need: true },
+    { key: 'OK', label: '自動で確認済み（指示どおり）', test: f => f.auto === 'ok', c: 'A', minor: true, auto: true },
     { key: 'B', label: '直っていない', test: f => f.cat === 'B', c: 'B', need: true },
     { key: 'C', label: '指示にない変更', test: f => f.cat === 'C2' || f.cat === 'C3', c: 'C', need: true },
     { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', c: 'T', need: true },
     { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, c: 'D', need: true },
     { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', c: 'E', need: true },
     { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG', c: 'A' },
-    { key: 'K', label: '指示・書き込みの確認', test: f => f.cat === 'K' || f.cat === 'W', c: 'K' },
+    { key: 'K', label: '指示・書き込みの確認（人が判断）', test: f => f.cat === 'K' || f.cat === 'W', c: 'K' },
     { key: 'F', label: '読み取れない赤字', test: f => f.cat === 'F', c: 'F' },
     { key: 'C1', label: '全体・以下同様どおり', test: f => f.cat === 'C1', c: 'C1' },
     { key: 'V', label: '全角・半角などの違い', test: f => f.cat === 'V', c: 'V' },
@@ -23,6 +26,8 @@
   const groupOf = f => GROUPS.find(g => g.test(f));
   // 一言の結論と、何をすればよいか
   function verdictOf(f) {
+    if (f.auto === 'ok') return f.byInstr ? ['指示どおりの違い', `原稿の指示「${f.byInstr.replace(/\s+/g, ' ')}」のとおりに変わっています（自動で確認済み）`] : ['指示どおり', (f.check || '').includes('削除') ? '指示どおり消えています（自動で確認済み）' : '指示の文字が成果物にあります（自動で確認済み）'];
+    if (f.auto === 'ng') return ['指示どおりになっていない？', (f.check || '').includes('削除') ? '消す指示の文字が、成果物に残っている可能性があります' : '指示の文字が、成果物の該当箇所に見当たりません'];
     if (f.cat === 'B' || f.cat === 'B2') return isLight(f) ? ['直っていない？', (f.how || '').includes('引き出し線') ? '細い線なので、引き出し線かもしれません' : '前の赤字の続き（行の折り返しなど）の可能性。念のため確認'] : ['直っていない', '赤字が修正後に反映されていません'];
     if (f.cat === 'C2') return f.kind === 'layout' ? ['指示にない変更', '赤字がないのに、改行・段落が変わっています'] : ['指示にない変更', '赤字がないのに変わっています。意図した変更か確認'];
     if (f.cat === 'C3') return ['指示にない変更', '赤字がないのに、画像・色・位置が変わっています'];
@@ -33,7 +38,7 @@
     if (f.cat === 'N') return ['原稿にない文字', '原稿にない文字が成果物にあります。意図した追加か確認'];
     if (f.cat === 'V') return ['全角・半角など', '書き方（全角・半角・記号の形）だけが原稿と違います'];
     if (f.cat === 'I') return f.noSrc ? ['原稿なし', '成果物のこの部分に当たる原稿が見つかりません。原稿を確かめてください'] : ['原稿が画像', '原稿のこの部分は画像のため、文字では比べていません。目で確認'];
-    if (f.cat === 'K') return ['原稿の指示', (f.check || '').includes('OK') ? '指示の文字が成果物にあります' : '指示どおりになっているか確認'];
+    if (f.cat === 'K') { const c = f.check || ''; return ['原稿の指示（人が確認）', /後送/.test(c) ? '後送の指示。素材が届いたら確認' : /素材/.test(c) ? '使う画像・素材の指定。目で確認' : '文字では判定できない指示（書式・配置・画像など）。目で確認']; }
     if (f.cat === 'W') return ['成果物の書き込み', 'アタリ・確認事項が残っています'];
     if (f.cat === 'C1') return ['全体・以下同様どおり', (f.how || '').startsWith('同じ変更') ? `赤字のない箇所ですが、同じ変更がほかにもあります（${f.how}）` : '全体指示・以下同様として変わっています'];
     if (f.cat === 'M') return ['ママ・イキ', '変更しない指示どおり、変わっていません'];
@@ -233,8 +238,10 @@
     const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nNeed = F.filter(f => groupOf(f).need).length;
     // 件数のある種類だけをカードにする(どの種類もなければ「ありません」)
     const cards = gs => { const xs = gs.filter(g => F.some(f => groupOf(f) === g)); return xs.length ? xs.map(card).join('') : '<div class="hint">ありません</div>'; };
+    const nAuto = F.filter(f => groupOf(f).auto).length;
     $('summary').innerHTML = `<div class="sumgrp need"><div class="sumhd">直す必要がありそう <b>${nNeed}件</b></div><div class="sumcards">${cards(need)}</div></div>` +
-      `<div class="sumgrp"><div class="sumhd">確認だけ <b>${F.filter(f => look.includes(groupOf(f))).length}件</b></div><div class="sumcards">${cards(look)}</div></div>`;
+      `<div class="sumgrp"><div class="sumhd">確認だけ <b>${F.filter(f => look.includes(groupOf(f))).length}件</b></div><div class="sumcards">${cards(look)}</div>` +
+      (nAuto ? `<div class="hint" style="margin-top:6px">ほかに、指示どおりと自動で確認できたもの ${nAuto}件（一覧には出していません。「参考も表示」で見られます）</div>` : '') + '</div>';
     $('summary').querySelectorAll('.sum').forEach(el => el.onclick = () => { const k = el.dataset.g; S.off.has(k) ? S.off.delete(k) : S.off.add(k); el.classList.toggle('off'); renderList(); drawPage(); });
     $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
     $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; drawPage(); });
@@ -395,7 +402,7 @@
     const rows = [['No.', 'ページ', '原稿のファイル', '原稿のページ', '成果物のファイル', '成果物のページ', '区分', '結論', 'すること', '違い（原稿→成果物）', '指示', '自動確認', '確認', 'メモ', '補足', '位置（原稿・200dpi）']];
     S.res.findings.filter(f => f.cat !== 'F2').sort(cmp).forEach((f, i) => {
       const v = S.verdict[f.id] || {}, pg = S.res.pages[f.page - 1], nq = pg.q, o = PC.pageOf(S.res.markParts, srcOf(f.page)) || {}, n = (nq >= 0 && PC.pageOf(S.res.newParts, nq)) || {}, [title, todo] = verdictOf(f);
-      rows.push([i + 1, f.page, o.name, [(pg.label && pg.label.replace(o.name, '').trim()) || o.page, f.refs ? f.refs.join('・') : f.ref].filter(Boolean).join(' '), n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f) + (f.more ? `（同じ違い 全${f.more}か所）` : '') + (f.goneN ? `（ほか${f.goneN - 1}つ続けて成果物にない）` : ''), f.note, f.check, V[v.v] || '', v.memo || '', f.how, f.box.join(' ')]);
+      rows.push([i + 1, f.page, o.name, [(pg.label && pg.label.replace(o.name, '').trim()) || o.page, f.refs ? f.refs.join('・') : f.ref].filter(Boolean).join(' '), n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).auto ? '自動で確認済み' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f) + (f.more ? `（同じ違い 全${f.more}か所）` : '') + (f.goneN ? `（ほか${f.goneN - 1}つ続けて成果物にない）` : ''), f.note, f.check, V[v.v] || '', v.memo || '', f.how, f.box.join(' ')]);
     });
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '照合結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
