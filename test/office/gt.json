@@ -1,0 +1,22 @@
+{
+  "note": "test/office/make.py で作る模擬データ(データファイルの原稿 × final.pdf)の正解。src は原稿のファイル名、cat は出てほしい区分、has はその項目に含まれる文字、to は成果物側の文字、around は違いの前後に見える文字",
+  "pages": { "1_price.xlsx": [0, 1], "2_notice.docx": [0], "3_set.pptx": [1], "4_contact.txt": [2], "5_shops.csv": [2] },
+  "expect": [
+    { "id": "X1", "src": "1_price.xlsx", "cat": ["T"], "has": "2", "to": "3", "around": "80円", "what": "価格 1,280円→1,380円" },
+    { "id": "X2", "src": "1_price.xlsx", "cat": ["V"], "has": "12", "to": "１２", "what": "容量 12本→１２本(全角)" },
+    { "id": "X3", "src": "1_price.xlsx", "cat": ["T"], "has": "クリップ小箱", "what": "成果物にない行(B-410)" },
+    { "id": "X4", "src": "1_price.xlsx", "cat": ["N"], "has": "ふせん特大", "what": "原稿にない行(B-412)" },
+    { "id": "X5", "src": "1_price.xlsx", "cat": ["K"], "has": "価格は改定後の値", "what": "セルのコメント" },
+    { "id": "X6", "src": "1_price.xlsx", "cat": ["N", "I"], "has": "※価格はすべて税込です。", "what": "原稿にない注記" },
+    { "id": "X7", "src": "1_price.xlsx", "cat": ["N", "I"], "has": "（つづき）", "what": "原稿にない表題の添え書き" },
+    { "id": "D1", "src": "2_notice.docx", "cat": ["T"], "has": "場", "to": "店", "what": "ご来場→ご来店" },
+    { "id": "D2", "src": "2_notice.docx", "cat": ["T"], "has": "数に限りがあります", "what": "成果物にない文" },
+    { "id": "D3", "src": "2_notice.docx", "cat": ["V"], "has": "50", "to": "５０", "what": "表の 50名→５０名(全角)" },
+    { "id": "D4", "src": "2_notice.docx", "cat": ["K"], "has": "見出しは大きく", "what": "Wordのコメント" },
+    { "id": "P1", "src": "3_set.pptx", "cat": ["T"], "has": "15", "to": "20", "what": "15%→20%" },
+    { "id": "X8", "src": "4_contact.txt", "cat": ["T"], "has": "7", "to": "8", "around": "時）", "what": "17時→18時(Shift_JISのテキスト)" },
+    { "id": "C1", "src": "5_shops.csv", "cat": ["T"], "has": "4", "to": "5", "around": "-444", "what": "電話番号の末尾(Shift_JISのCSV)" }
+  ],
+  "absent": ["旧型", "社外秘", "社内用", "旧館", "原価"],
+  "strict": ["T", "N"]
+}

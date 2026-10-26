@@ -101,8 +101,9 @@
     });
   };
 
-  // 赤字原稿: PDF(注釈を入れたPDF・スキャンしたPDF)と画像を、並べた順に1ページずつ取り出せる形にする
-  // (全ページを一度に展開するとメモリが足りなくなるため)
+  // 原稿: PDF(注釈を入れたPDF・スキャンしたPDF・ラフ)、画像、データファイル(Excel・Word・PowerPoint・テキスト・CSV)を、
+  // 並べた順に1ページずつ取り出せる形にする(全ページを一度に展開するとメモリが足りなくなるため)
+  //   データファイルは、シート・スライドなどごとのページ(文字データと表示用の画像を作れるもの)にする
   PC.isPdf = f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
   PC.markSource = async files => {
     const items = [], parts = [];
@@ -112,6 +113,8 @@
         let doc;
         try { doc = await PC.openPdf(f.buf.slice(0)); } catch (e) { throw new Error(`「${f.name}」を開けません（${e && e.message ? e.message : e}）`); }
         for (let i = 0; i < doc.numPages; i++) items.push({ doc, i });
+      } else if (PC.dataKind(f)) {
+        for (const virt of await PC.readDataFile(f)) items.push({ virt, name: f.name });
       } else items.push({ file: new Blob([f.buf], { type: f.type }), name: f.name });
       parts.push({ name: f.name, start, pages: items.length - start });
     }
@@ -120,14 +123,17 @@
       // 注釈(取り消し線・コメントなど)があり、文字データもあるページは「注釈を入れたPDF」。それ以外はスキャンとして扱う
       kind: async p => {
         const it = items[p];
+        if (it.virt) return 'virtual';
         if (!it.doc) return 'scan';
         if (!(await PC.annotations(it.doc, it.i)).length) return 'scan';
         return (await PC.textChars(it.doc, it.i)).length ? 'annot' : 'scan';
       },
       page: p => items[p],
+      label: p => (items[p].virt ? items[p].virt.label : null),   // データファイルのページの名前(シート名・スライド番号など)
       // スキャンとして読む画像。PDFは注釈も含めて300dpiで描画、画像はそのまま(大きすぎるものは縮める)
       image: async p => {
         const it = items[p];
+        if (it.virt) return { img: it.virt.render(300), dpi: 300 };
         if (it.doc) return { img: await PC.renderPage(it.doc, it.i, 300, true), dpi: 300 };
         let bmp;
         try { bmp = await createImageBitmap(it.file); } catch (e) { throw new Error(`「${it.name}」を画像として開けません`); }

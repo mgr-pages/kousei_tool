@@ -118,15 +118,23 @@
 
   // ---- 入力: 各欄に複数のファイル。選んだときに中身を読み込んでおき(あとで元のファイルが変わっても照合できるように)、ページ数を数える ----
   const KIND = { marks: { input: 'fMarks', list: 'lMarks', tot: 'tMarks' }, nw: { input: 'fNew', list: 'lNew', tot: 'tNew' } };
-  const accepts = (kind, f) => PC.isPdf(f) || (kind === 'marks' && /^image\//.test(f.type));
+  const accepts = (kind, f) => PC.isPdf(f) || (kind === 'marks' && (/^image\//.test(f.type) || PC.dataKind(f) || PC.oldOffice(f)));
+  const OLD_NAME = { '.xlsx': 'Excel ブック', '.docx': 'Word 文書', '.pptx': 'PowerPoint プレゼンテーション' };
   const byName = (a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true });
   const READ_ERR = '読み込めません。パソコン内（デスクトップなど）にコピーしてから、選び直してください。';
   async function load(e) {
+    const old = PC.oldOffice(e);   // 古い形式(.xls・.doc・.ppt)は読めない: 新しい形式で保存し直してもらう
+    if (old) { e.err = `古い形式のファイルは読めません。「名前を付けて保存」で「${OLD_NAME[old]}（${old}）」かPDFにしてから選んでください。`; return; }
     try { e.buf = await e.file.arrayBuffer(); } catch (err) { e.err = READ_ERR + '（' + (err && err.name || err) + '）'; return; }
     await countPages(e);
   }
   async function countPages(e) {
     if (!e.buf || e.pages != null || e.err) return;
+    if (PC.dataKind(e)) {   // データファイル: 読み取って、照合に使うページの数を数える(読めないファイルはここで分かる)
+      try { e.pages = (await PC.readDataFile(e)).length; if (!e.pages) e.err = '文字が見つかりません（空のファイル、または文字のない内容です）。'; }
+      catch (err) { e.err = (err && err.message || String(err)) + '。ファイルが壊れていないか、パスワードが付いていないか確かめてください。'; }
+      return;
+    }
     if (!PC.isPdf(e)) { e.pages = 1; return; }
     if (!PC.libsReady) return;   // 部品の準備ができたら数える
     try { const d = await PC.openPdf(e.buf.slice(0)); e.pages = d.numPages; d.destroy(); }
@@ -152,7 +160,7 @@
   const total = kind => S.lists[kind].reduce((n, e) => n + (e.pages || 0), 0);
   function renderFiles(kind) {
     const k = KIND[kind], L = S.lists[kind];
-    $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : e.pages + (PC.isPdf(e) ? 'ページ' : '枚')}</span>` +
+    $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : PC.dataKind(e) ? `${PC.dataLabel(e)}・${e.pages}ページ` : e.pages + (PC.isPdf(e) ? 'ページ' : '枚')}</span>` +
       `<span class="ops"><button data-op="up" data-i="${i}" title="上へ" ${i === 0 ? 'disabled' : ''}>↑</button> <button data-op="down" data-i="${i}" title="下へ" ${i === L.length - 1 ? 'disabled' : ''}>↓</button> <button data-op="del" data-i="${i}" title="外す">×</button></span>` +
       (e.err ? `<div class="em">${esc(e.err)}</div>` : '') + '</li>').join('');
     $(k.list).querySelectorAll('button').forEach(b => b.onclick = () => { const i = +b.dataset.i; b.dataset.op === 'up' ? move(kind, i, -1) : b.dataset.op === 'down' ? move(kind, i, 1) : removeAt(kind, i); });
@@ -241,26 +249,31 @@
 
   // ページの表示名: 原稿の何ページ目が、成果物のどのページ(のどちら側)に当たるか。ファイルが複数ならファイル名も示す
   const nm = (parts, x) => (parts || []).length > 1 ? `${x.name} の` : '';
-  const newPlace = p => {   // 原稿の p ページ目が当たる成果物の場所(「2ページ目・右側」)。なければ null
+  const newPlace = p => {   // 結果の p ページ目(原稿のページ)が当たる成果物の場所(「2ページ目・右側」)。なければ null
     const pg = S.res.pages[p - 1], im = S.imgs[p - 1], n = pg.q >= 0 ? PC.pageOf(S.res.newParts, pg.q) : null;
     if (!n) return null;
-    const r = pg.region || (pg.crop && pg.crop.map(v => v * PC.S)), c = r && im && im.rw ? (r[0] + r[2]) / 2 / im.rw : 0.5, wide = r && im && im.rw && r[2] - r[0] < 0.7 * im.rw;
+    const r = pg.region || (pg.crop && pg.crop.map(v => v * PC.S)), c = r && im && im.rw ? (r[0] + r[2]) / 2 / im.rw : 0.5, wide = r && im && im.rw && im.rw > im.rh && r[2] - r[0] < 0.7 * im.rw;   // 左右は、横長のページ(見開き)のときだけ
     return nm(S.res.newParts, n) + n.page + 'ページ目' + (wide ? (c < 0.4 ? '・左側' : c > 0.6 ? '・右側' : '') : '');
   };
-  const pageLabel = p => {
-    const o = PC.pageOf(S.res.markParts, p - 1), n = newPlace(p);
-    return `p.${p}（原稿 ${o ? nm(S.res.markParts, o) + o.page + 'ページ目' : ''} → 成果物 ${n || 'なし'}）`;
-  };
-  // ページの対応の一覧(結果の概要に出す)。対応のない原稿のページが続くときはまとめる
+  //   結果のページは原稿のページごと(データファイルのページは、載っている成果物のページごとに分かれることがある)
+  const srcOf = p => { const pg = S.res.pages[p - 1]; return pg.src != null ? pg.src : p - 1; };
+  const srcName = p => { const pg = S.res.pages[p - 1], o = PC.pageOf(S.res.markParts, srcOf(p)); return pg.label || (o ? nm(S.res.markParts, o) + o.page + 'ページ目' : ''); };
+  const pageLabel = p => `p.${p}（原稿 ${srcName(p)} → 成果物 ${newPlace(p) || 'なし'}）`;
+  // ページの対応の一覧(結果の概要に出す)。対応のない原稿のページが続くときはまとめる。同じデータファイルのページは1つにまとめる
   const mapSummary = () => {
-    const out = [];
-    for (let p = 1; p <= S.res.pages.length; p++) {
-      const n = newPlace(p);
-      if (!n) { let e = p; while (e + 1 <= S.res.pages.length && !newPlace(e + 1)) e++; out.push(`原稿${p}${e > p ? '〜' + e : ''} → なし`); p = e; continue; }
-      out.push(`原稿${p} → 成果物 ${n}`);
+    const out = [], P = S.res.pages;
+    for (let p = 1; p <= P.length; p++) {
+      const pg = P[p - 1], n = newPlace(p);
+      if (pg.label) {
+        const prev = out[out.length - 1];
+        if (prev && prev.label === pg.label) { if (n) prev.to.push(n); } else out.push({ label: pg.label, to: n ? [n] : [] });
+        continue;
+      }
+      if (!n) { let e = p; while (e + 1 <= P.length && !P[e].label && !newPlace(e + 1)) e++; out.push(`原稿${srcOf(p) + 1}${e > p ? '〜' + (srcOf(e) + 1) : ''} → なし`); p = e; continue; }
+      out.push(`原稿${srcOf(p) + 1} → 成果物 ${n}`);
     }
-    return out.join('、');
-  };
+    return out.map(x => typeof x === 'string' ? x : `${x.label} → ${x.to.length ? '成果物 ' + x.to.join('・') : 'なし'}`).join('、');
+  };;
   const visible = f => {
     const g = groupOf(f);
     if (g.minor && !$('showMinor').checked) return false;
@@ -278,8 +291,8 @@
     list.innerHTML = F.map(f => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${f.id}" style="--c: var(--c-${COLOR[f.cat]})">
-        <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}</span></div>
-        ${whatHtml(f)}${markOf(f)}
+        <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
+        ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
         <div class="crops"><figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure><figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
         <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"></div>
       </div>`;
@@ -360,8 +373,8 @@
     for (const f of S.res.findings) {
       if (f.page !== S.page + 1 || !visible(f) || f.cat === 'F2') continue;
       const sel = f.id === S.sel; ctx.strokeStyle = css.getPropertyValue('--c-' + COLOR[f.cat]); ctx.lineWidth = sel ? 3 : 1.5;
-      for (const b of marks(f, 'L')) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
-      if (im.R) for (const n of marks(f, 'R')) { const r = [ox + n[0] * sR - 3, n[1] * sR - 3, (n[2] - n[0]) * sR + 6, (n[3] - n[1]) * sR + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
+      for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
+      if (im.R) for (const n of [...marks(f, 'R'), ...(f.moreNboxes || [])]) { const r = [ox + n[0] * sR - 3, n[1] * sR - 3, (n[2] - n[0]) * sR + 6, (n[3] - n[1]) * sR + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
     }
     geo = { boxes };
     if (scrollToSel && S.sel !== null) { const f = S.res.findings[S.sel]; $('vscroll').scrollTo({ top: Math.max(0, f.box[1] * sL - 150), behavior: 'smooth' }); }
@@ -381,8 +394,8 @@
     const V = { ok: 'OK', fix: '要修正', hold: '保留' }, q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
     const rows = [['No.', 'ページ', '原稿のファイル', '原稿のページ', '成果物のファイル', '成果物のページ', '区分', '結論', 'すること', '違い（原稿→成果物）', '指示', '自動確認', '確認', 'メモ', '補足', '位置（原稿・200dpi）']];
     S.res.findings.filter(f => f.cat !== 'F2').sort(cmp).forEach((f, i) => {
-      const v = S.verdict[f.id] || {}, nq = S.res.pages[f.page - 1].q, o = PC.pageOf(S.res.markParts, f.page - 1) || {}, n = (nq >= 0 && PC.pageOf(S.res.newParts, nq)) || {}, [title, todo] = verdictOf(f);
-      rows.push([i + 1, f.page, o.name, o.page, n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f), f.note, f.check, V[v.v] || '', v.memo || '', f.how, f.box.join(' ')]);
+      const v = S.verdict[f.id] || {}, pg = S.res.pages[f.page - 1], nq = pg.q, o = PC.pageOf(S.res.markParts, srcOf(f.page)) || {}, n = (nq >= 0 && PC.pageOf(S.res.newParts, nq)) || {}, [title, todo] = verdictOf(f);
+      rows.push([i + 1, f.page, o.name, [(pg.label && pg.label.replace(o.name, '').trim()) || o.page, f.refs ? f.refs.join('・') : f.ref].filter(Boolean).join(' '), n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f) + (f.more ? `（同じ違い 全${f.more}か所）` : '') + (f.goneN ? `（ほか${f.goneN - 1}つ続けて成果物にない）` : ''), f.note, f.check, V[v.v] || '', v.memo || '', f.how, f.box.join(' ')]);
     });
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '照合結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);

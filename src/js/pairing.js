@@ -42,6 +42,7 @@
   // 1つの組(原稿ページ a × 成果物ページ b)の対応: 当てはめた変換 T、手がかりの量、成果物での範囲
   //   画像の手がかりから求めた変換と文字の手がかりから求めた変換のうち、両方の手がかりをより多く説明するほうを使う
   function pairOf(a, b) {
+    if (a.free) return pairFree(a, b);
     const pageB = [0, 0, b.w, b.h], dB = diag(pageB), dA = diag([0, 0, a.w, a.h]);
     const vis = visualPairs(a.orb, b.orb);
     const fv = vis.P.length >= 8 ? PC.fitSimilarity(vis.P, vis.Q, vis.P.map(() => 1), 5 * PT, { mode: 'sim' }) : null;
@@ -105,6 +106,43 @@
     };
   }
 
+  // 位置の手がかりがない原稿(Excel・Word・テキストなどのデータファイル)の対応:
+  //   原稿の文字のまとまり(2字以上)が、成果物のページの文字にそのまま含まれる量で決める。成果物での範囲は、含まれていた所を囲む範囲
+  //   (数字の桁区切りの「,」は、あってもなくても同じとみなす)
+  const keyStr = (cs, loose) => {
+    let s = ''; const at = [];
+    cs.forEach((c, j) => { if (loose && (c.k === ',' || c.k === '，') && /\d/.test((cs[j - 1] || {}).k || '') && /\d/.test((cs[j + 1] || {}).k || '')) return; s += c.k; at.push(j); });
+    return { s, at };
+  };
+  PC.keyStr = keyStr;
+  //   原稿の1ページ(表・文章)が成果物の何ページかに分かれて載ることや、支給された表の一部の行だけが載ることがあるため、
+  //   まとまり(表の行・段落)の半分以上の字がそのまま含まれる所が2つ以上(まとまりが1つだけの原稿は1つ)あるページを候補にする
+  //   (どのまとまりをどのページで照合するかは、照合のときに決める: PC.splitFree)
+  function pairFree(a, b) {
+    if (!b.text) return null;
+    const B = b.kfree || (b.kfree = keyStr(b.text.chars, true)), byIt = new Map();
+    a.text.chars.forEach(c => { if (!byIt.has(c.it)) byIt.set(c.it, []); byIt.get(c.it).push(c); });
+    let all = 0, hit = 0; const boxes = [], found = new Set(), kh = new Map();
+    for (const [it, cs] of byIt) {
+      const k = keyStr(cs, true).s;
+      if ([...k].length < 2) continue;
+      all += k.length;
+      const pos = B.s.indexOf(k);
+      if (pos < 0) continue;
+      hit += k.length; found.add(it); kh.set(it, k.length);
+      boxes.push(PC.union(B.at.slice(pos, pos + k.length).map(j => b.text.chars[j].box)));
+    }
+    const blocks = a.blocks || [[0, a.text.chars.length]];
+    const strong = blocks.filter(([s, e]) => {
+      const its = new Set(); for (let i = s; i < e; i++) its.add(a.text.chars[i].it);
+      let n = 0, h = 0; for (const it of its) { const k = keyStr(byIt.get(it), true).s.length; n += k; h += kh.get(it) || 0; }
+      return n >= 2 && h >= 0.5 * n;
+    }).length;
+    if (hit < 8 || strong < Math.min(2, blocks.length)) return null;
+    const u = PC.union(boxes), m = 0.02 * diag([0, 0, b.w, b.h]);
+    return { T: null, free: true, how: 'text', score: hit, vis: 0, txt: hit, all, found, region: [Math.max(0, u[0] - m), Math.max(0, u[1] - m), Math.min(b.w, u[2] + m), Math.min(b.h, u[3] + m)], src: [0, 0, a.w, a.h], same: false, crop: null, Tt: null, Tv: null };
+  }
+
   // 手がかりを集める: 原稿は src(PC.markSource)、成果物は newDoc
   async function cluesOf(get, n, step) {
     const out = [];
@@ -120,6 +158,7 @@
     }, newDoc.numPages, k => progress(`成果物 ${k + 1}/${newDoc.numPages} ページの特徴を読み取り`, 0.5 * (k + 1) / (newDoc.numPages + src.numPages)));
     const M = await cluesOf(async p => {
       const it = src.page(p);
+      if (it.virt) { const t = it.virt.text; return { w: t.w, h: t.h, orb: null, text: t, blocks: it.virt.blocks, image: false, images: [], free: true }; }
       if (it.doc) {
         const img = await PC.renderPage(it.doc, it.i, VDPI, false), t = await PC.pageText(it.doc, it.i);
         return { w: t.w, h: t.h, orb: orbOf(img), text: t.chars.length ? t : null, image: false, images: await PC.imageBoxes(it.doc, it.i) };
@@ -145,10 +184,15 @@
       const near = c => res.some((r, p) => r.q >= 0 && Math.abs(p - c.p) === 1) ? 1.1 : 1;
       left.sort((x, y) => y.score * near(y) - x.score * near(x) || x.p - y.p || x.q - y.q);
       const c = left.shift();
-      if (res[c.p].q >= 0 || res.some(r => r.q >= 0 && clash(r, c))) continue;
+      if (res[c.p].q >= 0 || (!c.free && res.some(r => r.q >= 0 && !r.free && clash(r, c)))) continue;
       res[c.p] = c;
     }
-    [...M, ...N].forEach(x => x.orb.des.delete());
-    return res.map(r => r.q < 0 ? r : { q: r.q, T: r.T, Tt: r.Tt, Tv: r.Tv, region: r.region, src: r.src, same: r.same, crop: r.crop, score: r.score, how: r.how, vis: r.vis, txt: r.txt });
+    // 位置の手がかりがない原稿: 候補のページ全部(手がかりの多い順)を持たせる
+    res.forEach((r, p) => {
+      if (!r.free) return;
+      r.qs = cand.filter(c => c.p === p).sort((x, y) => y.score - x.score || x.q - y.q).map(c => ({ q: c.q, score: c.score, region: c.region }));
+    });
+    [...M, ...N].forEach(x => { if (x.orb) x.orb.des.delete(); });
+    return res.map(r => r.q < 0 ? r : { q: r.q, T: r.T, Tt: r.Tt, Tv: r.Tv, region: r.region, src: r.src, same: r.same, crop: r.crop, score: r.score, how: r.how, vis: r.vis, txt: r.txt, free: !!r.free, qs: r.qs || null });
   };
 })();

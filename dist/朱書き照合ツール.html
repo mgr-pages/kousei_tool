@@ -125,8 +125,9 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 <main>
   <section class="card" id="setup">
     <div class="steps">
-      <div class="step" data-kind="marks"><div class="t"><span>1</span>原稿（朱書き）</div>
-        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*" multiple></label>
+      <div class="step" data-kind="marks"><div class="t"><span>1</span>原稿</div>
+        <div class="hint">PDF（朱書き・ラフ）・画像・Excel・Word・PowerPoint・テキスト・CSV</div>
+        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*,.xlsx,.xlsm,.docx,.docm,.pptx,.pptm,.txt,.csv,.tsv,.xls,.doc,.ppt" multiple></label>
         <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div></div>
       <div class="step" data-kind="nw"><div class="t"><span>2</span>成果物（PDF）</div>
         <label class="btn small pick">＋ ファイルを追加<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label>
@@ -402,6 +403,545 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   };
 })();
 
+// ---- docsrc.js ----
+// 原稿のデータファイル(Excel・Word・PowerPoint・テキスト・CSV)を読み、照合に使える「ページ」にする
+//   ページごとに、文字データ(PDFの文字データと同じ形。位置は pt)、まとまり(段落・表の行)、コメント、表示用の画像を作る
+//   Officeのファイル(.xlsx・.docx・.pptx)は、ZIPにXMLを入れたもの。ブラウザの展開機能で読む
+'use strict';
+(function () {
+  // ---- ZIP ----
+  //   deflate-raw に対応していないブラウザでは、ZIPの目録にあるCRCと大きさを使ってgzipの形に包んで展開する
+  async function inflate(data, crc, usize) {
+    let ds;
+    try { ds = new DecompressionStream('deflate-raw'); }
+    catch (e) {
+      const g = new Uint8Array(18 + data.length), v = new DataView(g.buffer);
+      g.set([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255]); g.set(data, 10);
+      v.setUint32(10 + data.length, crc, true); v.setUint32(14 + data.length, usize >>> 0, true);
+      data = g; ds = new DecompressionStream('gzip');
+    }
+    return new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer());
+  }
+  PC.unzip = buf => {
+    const u = new Uint8Array(buf), v = new DataView(u.buffer, u.byteOffset, u.byteLength), files = new Map();
+    let e = -1;
+    for (let i = u.length - 22; i >= Math.max(0, u.length - 65557); i--) if (v.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('ZIPとして読めません');
+    let p = v.getUint32(e + 16, true);
+    for (let k = v.getUint16(e + 10, true); k > 0 && v.getUint32(p, true) === 0x02014b50; k--) {
+      const nl = v.getUint16(p + 28, true), name = new TextDecoder().decode(u.subarray(p + 46, p + 46 + nl));
+      files.set(name, { method: v.getUint16(p + 10, true), crc: v.getUint32(p + 16, true), csize: v.getUint32(p + 20, true), usize: v.getUint32(p + 24, true), at: v.getUint32(p + 42, true) });
+      p += 46 + nl + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+    }
+    const read = async name => {
+      const f = files.get(name.replace(/^\//, ''));
+      if (!f) return null;
+      const s = f.at + 30 + v.getUint16(f.at + 26, true) + v.getUint16(f.at + 28, true), data = u.subarray(s, s + f.csize);
+      if (f.method === 0) return data;
+      if (f.method !== 8) throw new Error('対応していない圧縮方式です');
+      return inflate(data, f.crc, f.usize);
+    };
+    return { has: n => files.has(n.replace(/^\//, '')), read, text: async n => { const b = await read(n); return b ? new TextDecoder().decode(b) : null; } };
+  };
+
+  // ---- XML(名前空間の接頭辞はファイルによって違うことがあるため、要素は名前の後ろの部分で探す) ----
+  const parse = s => new DOMParser().parseFromString(s, 'application/xml');
+  const kids = (el, n) => (el ? [...el.children].filter(c => c.localName === n) : []);
+  const kid = (el, n) => kids(el, n)[0] || null;
+  const all = (el, n) => (el ? [...el.getElementsByTagNameNS('*', n)] : []);
+  const at = (el, n) => { if (!el) return null; for (const a of el.attributes) if (a.localName === n) return a.value; return null; };
+  const rid = el => { if (!el) return null; for (const a of el.attributes) if (a.localName === 'id' && /relationships/.test(a.namespaceURI || '')) return a.value; return null; };
+  // 関連づけ(.rels): id → { target(ZIPの中の場所), type }
+  async function rels(z, path) {
+    const dir = path.replace(/[^/]*$/, ''), out = new Map(), s = await z.text(`${dir}_rels/${path.slice(dir.length)}.rels`);
+    if (!s) return out;
+    for (const r of all(parse(s), 'Relationship')) {
+      if (at(r, 'TargetMode') === 'External') continue;
+      let t = at(r, 'Target') || '';
+      if (t.startsWith('/')) t = t.slice(1);
+      else { const segs = (dir + t).split('/'), st = []; for (const g of segs) { if (g === '..') st.pop(); else if (g !== '.') st.push(g); } t = st.join('/'); }
+      out.set(at(r, 'Id'), { target: t, type: at(r, 'Type') || '' });
+    }
+    return out;
+  }
+
+  // ---- 文字の置き方と表示用の画像 ----
+  const FONT = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP", IPAGothic, sans-serif';
+  let mctx = null;
+  const wcache = new Map();
+  const adv = (ch, size) => {
+    const key = ch + '\u0001' + size;
+    if (!wcache.has(key)) { if (!mctx) mctx = document.createElement('canvas').getContext('2d'); mctx.font = `${size}px ${FONT}`; wcache.set(key, mctx.measureText(ch).width); }
+    return wcache.get(key);
+  };
+  // 原稿の1ページ(データファイルから作るもの)。文字データ(items・chars)は PC.pageText と同じ形
+  class VPage {
+    constructor(label, w) { this.label = label; this.w = w; this.h = 0; this.items = []; this.chars = []; this.blocks = []; this.lines = []; this.titles = []; this.notes = []; }
+    // 文字列を (x, y) から幅 width で折り返して置く。返り値: 置いた範囲の下端
+    put(s, x, y, width, size) {
+      const lh = size * 1.5;
+      let cx = x, cy = y, cur = null;
+      for (const ch of String(s)) {
+        if (ch === '\n') { cx = x; cy += lh; cur = null; continue; }
+        const a = ch === '\t' ? size : adv(ch, size);
+        if (cx + a > x + width + 0.01 && cx > x) { cx = x; cy += lh; cur = null; }
+        const box = [cx, cy, cx + a, cy + size * 1.2];
+        if (ch.trim()) {
+          if (!cur) { cur = { s: '', box: box.slice(), vert: false, size }; this.items.push(cur); }
+          cur.s += ch; cur.box = PC.union([cur.box, box]);
+          this.chars.push({ c: ch, k: PC.fold(ch), box, it: this.items.length - 1, brk: false });
+        } else if (cur) cur.s += ' ';
+        cx += a;
+      }
+      return cy + lh;
+    }
+    // 文字データにしない見出し(シート名など)と罫線
+    title(s, x, y, size) { this.titles.push({ s, x, y, size }); }
+    line(x0, y0, x1, y1) { this.lines.push([x0, y0, x1, y1]); }
+    text() { return { w: this.w, h: this.h, items: this.items, chars: this.chars }; }
+    render(dpi) {
+      const k = dpi / 72, c = document.createElement('canvas');
+      c.width = Math.max(1, Math.ceil(this.w * k)); c.height = Math.max(1, Math.ceil(this.h * k));
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.strokeStyle = '#b9bec8'; ctx.lineWidth = Math.max(1, 0.6 * k);
+      for (const [x0, y0, x1, y1] of this.lines) { ctx.beginPath(); ctx.moveTo(x0 * k, y0 * k); ctx.lineTo(x1 * k, y1 * k); ctx.stroke(); }
+      ctx.fillStyle = '#6b7280';
+      for (const t of this.titles) { ctx.font = `bold ${t.size * k}px ${FONT}`; ctx.fillText(t.s, t.x * k, (t.y + t.size) * k); }
+      ctx.fillStyle = '#111';
+      for (const ch of this.chars) { const it = this.items[ch.it]; ctx.font = `${it.size * k}px ${FONT}`; ctx.fillText(ch.c, ch.box[0] * k, (ch.box[1] + it.size * 0.95) * k); }
+      return { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data };
+    }
+  }
+
+  // 表(行の並び)をページに置く。rows: [{ cells: [文字列…], notes: [コメント…], rn: 行番号 }]。行ごとに1つのまとまり(kind 'row')
+  //   1ページに入りきらない表は、行の区切りで次のページへ。左に行番号、上に列の記号(opt.cols)を灰色で添える(照合には使わない)
+  function tablePages(label, rows, opt = {}) {
+    const size = opt.size || 9, pad = 4, M = 30, maxH = opt.maxH || 800, ncol = Math.max(1, ...rows.map(r => r.cells.length));
+    const colW = [];
+    for (let c = 0; c < ncol; c++) {
+      let w = 24;
+      for (const r of rows) { const s = r.cells[c] || ''; for (const ln of s.split('\n')) w = Math.max(w, [...ln].reduce((t, ch) => t + adv(ch, size), 0) + 2 * pad); }
+      colW.push(Math.min(w, opt.maxCol || 220));
+    }
+    const W = 2 * M + colW.reduce((a, b) => a + b, 0), pages = [];
+    // 表の見出しの行(初めの3行のうち、2つ以上のセルに字がある最初の行と、その上の表題の行)。成果物では、表が続くページごとにくり返されることがある
+    const hi = rows.slice(0, 3).findIndex(r => r.cells.filter(c => c && c.trim()).length >= 2), heads = new Set(rows.slice(0, hi + 1));
+    let pg = null, y = 0;
+    const start = () => {
+      pg = new VPage(`${label}${pages.length ? `（${pages.length + 1}）` : ''}`, W); pg.title(label, M, 6, 9); y = M; pages.push(pg);
+      if (opt.cols) { let x = M; colW.forEach((w, c) => { if (opt.cols[c]) pg.title(opt.cols[c], x + w / 2 - 3, 19, 7); x += w; }); }
+    };
+    const placeRow = r => { let x = M, bottom = y; r.cells.forEach((s, c) => { if (s) bottom = Math.max(bottom, pg.put(s, x + pad, y + pad, colW[c] - 2 * pad, size)); x += colW[c]; }); return Math.max(bottom, y + size * 1.5) + pad; };
+    for (const r of rows) {
+      if (!pg) start();
+      let s0 = pg.chars.length, i0 = pg.items.length, bottom = placeRow(r);
+      if (bottom > maxH && y > M + 1) {   // 次のページへ(置いた字を取り消して置き直す)
+        pg.chars.length = s0; pg.items.length = i0; pg.h = y + M;
+        start(); s0 = pg.chars.length; bottom = placeRow(r);
+      }
+      let gx = M; for (const w of [0, ...colW]) { gx += w; pg.line(gx, y, gx, bottom); }
+      pg.line(M, y, W - M, y); pg.line(M, bottom, W - M, bottom);
+      if (r.rn) pg.title(String(r.rn), 4, y + pad, 7);
+      if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'row', heads.has(r) ? 'head' : '', r.rn ? `${r.rn}行目` : '']);
+      for (const n of r.notes || []) pg.notes.push({ type: 'Comment', box: [M, y, W - M, bottom], text: n, quads: [] });
+      y = bottom;
+    }
+    if (pg) pg.h = y + M;
+    return pages;
+  }
+  // 段落と表の並び(Word・テキスト)を、A4の幅のページに流し込む。flow: [{ kind: 'para', text } | { kind: 'row', cells, widths? }]
+  function flowPages(label, flow, opt = {}) {
+    const W = 595, H = 842, M = 40, size = opt.size || 10.5, width = W - 2 * M, pages = [];
+    let pg = null, y = 0;
+    const start = () => { if (pg) pg.h = Math.max(H, y + M); pg = new VPage(`${label}${pages.length ? `（${pages.length + 1}）` : ''}`, W); pg.title(label, M, 14, 9); y = M; pages.push(pg); };
+    for (const b of flow) {
+      if (!pg) start();
+      if (b.kind === 'para') {
+        if (!b.text.trim()) { y += size * 0.8; continue; }
+        const need = Math.ceil([...b.text].reduce((t, ch) => t + adv(ch, size), 0) / width) * size * 1.5;
+        if (y + Math.min(need, H / 2) > H - M && y > M + 1) start();
+        const s0 = pg.chars.length;
+        y = pg.put(b.text, M, y, width, size) + size * 0.4;
+        if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'para']);
+        for (const n of b.notes || []) pg.notes.push({ type: 'Comment', box: [M, y - size * 2, W - M, y], text: n, quads: [] });
+      } else {
+        const ws = b.widths && b.widths.length === b.cells.length ? b.widths : b.cells.map(() => 1), tot = ws.reduce((a, c) => a + c, 0) || 1, cw = ws.map(v => (v / tot) * width), pad = 3;
+        if (y + size * 3 > H - M && y > M + 1) start();
+        let x = M, bottom = y, s0 = pg.chars.length;
+        b.cells.forEach((s, c) => { if (s) bottom = Math.max(bottom, pg.put(s, x + pad, y + pad, cw[c] - 2 * pad, size)); x += cw[c]; });
+        bottom = Math.max(bottom, y + size * 1.5) + pad;
+        let gx = M; for (const w of [0, ...cw]) { gx += w; pg.line(gx, y, gx, bottom); } pg.line(M, y, W - M, y); pg.line(M, bottom, W - M, bottom);
+        if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'row']);
+        for (const n of b.notes || []) pg.notes.push({ type: 'Comment', box: [M, y, W - M, bottom], text: n, quads: [] });
+        y = bottom + 2;
+      }
+    }
+    if (pg) pg.h = Math.max(H, y + M);
+    return pages;
+  }
+
+  // ---- Excel の表示形式: セルに見えている文字にする ----
+  const BUILTIN = {
+    0: 'General', 1: '0', 2: '0.00', 3: '#,##0', 4: '#,##0.00', 5: '"¥"#,##0;"¥"\\-#,##0', 6: '"¥"#,##0;[Red]"¥"\\-#,##0', 7: '"¥"#,##0.00;"¥"\\-#,##0.00', 8: '"¥"#,##0.00;[Red]"¥"\\-#,##0.00',
+    9: '0%', 10: '0.00%', 11: '0.00E+00', 12: '# ?/?', 13: '# ??/??', 14: 'yyyy/m/d', 15: 'd-mmm-yy', 16: 'd-mmm', 17: 'mmm-yy', 18: 'h:mm AM/PM', 19: 'h:mm:ss AM/PM', 20: 'h:mm', 21: 'h:mm:ss', 22: 'yyyy/m/d h:mm',
+    27: '[$-411]ge.m.d', 28: '[$-411]ggge"年"m"月"d"日"', 29: '[$-411]ggge"年"m"月"d"日"', 30: 'm/d/yy', 31: 'yyyy"年"m"月"d"日"', 32: 'h"時"mm"分"', 33: 'h"時"mm"分"ss"秒"', 34: 'yyyy"年"m"月"', 35: 'm"月"d"日"', 36: '[$-411]ge.m.d',
+    37: '#,##0 ;(#,##0)', 38: '#,##0 ;[Red](#,##0)', 39: '#,##0.00;(#,##0.00)', 40: '#,##0.00;[Red](#,##0.00)', 45: 'mm:ss', 46: '[h]:mm:ss', 47: 'mmss.0', 48: '##0.0E+0', 49: '@',
+    50: '[$-411]ge.m.d', 51: '[$-411]ggge"年"m"月"d"日"', 52: 'yyyy"年"m"月"', 53: 'm"月"d"日"', 54: '[$-411]ggge"年"m"月"d"日"', 55: 'yyyy"年"m"月"', 56: 'm"月"d"日"', 57: '[$-411]ge.m.d', 58: '[$-411]ggge"年"m"月"d"日"',
+  };
+  // 書式を部分(正;負;ゼロ;文字列)に分ける
+  function sections(code) {
+    const out = []; let cur = '', q = false, br = false;
+    for (let i = 0; i < code.length; i++) {
+      const ch = code[i];
+      if (ch === '\\' && !q) { cur += ch + (code[i + 1] || ''); i++; continue; }
+      if (ch === '"') q = !q; else if (!q && ch === '[') br = true; else if (!q && ch === ']') br = false;
+      else if (!q && !br && ch === ';') { out.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    out.push(cur);
+    return out;
+  }
+  // 書式の部分を字句に分ける: { lit } 文字そのまま / { at } 文字列の置き場所 / { n } 数字の置き場所など / { d } 日付・時刻
+  function tokens(sec) {
+    const out = [];
+    for (let i = 0; i < sec.length; i++) {
+      const ch = sec[i], rest = sec.slice(i);
+      if (ch === '"') { const j = sec.indexOf('"', i + 1); out.push({ lit: sec.slice(i + 1, j < 0 ? sec.length : j) }); i = j < 0 ? sec.length : j; continue; }
+      if (ch === '\\') { out.push({ lit: sec[i + 1] || '' }); i++; continue; }
+      if (ch === '_') { out.push({ lit: ' ' }); i++; continue; }
+      if (ch === '*') { i++; continue; }
+      if (ch === '[') {
+        const j = sec.indexOf(']', i), body = sec.slice(i + 1, j < 0 ? sec.length : j); i = j < 0 ? sec.length : j;
+        const cur = body.match(/^\$([^-]*)/); if (cur) { if (cur[1]) out.push({ lit: cur[1] }); continue; }
+        if (/^(h+|m+|s+)$/i.test(body)) out.push({ d: '[' + body.toLowerCase() + ']' });
+        continue;   // 色・条件
+      }
+      if (ch === '@') { out.push({ at: true }); continue; }
+      if ('0#?.,%'.includes(ch)) { out.push({ n: ch }); continue; }
+      if (/^[Ee][+-]/.test(rest) && out.some(t => t.n)) { out.push({ n: 'E' + rest[1] }); i++; continue; }
+      if (/^(AM\/PM|A\/P)/i.test(rest)) { const m = rest.match(/^(AM\/PM|A\/P)/i)[0]; out.push({ d: m.toUpperCase() }); i += m.length - 1; continue; }
+      if (/^aaaa/.test(rest)) { out.push({ d: 'aaaa' }); i += 3; continue; }
+      if (/^aaa/.test(rest)) { out.push({ d: 'aaa' }); i += 2; continue; }
+      if (/[ymdhsge]/i.test(ch)) { const t = rest.match(/^([yYmMdDhHsSgGeE])\1*/)[0]; out.push({ d: t.toLowerCase() }); i += t.length - 1; continue; }
+      out.push({ lit: ch });
+    }
+    return out;
+  }
+  const ERA = [[Date.UTC(2019, 4, 1), '令和', '令', 'R', 2018], [Date.UTC(1989, 0, 8), '平成', '平', 'H', 1988], [Date.UTC(1926, 11, 25), '昭和', '昭', 'S', 1925], [Date.UTC(1912, 6, 30), '大正', '大', 'T', 1911], [-Infinity, '明治', '明', 'M', 1867]];
+  const WEEK = ['日', '月', '火', '水', '木', '金', '土'], WEEK_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], WEEK_EN_L = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], MON_L = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function fmtDate(v, toks, date1904) {
+    let days = Math.floor(v); const frac = v - days;
+    if (date1904) days += 1462;
+    const t = (days < 61 ? Date.UTC(1899, 11, 31) : Date.UTC(1899, 11, 30)) + days * 86400000 + Math.round(frac * 86400) * 1000, dt = new Date(t);
+    const Y = dt.getUTCFullYear(), Mo = dt.getUTCMonth(), D = dt.getUTCDate(), wd = dt.getUTCDay();
+    let H = dt.getUTCHours(); const Mi = dt.getUTCMinutes(), S = dt.getUTCSeconds(), ampm = toks.some(x => x.d === 'AM/PM' || x.d === 'A/P');
+    const era = ERA.find(e => t >= e[0]), p2 = n => String(n).padStart(2, '0');
+    let out = '';
+    toks.forEach((x, i) => {
+      if (x.lit !== undefined) { out += x.lit; return; }
+      if (x.n === '.' || x.n === ',') { out += x.n; return; }   // 日付の区切りの「.」「,」
+      if (!x.d) return;
+      const d = x.d, prev = toks.slice(0, i).reverse().find(y => y.d), next = toks.slice(i + 1).find(y => y.d);
+      const minute = d[0] === 'm' && d.length <= 2 && ((prev && prev.d[0] === 'h') || (prev && prev.d === '[h]') || (next && next.d[0] === 's'));
+      if (d === '[h]') out += Math.floor(v * 24);
+      else if (d === '[m]' || d === '[mm]') out += Math.floor(v * 1440);
+      else if (d[0] === 'y') out += d.length <= 2 ? p2(Y % 100) : Y;
+      else if (minute) out += d.length === 2 ? p2(Mi) : Mi;
+      else if (d[0] === 'm') out += d.length === 1 ? Mo + 1 : d.length === 2 ? p2(Mo + 1) : d.length === 3 ? MON[Mo] : MON_L[Mo];
+      else if (d[0] === 'd') out += d.length === 1 ? D : d.length === 2 ? p2(D) : d.length === 3 ? WEEK_EN[wd] : WEEK_EN_L[wd];
+      else if (d === 'aaa') out += WEEK[wd];
+      else if (d === 'aaaa') out += WEEK[wd] + '曜日';
+      else if (d[0] === 'h') { let h = H; if (ampm) h = h % 12 || 12; out += d.length >= 2 ? p2(h) : h; }
+      else if (d[0] === 's') out += d.length >= 2 ? p2(S) : S;
+      else if (d === 'AM/PM') out += H < 12 ? 'AM' : 'PM';
+      else if (d === 'A/P') out += H < 12 ? 'A' : 'P';
+      else if (d[0] === 'g') out += d.length >= 3 ? era[1] : d.length === 2 ? era[2] : era[3];
+      else if (d[0] === 'e') out += d.length >= 2 ? p2(Y - era[4]) : Y - era[4];
+    });
+    return out;
+  }
+  function fmtNumber(v, toks) {
+    const nIdx = toks.map((t, i) => (t.n && t.n !== '%' ? i : -1)).filter(i => i >= 0);
+    if (!nIdx.length) return toks.map(t => t.lit !== undefined ? t.lit : t.n === '%' ? '%' : '').join('');
+    const first = nIdx[0], last = nIdx[nIdx.length - 1];
+    let pct = toks.filter(t => t.n === '%').length, x = v * Math.pow(100, pct);
+    let pat = toks.slice(first, last + 1).map(t => t.n || '').join('');
+    const pre = toks.slice(0, first).map(t => t.lit !== undefined ? t.lit : t.n === '%' ? '%' : '').join('');
+    const post = toks.slice(last + 1).map(t => t.lit !== undefined ? t.lit : t.n === '%' ? '%' : '').join('');
+    const mid = toks.slice(first, last + 1).filter(t => t.lit !== undefined).map(t => t.lit).join('');
+    const ex = pat.match(/E([+-])([0#]+)$/);
+    if (ex) {   // 指数表示
+      const mant = pat.slice(0, ex.index), dec = (mant.split('.')[1] || '').length, e = x === 0 ? 0 : Math.floor(Math.log10(Math.abs(x)));
+      const m = (x / Math.pow(10, e)).toFixed(dec), es = String(Math.abs(e)).padStart(ex[2].length, '0');
+      return pre + m + 'E' + (e < 0 ? '-' : ex[1] === '+' ? '+' : '') + es + mid + post;
+    }
+    let [ip, fp = ''] = pat.split('.');
+    while (ip.endsWith(',')) { ip = ip.slice(0, -1); x /= 1000; }
+    const grouping = ip.includes(','), dec = (fp.match(/[0#?]/g) || []).length, mult = Math.pow(10, dec);
+    const r = Math.round(Math.abs(x) * mult + 1e-9) / mult, [is, fs = ''] = r.toFixed(dec).split('.');
+    const minInt = (ip.match(/0/g) || []).length;
+    let ints = is.replace(/^0+/, '');
+    if (ints.length < minInt) ints = ints.padStart(minInt, '0');
+    if (grouping) ints = ints.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    let fr = fs;
+    for (let k = fp.replace(/[^0#?]/g, '').length - 1; k >= 0 && fr.length; k--) {
+      const ph = fp.replace(/[^0#?]/g, '')[k];
+      if (fr[fr.length - 1] !== '0' || ph === '0') break;
+      fr = ph === '?' ? fr.slice(0, -1) + ' ' : fr.slice(0, -1);
+    }
+    return pre + ints + (fp ? '.' + fr : '') + mid + post;
+  }
+  // 標準(General): 整数はそのまま、小数は有効数字10桁まで、とても大きい・小さい数は指数表示
+  const general = v => {
+    if (!isFinite(v)) return String(v);
+    if (Number.isInteger(v) && Math.abs(v) < 1e11) return String(v);
+    if (Math.abs(v) >= 1e11 || (v !== 0 && Math.abs(v) < 1e-9)) { const [m, e] = v.toExponential(5).split('e'); return m.replace(/\.?0+$/, '') + 'E' + (e[0] === '-' ? '-' : '+') + e.replace(/^[+-]/, '').padStart(2, '0'); }
+    return String(+v.toPrecision(10));
+  };
+  // v: セルの値(数値)、code: 表示形式。文字列のセルは text に渡す
+  PC.excelFormat = (v, code, date1904 = false, text = null) => {
+    if (code === undefined || code === null) code = 'General';
+    const secs = sections(code);
+    if (text !== null) {   // 文字列: 4つ目の部分、または @ を含む部分があれば当てはめる
+      const sec = secs.length >= 4 ? secs[3] : secs.find(s => s.includes('@'));
+      if (!sec) return text;
+      return tokens(sec).map(t => t.at ? text : t.lit !== undefined ? t.lit : '').join('');
+    }
+    if (/^general$/i.test(secs[0].trim()) || secs[0].trim() === '') return v < 0 && secs.length > 1 ? general(-v) : general(v);
+    let sec = secs[0], x = v, neg = false;
+    if (v < 0 && secs.length >= 2 && secs[1] !== '') { sec = secs[1]; x = -v; }
+    else if (v === 0 && secs.length >= 3) sec = secs[2];
+    else if (v < 0) { neg = true; x = -v; }
+    const toks = tokens(sec);
+    if (/^general$/i.test(sec.trim()) || /[?#0]\s*\/\s*[?#0]/.test(sec.replace(/"[^"]*"/g, ''))) return (neg ? '-' : '') + general(x);   // 分数の表示形式は標準で表す
+    const s = toks.some(t => t.d) && !toks.some(t => t.n && t.n !== '.') ? fmtDate(x, toks, date1904) : fmtNumber(x, toks);
+    return (neg && !toks.some(t => t.d) && /[1-9]/.test(s) ? '-' : '') + s;
+  };
+
+  // ---- Excel(.xlsx): 表示されているシートごとに、表示されている行・列のセルを表示形式どおりの文字にする ----
+  const colNum = s => { let n = 0; for (const ch of s) n = n * 26 + ch.charCodeAt(0) - 64; return n; };
+  const colName = n => { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; };
+  const refRC = ref => { const m = /^([A-Z]+)(\d+)$/.exec(ref || ''); return m ? [+m[2], colNum(m[1])] : null; };
+  const unesc = s => s.replace(/_x([0-9A-Fa-f]{4})_/g, (m, h) => String.fromCharCode(parseInt(h, 16))).replace(/\r\n?/g, '\n');
+  const siText = si => [...si.children].map(c => c.localName === 't' ? c.textContent : c.localName === 'r' ? (kid(c, 't') || { textContent: '' }).textContent : '').join('');   // ふりがな(rPh)は除く
+  async function readXlsx(z, name) {
+    const wbPath = 'xl/workbook.xml', wb = parse(await z.text(wbPath)), wr = await rels(z, wbPath);
+    const pr = all(wb, 'workbookPr')[0], date1904 = /^(1|true)$/i.test(at(pr, 'date1904') || '');
+    const find = t => [...wr.values()].find(r => r.type.endsWith('/' + t));
+    const sst = [];
+    const ss = find('sharedStrings');
+    if (ss) for (const si of all(parse(await z.text(ss.target)), 'si')) sst.push(unesc(siText(si)));
+    const fmts = [];
+    const st = find('styles');
+    if (st) {
+      const sx = parse(await z.text(st.target)), custom = new Map(all(sx, 'numFmt').map(n => [+at(n, 'numFmtId'), at(n, 'formatCode')]));
+      for (const xf of kids(all(sx, 'cellXfs')[0], 'xf')) { const id = +(at(xf, 'numFmtId') || 0); fmts.push(custom.has(id) ? custom.get(id) : BUILTIN[id] ?? 'General'); }
+    }
+    const pages = [];
+    for (const sh of all(wb, 'sheet')) {
+      if ((at(sh, 'state') || 'visible') !== 'visible') continue;
+      const r = wr.get(rid(sh)); if (!r) continue;
+      const doc = parse(await z.text(r.target)), sname = at(sh, 'name') || '';
+      const hidCol = new Set();
+      for (const c of all(doc, 'col')) if (/^(1|true)$/i.test(at(c, 'hidden') || '')) for (let k = +at(c, 'min'); k <= +at(c, 'max'); k++) hidCol.add(k);
+      const notes = new Map(), srels = await rels(z, r.target), cm = [...srels.values()].find(x => x.type.endsWith('/comments'));
+      if (cm) for (const c of all(parse(await z.text(cm.target)), 'comment')) { const t = all(c, 't').map(x => x.textContent).join('').trim(); if (t) notes.set(at(c, 'ref'), t); }
+      const rows = new Map();
+      for (const row of all(doc, 'row')) {
+        if (/^(1|true)$/i.test(at(row, 'hidden') || '')) continue;
+        for (const c of kids(row, 'c')) {
+          const rc = refRC(at(c, 'r')); if (!rc || hidCol.has(rc[1])) continue;
+          const t = at(c, 't') || 'n', v = kid(c, 'v'), vt = v ? v.textContent : '', f = fmts[+(at(c, 's') || 0)] || 'General';
+          let s = '';
+          if (t === 's') s = PC.excelFormat(0, f, date1904, sst[+vt] ?? '');
+          else if (t === 'inlineStr') s = PC.excelFormat(0, f, date1904, unesc(kid(c, 'is') ? siText(kid(c, 'is')) : ''));
+          else if (t === 'str' || t === 'e') s = unesc(vt);
+          else if (t === 'b') s = vt === '1' ? 'TRUE' : 'FALSE';
+          else if (t === 'd') { const ms = Date.parse(vt); if (!isNaN(ms)) s = PC.excelFormat(ms / 86400000 + 25569, f, false); }
+          else if (vt !== '') s = PC.excelFormat(+vt, f, date1904);
+          const note = notes.get(at(c, 'r'));
+          if (!s.trim() && !note) continue;
+          if (!rows.has(rc[0])) rows.set(rc[0], new Map());
+          rows.get(rc[0]).set(rc[1], { s, note });
+        }
+      }
+      if (!rows.size) continue;
+      const cols = [...new Set([...rows.values()].flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
+      const list = [...rows.keys()].sort((a, b) => a - b).map(k => { const m = rows.get(k); return { rn: k, cells: cols.map(c => (m.get(c) || {}).s || ''), notes: cols.map(c => (m.get(c) || {}).note).filter(Boolean) }; });
+      pages.push(...tablePages(`${name}　シート「${sname}」`, list, { cols: cols.map(colName) }));
+    }
+    return pages;
+  }
+
+  // ---- Word(.docx): 本文の段落と表(変更履歴は反映後の文。コメントは指示として添える) ----
+  async function readDocx(z, name) {
+    const path = 'word/document.xml', doc = parse(await z.text(path)), dr = await rels(z, path);
+    const comments = new Map(), cm = [...dr.values()].find(x => x.type.endsWith('/comments'));
+    if (cm) for (const c of all(parse(await z.text(cm.target)), 'comment')) comments.set(at(c, 'id'), all(c, 'p').map(p => all(p, 't').map(t => t.textContent).join('')).join('\n').trim());
+    const SKIP = new Set(['del', 'moveFrom', 'instrText', 'delText', 'rPr', 'pPr', 'Fallback', 'commentReference']);
+    // 段落の文字(描かれる順)と、段落にかかるコメント
+    const para = p => {
+      let s = ''; const ids = [];
+      const walk = el => {
+        for (const c of el.children) {
+          const n = c.localName;
+          if (SKIP.has(n)) continue;
+          if (n === 't') s += c.textContent;
+          else if (n === 'tab') s += '\t';
+          else if (n === 'br' || n === 'cr') s += '\n';
+          else if (n === 'noBreakHyphen') s += '-';
+          else if (n === 'commentRangeStart') ids.push(at(c, 'id'));
+          else walk(c);
+        }
+      };
+      walk(p);
+      for (const r of all(p, 'commentReference')) if (!ids.includes(at(r, 'id'))) ids.push(at(r, 'id'));
+      return { text: s, notes: ids.map(i => comments.get(i)).filter(Boolean) };
+    };
+    const flow = [];
+    const body = all(doc, 'body')[0];
+    const walk = el => {
+      for (const c of el.children) {
+        const n = c.localName;
+        if (n === 'p') flow.push({ kind: 'para', ...para(c) });
+        else if (n === 'tbl') {
+          const ws = kids(kid(c, 'tblGrid'), 'gridCol').map(g => +(at(g, 'w') || 0));
+          for (const tr of kids(c, 'tr')) {
+            const cells = kids(tr, 'tc').map(tc => kids(tc, 'p').map(p => para(p)));
+            flow.push({ kind: 'row', cells: cells.map(ps => ps.map(x => x.text).join('\n')), notes: cells.flatMap(ps => ps.flatMap(x => x.notes)), widths: ws.length === cells.length ? ws : null });
+          }
+        } else if (n === 'sdt') walk(kid(c, 'sdtContent') || c);
+        else if (n === 'customXml' || n === 'ins' || n === 'moveTo' || n === 'smartTag') walk(c);
+      }
+    };
+    if (body) walk(body);
+    return flowPages(name, flow);
+  }
+
+  // ---- PowerPoint(.pptx): スライドごとに、テキストと表を置かれた位置に(位置の分からないものは左上から順に) ----
+  async function readPptx(z, name) {
+    const path = 'ppt/presentation.xml', pres = parse(await z.text(path)), pr = await rels(z, path), EMU = 12700;
+    const sz = all(pres, 'sldSz')[0], SW = sz ? +at(sz, 'cx') / EMU : 960, SH = sz ? +at(sz, 'cy') / EMU : 540, pages = [];
+    let no = 0;
+    for (const sid of all(pres, 'sldId')) {
+      const r = pr.get(rid(sid)); if (!r) continue;
+      no++;
+      const sl = parse(await z.text(r.target));
+      if (at(all(sl, 'sld')[0], 'show') === '0') continue;   // 非表示のスライド
+      const pg = new VPage(`${name}　スライド${no}`, SW); pg.h = SH; pg.title(`スライド${no}`, 6, 4, 8);
+      let free = 20;   // 位置の分からない図形を置く位置
+      const paras = txBody => kids(txBody, 'p').map(p => {
+        let s = '', size = 0;
+        for (const c of p.children) {
+          if (c.localName === 'r' || c.localName === 'fld') { s += (kid(c, 't') || { textContent: '' }).textContent; const rp = kid(c, 'rPr'); if (!size && rp && at(rp, 'sz')) size = +at(rp, 'sz') / 100; }
+          else if (c.localName === 'br') s += '\n';
+        }
+        return { s, size };
+      });
+      const place = (xf, off) => {
+        const o = kid(xf, 'off'), e = kid(xf, 'ext');
+        if (!o || !e) return null;
+        return [off.x + (+at(o, 'x') - off.cx) * off.sx / EMU, off.y + (+at(o, 'y') - off.cy) * off.sy / EMU, +at(e, 'cx') * off.sx / EMU, +at(e, 'cy') * off.sy / EMU];
+      };
+      const walk = (tree, off) => {
+        for (const c of tree.children) {
+          const n = c.localName;
+          if (n === 'sp') {
+            const tb = kid(c, 'txBody'); if (!tb) continue;
+            let b = place(kid(kid(c, 'spPr'), 'xfrm'), off);
+            if (!b) { b = [20, free, SW - 40, 40]; }
+            let y = b[1];
+            for (const p of paras(tb)) {
+              if (!p.s.trim()) { y += 8; continue; }
+              const s0 = pg.chars.length, size = Math.min(40, p.size || 18);
+              y = pg.put(p.s, b[0] + 4, y + 2, Math.max(40, b[2] - 8), size);
+              if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'para']);
+            }
+            if (b[1] === free) free = y + 6;
+            pg.h = Math.max(pg.h, y + 10);
+          } else if (n === 'graphicFrame') {
+            const tbl = all(c, 'tbl')[0]; if (!tbl) continue;
+            let b = place(kid(c, 'xfrm'), off) || [20, free, SW - 40, 40];
+            const ws = kids(kid(tbl, 'tblGrid'), 'gridCol').map(g => +at(g, 'w') * off.sx / EMU);
+            let y = b[1];
+            for (const tr of kids(tbl, 'tr')) {
+              const cells = kids(tr, 'tc').map(tc => paras(kid(tc, 'txBody') || tc).map(p => p.s).join('\n'));
+              let x = b[0], bottom = y + 14, s0 = pg.chars.length;
+              cells.forEach((s, k) => { const w = ws[k] || b[2] / cells.length; if (s) bottom = Math.max(bottom, pg.put(s, x + 3, y + 3, w - 6, 12)); pg.line(x, y, x, bottom); x += w; });
+              pg.line(b[0], y, x, y); pg.line(b[0], bottom, x, bottom); pg.line(x, y, x, bottom);
+              if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'row']);
+              y = bottom;
+            }
+            pg.h = Math.max(pg.h, y + 10);
+          } else if (n === 'grpSp') {
+            const gx = kid(kid(c, 'grpSpPr'), 'xfrm'), o = kid(gx, 'off'), e = kid(gx, 'ext'), co = kid(gx, 'chOff'), ce = kid(gx, 'chExt');
+            if (o && e && co && ce) {
+              const sx = (+at(e, 'cx') / Math.max(1, +at(ce, 'cx'))) * off.sx, sy = (+at(e, 'cy') / Math.max(1, +at(ce, 'cy'))) * off.sy;
+              walk(c, { x: off.x + (+at(o, 'x') - off.cx) * off.sx / EMU, y: off.y + (+at(o, 'y') - off.cy) * off.sy / EMU, cx: +at(co, 'x'), cy: +at(co, 'y'), sx, sy });
+            } else walk(c, off);
+          }
+        }
+      };
+      const tree = all(sl, 'spTree')[0];
+      if (tree) walk(tree, { x: 0, y: 0, cx: 0, cy: 0, sx: 1, sy: 1 });
+      if (pg.chars.length) pages.push(pg);
+    }
+    return pages;
+  }
+
+  // ---- テキスト・CSV: 文字コードは UTF-8(BOMなしも)・UTF-16・Shift_JIS を見分ける ----
+  PC.decodeText = buf => {
+    const u = new Uint8Array(buf);
+    if (u[0] === 0xef && u[1] === 0xbb && u[2] === 0xbf) return new TextDecoder('utf-8').decode(u.subarray(3));
+    if (u[0] === 0xff && u[1] === 0xfe) return new TextDecoder('utf-16le').decode(u.subarray(2));
+    if (u[0] === 0xfe && u[1] === 0xff) return new TextDecoder('utf-16be').decode(u.subarray(2));
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(u); } catch (e) { return new TextDecoder('shift_jis').decode(u); }
+  };
+  const csvRows = (s, sep) => {
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (q) { if (ch === '"') { if (s[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; continue; }
+      if (ch === '"' && !cell) q = true;
+      else if (ch === sep) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && s[i + 1] === '\n') i++; row.push(cell); row.ln = rows.length + 1; rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); row.ln = rows.length + 1; rows.push(row); }
+    return rows.filter(r => r.some(c => c.trim()));
+  };
+
+  // ---- 入口 ----
+  const KINDS = { xlsx: 'Excel', xlsm: 'Excel', docx: 'Word', docm: 'Word', pptx: 'PowerPoint', pptm: 'PowerPoint', txt: 'テキスト', csv: 'CSV', tsv: 'CSV' };
+  const OLD = { xls: '.xlsx', doc: '.docx', ppt: '.pptx' };
+  PC.dataKind = f => { const m = /\.([a-z0-9]+)$/i.exec(f.name || ''); return m && KINDS[m[1].toLowerCase()] ? m[1].toLowerCase() : null; };
+  PC.dataLabel = f => KINDS[PC.dataKind(f)] || '';
+  PC.oldOffice = f => { const m = /\.([a-z0-9]+)$/i.exec(f.name || ''); return m && OLD[m[1].toLowerCase()] ? OLD[m[1].toLowerCase()] : null; };
+  // データファイルを読み、原稿のページの並びにする。ページ: { label, text: 文字データ, blocks, notes(コメント), render(dpi) }
+  PC.readDataFile = async f => {
+    const ext = PC.dataKind(f);
+    let pages;
+    try {
+      if (ext === 'txt') {
+        const lines = PC.decodeText(f.buf).replace(/\r\n?/g, '\n').split('\n');
+        pages = flowPages(f.name, lines.map(s => ({ kind: 'para', text: s })));
+      } else if (ext === 'csv' || ext === 'tsv') {
+        const s = PC.decodeText(f.buf), head = s.split('\n')[0], sep = ext === 'tsv' || (head.includes('\t') && !head.includes(',')) ? '\t' : ',';
+        const rs = csvRows(s, sep);
+        pages = tablePages(f.name, rs.map((r, k) => ({ cells: r, rn: r.ln || k + 1 })), { cols: Array.from({ length: Math.max(...rs.map(r => r.length)) }, (_, c) => colName(c + 1)) });
+      } else {
+        const z = PC.unzip(f.buf);
+        pages = ext.startsWith('xls') ? await readXlsx(z, f.name) : ext.startsWith('doc') ? await readDocx(z, f.name) : await readPptx(z, f.name);
+      }
+    } catch (e) { throw new Error(`「${f.name}」を${KINDS[ext]}のファイルとして読めません（${e && e.message ? e.message : e}）`); }
+    // Excel・CSV の数字は、成果物では桁区切りのカンマを付け外しすることが多いため、カンマの有無は違いとしない(loose)
+    const loose = /^(xls|csv|tsv)/.test(ext);
+    return pages.filter(p => p.chars.length).map(p => ({ label: p.label, text: p.text(), blocks: p.blocks, notes: p.notes, loose, render: dpi => p.render(dpi) }));
+  };
+})();
+
 // ---- pdfio.js ----
 // PDFの読み込み・描画・文字データ・注釈の取得(pdf.jsを使う)
 'use strict';
@@ -506,8 +1046,9 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     });
   };
 
-  // 赤字原稿: PDF(注釈を入れたPDF・スキャンしたPDF)と画像を、並べた順に1ページずつ取り出せる形にする
-  // (全ページを一度に展開するとメモリが足りなくなるため)
+  // 原稿: PDF(注釈を入れたPDF・スキャンしたPDF・ラフ)、画像、データファイル(Excel・Word・PowerPoint・テキスト・CSV)を、
+  // 並べた順に1ページずつ取り出せる形にする(全ページを一度に展開するとメモリが足りなくなるため)
+  //   データファイルは、シート・スライドなどごとのページ(文字データと表示用の画像を作れるもの)にする
   PC.isPdf = f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
   PC.markSource = async files => {
     const items = [], parts = [];
@@ -517,6 +1058,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         let doc;
         try { doc = await PC.openPdf(f.buf.slice(0)); } catch (e) { throw new Error(`「${f.name}」を開けません（${e && e.message ? e.message : e}）`); }
         for (let i = 0; i < doc.numPages; i++) items.push({ doc, i });
+      } else if (PC.dataKind(f)) {
+        for (const virt of await PC.readDataFile(f)) items.push({ virt, name: f.name });
       } else items.push({ file: new Blob([f.buf], { type: f.type }), name: f.name });
       parts.push({ name: f.name, start, pages: items.length - start });
     }
@@ -525,14 +1068,17 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       // 注釈(取り消し線・コメントなど)があり、文字データもあるページは「注釈を入れたPDF」。それ以外はスキャンとして扱う
       kind: async p => {
         const it = items[p];
+        if (it.virt) return 'virtual';
         if (!it.doc) return 'scan';
         if (!(await PC.annotations(it.doc, it.i)).length) return 'scan';
         return (await PC.textChars(it.doc, it.i)).length ? 'annot' : 'scan';
       },
       page: p => items[p],
+      label: p => (items[p].virt ? items[p].virt.label : null),   // データファイルのページの名前(シート名・スライド番号など)
       // スキャンとして読む画像。PDFは注釈も含めて300dpiで描画、画像はそのまま(大きすぎるものは縮める)
       image: async p => {
         const it = items[p];
+        if (it.virt) return { img: it.virt.render(300), dpi: 300 };
         if (it.doc) return { img: await PC.renderPage(it.doc, it.i, 300, true), dpi: 300 };
         let bmp;
         try { bmp = await createImageBitmap(it.file); } catch (e) { throw new Error(`「${it.name}」を画像として開けません`); }
@@ -2037,7 +2583,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   //   used[j]: ほかのまとまりがすでに対応づけたBの字(同じ文が2か所にあるとき、同じ所に2度当てないよう、一致しない字と同じ扱いにする)
   //   返り値 ops: ['=', i, j] 同じ字 / ['~', i, j] 書き方だけ違う / ['x', i, j] 違う字 / ['-', i] Aにだけある / ['+', j] Bにだけある / ['|'] 別の区間へ
   PC.collate = (A, B, opt = {}) => {
-    const n = A.length, m = B.length, J = opt.jump ?? 3, nr = opt.near || null, W = m + 1, near = nr ? (i, j) => nr[j] : null, used = opt.used || null;
+    const n = A.length, m = B.length, J = opt.jump ?? 3, nr = opt.near || null, W = m + 1, near = nr ? (i, j) => nr[j] : null, used = opt.used || null, strict = !!opt.strict;
     if (!n) return [];
     if (!m) return A.map((_, i) => ['-', i]);
     const D = new Float32Array((n + 1) * W), op = new Uint8Array((n + 1) * W), from = new Int32Array(n + 1);
@@ -2055,6 +2601,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     }
     let i = n, j = 0, best = Infinity;
     for (let q = 0; q <= m; q++) if (D[n * W + q] < best) { best = D[n * W + q]; j = q; }
+    // strict(データファイルの原稿): 最後の字は、手間が同じなら字を消すより置き換えとみなす(「4444」→「4445」を、4を消して5を足す、としない)
+    if (strict && j < m && D[n * W + j + 1] === best && op[n * W + j + 1] === 0 && !(used && used[j])) j++;
     const ops = [];
     while (i > 0) {
       const o = op[i * W + j];
@@ -2064,11 +2612,26 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       else { ops.push(['|']); j = from[i]; }
     }
     ops.reverse();
+    // strict: 1つのまとまりの中で、同じ成果物の字を2度使わない(抜けた文が、前の文の字に当たり直さないように)。一致の多い区間を残す
+    if (strict) {
+      const segOf = [], hitsOf = []; let sg = 0;
+      ops.forEach((o, k) => { if (o[0] === '|') { sg++; return; } segOf[k] = sg; hitsOf[sg] = (hitsOf[sg] || 0) + (o[0] === '=' || o[0] === '~' ? 1 : 0); });
+      const owner = new Map();
+      ops.forEach((o, k) => { const jj = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1; if (jj < 0) return; const s0 = owner.get(jj); if (s0 === undefined || hitsOf[segOf[k]] > hitsOf[s0]) owner.set(jj, segOf[k]); });
+      for (let k = 0; k < ops.length; k++) {
+        const o = ops[k], jj = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1;
+        if (jj >= 0 && owner.get(jj) !== segOf[k]) ops[k] = o[0] === '+' ? null : ['-', o[1]];
+        else if (jj >= 0) owner.set(jj, -1);   // 同じ区間の中でも1度だけ
+      }
+      for (let k = ops.length - 1; k >= 0; k--) if (!ops[k]) ops.splice(k, 1);
+    }
     // 一致した字が少ない区間(区間のAの字の半分未満、かつ3字未満)は、たまたま同じ字に当たっただけとみなし、対応させない
+    //   strict のとき、6字以上の区間で一致した字が1字ずつばらばらなもの(2字続けて一致した所がない)も同じ
     const out = []; let seg = [];
+    const run2 = () => seg.some((o, k) => k > 0 && (o[0] === '=' || o[0] === '~') && (seg[k - 1][0] === '=' || seg[k - 1][0] === '~'));
     const flush = () => {
       const a = seg.filter(o => o[0] !== '+').length, hit = seg.filter(o => o[0] === '=' || o[0] === '~').length;
-      if (hit >= Math.min(3, Math.ceil(a / 2))) out.push(...seg);
+      if (hit >= Math.min(3, Math.ceil(a / 2)) && !(strict && a >= 6 && !run2())) out.push(...seg);
       else for (const o of seg) if (o[0] !== '+') out.push(['-', o[1]]);
       seg = [];
     };
@@ -2081,11 +2644,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       let a = k; while (a > 0 && out[a - 1][0] === '+') a--;
       let b = k; while (b + 1 < out.length && out[b + 1][0] === '+') b++;
       const atStart = a === 0 || out[a - 1][0] === '|', atEnd = b === out.length - 1 || out[b + 1][0] === '|';
-      if (atStart || atEnd) keep[k] = false;
+      if ((atStart || atEnd) && !(opt.keepEdge && opt.keepEdge(out[k][1]))) keep[k] = false;
     }
     return out.filter((_, k) => keep[k]);
   };
 
+  // 通貨の記号(数字のすぐ前後にあれば、あるなし・前後の違いを書き方の違いとみなす: 「¥1,280」と「1,280円」)
+  PC.UNIT = /^[¥￥円$＄]$/;
   // ---- opsを、違いのまとまり(hunk)に分ける: [開始, 終了) は ops の番号 ----
   //   区間の切れ目('|')は違いではない(配置が違うだけ)。同じ字が2字以上続く所、区間の切れ目で分ける
   PC.hunksOf = ops => {
@@ -2124,18 +2689,45 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   const PLACE = /^(モデル|写真|画像|イメージ|ロゴ|QR|ＱＲ|図|イラスト|地図|表|グラフ)(写真|画像|コード|後送)?$/;
   PC.isInstr = s => { const t = s.replace(/\s/g, ''); return PLACE.test(t) || ([...t].length <= 24 && INSTR.test(t)); };
 
+  // 位置の手がかりがない原稿(データファイル)のまとまり(段落・表の行)を、候補の成果物ページ(cands: [{ B }]、手がかりの多い順)に振り分ける
+  //   まとまりの字のかたまり(2字以上)がそのまま最も多く(半分以上)含まれるページ。どのページにもないまとまりは、前(なければ後ろ)のまとまりと同じページ
+  //   返り値: who(まとまりごとに、cands の何番目か)・also(表の見出しの行が、そのまま載っているほかのページ)
+  PC.splitFree = (A, blocks, cands) => {
+    const ks = cands.map(c => PC.keyStr(c.B.chars, true).s);
+    const who = blocks.map(([s, e]) => {
+      const byIt = new Map();
+      for (let i = s; i < e; i++) { const c = A.chars[i]; if (!byIt.has(c.it)) byIt.set(c.it, []); byIt.get(c.it).push(c); }
+      const sc = cands.map(() => 0); let n = 0;
+      for (const cs of byIt.values()) { const k = PC.keyStr(cs, true).s; if ([...k].length < 2) continue; n += k.length; ks.forEach((K, ci) => { if (K.includes(k)) sc[ci] += k.length; }); }
+      //   字の半分以上がそのまま含まれるページだけを数える(「1個」のような短い字が合っただけのページには振り分けない)
+      let best = -1; sc.forEach((v, ci) => { if (v >= 0.5 * n && v > 0 && (best < 0 || v > sc[best])) best = ci; });
+      return best;
+    });
+    for (let b = 0; b < who.length; b++) if (who[b] < 0) { let k = b - 1; while (k >= 0 && who[k] < 0) k--; if (k >= 0) who[b] = who[k]; }
+    for (let b = who.length - 1; b >= 0; b--) if (who[b] < 0) who[b] = b + 1 < who.length ? who[b + 1] : 0;
+    const also = blocks.map(([s, e, , tag], b) => {
+      if (tag !== 'head') return [];
+      const k = PC.keyStr(A.chars.slice(s, e), true).s;
+      return ks.map((K, ci) => (ci !== who[b] && [...k].length >= 2 && K.includes(k) ? ci : -1)).filter(ci => ci >= 0);
+    });
+    return { who, also };
+  };
+
   // ---- 原稿の1ページ(文字データあり・レイアウトが違う)を、成果物のページと照合する ----
   //   A: 原稿の文字データ、B: 成果物の文字データ、pr: ページの対応(T・範囲)、used: 成果物の字のうち、すでに対応づいたもの(ページの間で共有)
   //   skip: 照合に使わない成果物のまとまり(成果物の書き込み)
   //   返り値 blocks: [{ s, e, ops, instr, found }] (s, e は原稿の字の番号、ops は PC.collate の結果。字の番号はまとまりの中での番号)
+  //   A.blocks があれば、まとまりはそれを使う(データファイル: 段落 'para'・表の行 'row')。pr.free(位置の手がかりがない原稿)のときは位置を問わない
+  //   A.loose(Excel・CSV): 数字の桁区切りの「,」は、あってもなくても同じとみなす
   PC.collatePage = (A, B, pr, used, skip) => {
-    const T = pr.Tt || pr.T, R = pr.region, D = 0.5 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+    const free = !!pr.free, T = free ? null : pr.Tt || pr.T, R = pr.region, D = 0.5 * Math.hypot(R[2] - R[0], R[3] - R[1]);
     const Bk = B.chars.map(c => (skip.has(c.it) ? { c: c.c, k: '\uFFFF', box: c.box, it: c.it } : c));   // 書き込みの字は、どの字とも一致しない字に置き換える
     const ctr = B.items.map(it => PC.center(it.box));
     const dist = (p, b) => Math.hypot(Math.max(b[0] - p[0], 0, p[0] - b[2]), Math.max(b[1] - p[1], 0, p[1] - b[3]));
     // まとまりが来るはずの範囲(写した枠を少し広げたもの)から遠いほど、そこから始める手間を大きくする
     //   (字ごとの位置でなだらかに、最大1.5まで: 隣の字との差が、字を1つ足す・替える手間を超えないように)
     const nearFor = box => {
+      if (!T) return null;
       const bb = PC.mapBox(T, box), M = 0.08 * D, ex = [bb[0] - M, bb[1] - M, bb[2] + M, bb[3] + M], out = new Float32Array(Bk.length);
       Bk.forEach((c, j) => { out[j] = 1.5 * Math.min(1, dist(PC.center(c.box), ex) / (0.25 * D)); });
       return out;
@@ -2146,13 +2738,49 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     //   (段組みを組み替えたデザインでは、本文でも位置の対応から外れるため、長く一致する文字があれば本文とみなす)
     const src = pr.src, inSrc = c => { const [x, y] = PC.center(c.box); return x >= src[0] && x <= src[2] && y >= src[1] && y <= src[3]; };
     const cov = new Uint8Array(A.chars.length);
-    for (const x of PC.textAnchors(A.chars, Bk, 6)) cov.fill(1, x.i, x.i + x.n);
-    const blocks = PC.blocksOf(A.chars, A.items).map(([s, e]) => {
+    if (!free) for (const x of PC.textAnchors(A.chars, Bk, 6)) cov.fill(1, x.i, x.i + x.n);
+    const blocks = (A.blocks || PC.blocksOf(A.chars, A.items).map(([s, e]) => [s, e, 'para'])).map(([s, e, kind]) => {
       const cs = A.chars.slice(s, e), text = cs.map(c => c.c).join('');
       let inside = 0, hit = 0; for (let k = s; k < e; k++) { if (inSrc(A.chars[k])) inside++; if (cov[k]) hit++; }
-      return { s, e, cs, text, margin: inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
+      return { s, e, cs, text, kind, margin: !free && inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
     });
+    // 桁区切りの「,」を除いた並びで対応づけ、字の番号を元に戻す(A.loose のとき)
+    const comma = (X, j) => (X[j].k === ',' || X[j].k === '，') && j > 0 && j + 1 < X.length && /\d/.test(X[j - 1].k) && /\d/.test(X[j + 1].k);
+    const bmap = A.loose ? Bk.map((_, j) => j).filter(j => !comma(Bk, j)) : null, Bf = bmap ? bmap.map(j => Bk[j]) : Bk;
+    // 数字のすぐ前後の通貨の記号(「1,280円」の「円」など)は、まとまりの端にあっても外さない(書き方の違いとして示すため)
+    const keepEdge = free ? j => PC.UNIT.test(Bk[j].c) && [j - 1, j + 1].some(t => Bk[t] && Bk[t].it === Bk[j].it && /\d/.test(Bk[t].k)) : null;
+    //   対応づいた数字のすぐ前後にある、まだ使われていない通貨の記号も、そのまとまりの字として加える(「1,050」に対する「1,050円」の「円」)
+    const units = (ops, u) => {
+      if (!free) return ops;
+      const has = new Set(ops.flatMap(o => (o.length === 3 ? [o[2]] : o[0] === '+' ? [o[1]] : [])));
+      const out = [];
+      ops.forEach((o, k) => {
+        const dig = o.length === 3 && o[0] !== 'x' && /\d/.test(Bk[o[2]].k), add = t => Bk[t] && Bk[t].it === Bk[o[2]].it && PC.UNIT.test(Bk[t].c) && !u[t] && !has.has(t);
+        if (dig && add(o[2] - 1) && !(k > 0 && ops[k - 1].length === 3 && ops[k - 1][2] === o[2] - 1)) { out.push(['+', o[2] - 1]); has.add(o[2] - 1); }
+        out.push(o);
+        if (dig && add(o[2] + 1)) { out.push(['+', o[2] + 1]); has.add(o[2] + 1); }
+      });
+      return out;
+    };
+    const coll = (cs, near, u = used) => units(collRaw(cs, near, u), u);
+    const collRaw = (cs, near, u) => {
+      if (!bmap) return PC.collate(cs, Bk, { jump: 3, near, used: u, strict: free, keepEdge });
+      const amap = cs.map((_, i) => i).filter(i => !comma(cs, i));
+      const ops = PC.collate(amap.map(i => cs[i]), Bf, { jump: 3, near: near ? Float32Array.from(bmap, j => near[j]) : null, used: Uint8Array.from(bmap, j => u[j]), strict: free, keepEdge: keepEdge && (j => keepEdge(bmap[j])) });
+      return ops.map(o => (o[0] === '|' ? o : o[0] === '-' ? ['-', amap[o[1]]] : o[0] === '+' ? ['+', bmap[o[1]]] : [o[0], amap[o[1]], bmap[o[2]]]));
+    };
+    // 表の行: いちばん長く一致した区間の成果物での行(上下に字の高さの1.6倍まで)から外れた所から始める手間を大きくする
+    //   (同じ値が別の行にもあるとき、別の行の値に当ててしまい、この行の値の違いを見落とさないように)
+    const band = ops => {
+      let best = [], cur = [];
+      for (const o of [...ops, ['|']]) { if (o[0] === '=' || o[0] === '~') cur.push(o); else { if (cur.length > best.length) best = cur; cur = []; } }
+      if (best.length < 2) return null;
+      const bs = best.map(o => Bk[o[2]].box), yc = bs.reduce((t, b) => t + (b[1] + b[3]) / 2, 0) / bs.length, hh = Math.max(...bs.map(b => b[3] - b[1]));
+      return Float32Array.from(Bk, c => (Math.abs((c.box[1] + c.box[3]) / 2 - yc) <= 1.6 * hh ? 0 : 6));
+    };
     const hits = ops => ops.filter(o => o[0] === '=' || o[0] === '~').length;
+    //   行の範囲に絞ると一致が2割以上減るとき(表の行と列を入れ替えて組んだときなど)は、絞らない
+    const rowColl = (b, ops) => { if (b.kind !== 'row') return ops; const nb = band(ops); if (!nb) return ops; const o2 = coll(b.cs, nb); return hits(o2) >= 0.8 * hits(ops) ? o2 : ops; };
     // 対応づいた成果物の字に印を付け、新しく印を付けた字を返す(指示として扱い直すときは、その字の印だけを外す)
     const mark = ops => { const js = []; for (const o of ops) { const j = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1; if (j >= 0 && !used[j]) { used[j] = 1; js.push(j); } } return js; };
     const byLen = xs => xs.slice().sort((x, y) => (y.e - y.s) - (x.e - x.s) || x.s - y.s);
@@ -2178,21 +2806,33 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       });
     };
     // 1) 本文(欄外でないまとまり): 長いものから、まだ対応づいていない成果物の字に当てる
-    for (const b of byLen(blocks.filter(b => !b.margin))) {
-      b.ops = PC.collate(b.cs, Bk, { jump: 3, near: nearFor(PC.union(b.cs.map(c => c.box))), used });
+    //   位置の手がかりがない原稿は、まず全部を(印を付けずに)当ててみて、よく一致したまとまりから決める
+    //   (成果物に載っていない表の行が、似た別の行の字を先に取ってしまわないように)
+    let order = byLen(blocks.filter(b => !b.margin));
+    if (free) {
+      const rate = new Map();
+      for (const b of order) rate.set(b, hits(rowColl(b, coll(b.cs, null))) / b.cs.length);
+      order = order.slice().sort((x, y) => rate.get(y) - rate.get(x) || (y.e - y.s) - (x.e - x.s) || x.s - y.s);
+    }
+    for (const b of order) {
+      b.ops = coll(b.cs, nearFor(PC.union(b.cs.map(c => c.box))));
+      b.ops = rowColl(b, b.ops);
       reanchor(b.ops, b.cs);
-      const js = mark(b.ops);
+      const low = hits(b.ops) < 0.5 * b.cs.length;
       // 成果物に見当たらない短い書き込みで、指示の言い方のもの → 指示として扱い直す
-      if (hits(b.ops) < 0.5 * b.cs.length && PC.isInstr(b.text)) { for (const j of js) used[j] = 0; b.instr = true; }
+      if (low && b.kind !== 'row' && PC.isInstr(b.text)) { b.instr = true; continue; }
+      // データファイルの原稿: 半分も一致しないまとまりは、成果物に載っていないとみなす(似た別の行・文の字を取らないように)
+      if (low && free) { b.ops = b.cs.map((_, i) => ['-', i]); continue; }
+      mark(b.ops);
     }
     // 2) 指示(欄外の書き込み・指示の言い方の書き込み): 残りの成果物の字から探す(新しく入れる文の指示なら、成果物にあるはず)
     for (const b of byLen(blocks.filter(b => b.margin || b.instr))) {
       b.instr = true;
-      b.ops = PC.collate(b.cs, Bk, { jump: 3, near: nearRegion, used });
+      b.ops = coll(b.cs, nearRegion);
       b.found = hits(b.ops) / b.cs.length;
       if (b.found >= 0.8) mark(b.ops);
     }
-    return blocks.map(({ s, e, ops, instr, found, text }) => ({ s, e, ops, instr, found, text }));
+    return blocks.map(({ s, e, ops, instr, found, text, kind }) => ({ s, e, ops, instr, found, text, kind }));
   };
 })();
 
@@ -2241,6 +2881,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // 1つの組(原稿ページ a × 成果物ページ b)の対応: 当てはめた変換 T、手がかりの量、成果物での範囲
   //   画像の手がかりから求めた変換と文字の手がかりから求めた変換のうち、両方の手がかりをより多く説明するほうを使う
   function pairOf(a, b) {
+    if (a.free) return pairFree(a, b);
     const pageB = [0, 0, b.w, b.h], dB = diag(pageB), dA = diag([0, 0, a.w, a.h]);
     const vis = visualPairs(a.orb, b.orb);
     const fv = vis.P.length >= 8 ? PC.fitSimilarity(vis.P, vis.Q, vis.P.map(() => 1), 5 * PT, { mode: 'sim' }) : null;
@@ -2304,6 +2945,43 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     };
   }
 
+  // 位置の手がかりがない原稿(Excel・Word・テキストなどのデータファイル)の対応:
+  //   原稿の文字のまとまり(2字以上)が、成果物のページの文字にそのまま含まれる量で決める。成果物での範囲は、含まれていた所を囲む範囲
+  //   (数字の桁区切りの「,」は、あってもなくても同じとみなす)
+  const keyStr = (cs, loose) => {
+    let s = ''; const at = [];
+    cs.forEach((c, j) => { if (loose && (c.k === ',' || c.k === '，') && /\d/.test((cs[j - 1] || {}).k || '') && /\d/.test((cs[j + 1] || {}).k || '')) return; s += c.k; at.push(j); });
+    return { s, at };
+  };
+  PC.keyStr = keyStr;
+  //   原稿の1ページ(表・文章)が成果物の何ページかに分かれて載ることや、支給された表の一部の行だけが載ることがあるため、
+  //   まとまり(表の行・段落)の半分以上の字がそのまま含まれる所が2つ以上(まとまりが1つだけの原稿は1つ)あるページを候補にする
+  //   (どのまとまりをどのページで照合するかは、照合のときに決める: PC.splitFree)
+  function pairFree(a, b) {
+    if (!b.text) return null;
+    const B = b.kfree || (b.kfree = keyStr(b.text.chars, true)), byIt = new Map();
+    a.text.chars.forEach(c => { if (!byIt.has(c.it)) byIt.set(c.it, []); byIt.get(c.it).push(c); });
+    let all = 0, hit = 0; const boxes = [], found = new Set(), kh = new Map();
+    for (const [it, cs] of byIt) {
+      const k = keyStr(cs, true).s;
+      if ([...k].length < 2) continue;
+      all += k.length;
+      const pos = B.s.indexOf(k);
+      if (pos < 0) continue;
+      hit += k.length; found.add(it); kh.set(it, k.length);
+      boxes.push(PC.union(B.at.slice(pos, pos + k.length).map(j => b.text.chars[j].box)));
+    }
+    const blocks = a.blocks || [[0, a.text.chars.length]];
+    const strong = blocks.filter(([s, e]) => {
+      const its = new Set(); for (let i = s; i < e; i++) its.add(a.text.chars[i].it);
+      let n = 0, h = 0; for (const it of its) { const k = keyStr(byIt.get(it), true).s.length; n += k; h += kh.get(it) || 0; }
+      return n >= 2 && h >= 0.5 * n;
+    }).length;
+    if (hit < 8 || strong < Math.min(2, blocks.length)) return null;
+    const u = PC.union(boxes), m = 0.02 * diag([0, 0, b.w, b.h]);
+    return { T: null, free: true, how: 'text', score: hit, vis: 0, txt: hit, all, found, region: [Math.max(0, u[0] - m), Math.max(0, u[1] - m), Math.min(b.w, u[2] + m), Math.min(b.h, u[3] + m)], src: [0, 0, a.w, a.h], same: false, crop: null, Tt: null, Tv: null };
+  }
+
   // 手がかりを集める: 原稿は src(PC.markSource)、成果物は newDoc
   async function cluesOf(get, n, step) {
     const out = [];
@@ -2319,6 +2997,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     }, newDoc.numPages, k => progress(`成果物 ${k + 1}/${newDoc.numPages} ページの特徴を読み取り`, 0.5 * (k + 1) / (newDoc.numPages + src.numPages)));
     const M = await cluesOf(async p => {
       const it = src.page(p);
+      if (it.virt) { const t = it.virt.text; return { w: t.w, h: t.h, orb: null, text: t, blocks: it.virt.blocks, image: false, images: [], free: true }; }
       if (it.doc) {
         const img = await PC.renderPage(it.doc, it.i, VDPI, false), t = await PC.pageText(it.doc, it.i);
         return { w: t.w, h: t.h, orb: orbOf(img), text: t.chars.length ? t : null, image: false, images: await PC.imageBoxes(it.doc, it.i) };
@@ -2344,11 +3023,16 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       const near = c => res.some((r, p) => r.q >= 0 && Math.abs(p - c.p) === 1) ? 1.1 : 1;
       left.sort((x, y) => y.score * near(y) - x.score * near(x) || x.p - y.p || x.q - y.q);
       const c = left.shift();
-      if (res[c.p].q >= 0 || res.some(r => r.q >= 0 && clash(r, c))) continue;
+      if (res[c.p].q >= 0 || (!c.free && res.some(r => r.q >= 0 && !r.free && clash(r, c)))) continue;
       res[c.p] = c;
     }
-    [...M, ...N].forEach(x => x.orb.des.delete());
-    return res.map(r => r.q < 0 ? r : { q: r.q, T: r.T, Tt: r.Tt, Tv: r.Tv, region: r.region, src: r.src, same: r.same, crop: r.crop, score: r.score, how: r.how, vis: r.vis, txt: r.txt });
+    // 位置の手がかりがない原稿: 候補のページ全部(手がかりの多い順)を持たせる
+    res.forEach((r, p) => {
+      if (!r.free) return;
+      r.qs = cand.filter(c => c.p === p).sort((x, y) => y.score - x.score || x.q - y.q).map(c => ({ q: c.q, score: c.score, region: c.region }));
+    });
+    [...M, ...N].forEach(x => { if (x.orb) x.orb.des.delete(); });
+    return res.map(r => r.q < 0 ? r : { q: r.q, T: r.T, Tt: r.Tt, Tv: r.Tv, region: r.region, src: r.src, same: r.same, crop: r.crop, score: r.score, how: r.how, vis: r.vis, txt: r.txt, free: !!r.free, qs: r.qs || null });
   };
 })();
 
@@ -2704,27 +3388,48 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   const coreOf = (frm, to) => { const c = splitCore(frm, to); return [c.b, c.a]; };
 
   // ---- レイアウトが違うページ(内容で照合する): 原稿の文字データを、成果物の文字データと並べ替えに強いやり方で対応づける ----
-  async function contentPage(src, p, pr, nq, step) {
-    const { doc, i } = src.page(p);
+  //   sub: データファイルのページのとき、このページ(成果物)で照合するまとまり・コメントと、原稿の描画
+  async function contentPage(src, p, pr, nq, step, sub) {
+    const it = src.page(p), k = PC.S;
     step('文字データを読み取り', 0.1); await PC.tick();
-    const A = await PC.pageText(doc, i), annots = await PC.annotations(doc, i, 72), imgs = await PC.imageBoxes(doc, i);
-    const left = await PC.renderPage(doc, i, PC.DPI, true), k = PC.S;
-    PC.snapChars(A, left, k);   // 字の枠を、描画した字の形に合わせる(違う字を示す枠がずれないように)
+    let A, annots, imgs, left;
+    if (it.virt) { A = { ...it.virt.text, blocks: sub.blocks, loose: it.virt.loose, order: new Map(it.virt.blocks.map((b, k) => [b[0], k])) }; annots = sub.notes; imgs = []; left = sub.left; }
+    else {
+      const { doc, i } = it;
+      A = await PC.pageText(doc, i); annots = await PC.annotations(doc, i, 72); imgs = await PC.imageBoxes(doc, i);
+      left = await PC.renderPage(doc, i, PC.DPI, true);
+      PC.snapChars(A, left, k);   // 字の枠を、描画した字の形に合わせる(違う字を示す枠がずれないように)
+    }
     step('文字を照合', 0.3); await PC.tick();
     // 成果物の文字データがほとんどない(文字がアウトライン化・画像化されている)ページは、文字では比べない(すべて「ない」と出てしまうため)
-    const noText = nq.B.chars.length < Math.max(10, 0.2 * A.chars.length);
-    const blocks = noText ? [] : PC.collatePage(A, nq.B, pr, nq.used, nq.notes);
+    const nA = A.blocks ? A.blocks.reduce((t, [s, e]) => t + e - s, 0) : A.chars.length, noText = nq.B.chars.length < Math.max(10, 0.2 * nA);
+    //   データファイルは、PDFの原稿とは別に成果物の字に印を付ける(ラフとExcelの表のように、同じ所の原稿が2つあってもよいように)
+    const blocks = noText ? [] : PC.collatePage(A, nq.B, pr, pr.free ? nq.usedFree : nq.used, nq.notes);
+    if (pr.free) {   // 成果物での範囲: 対応づいた字を囲む範囲
+      const js = blocks.flatMap(b => (b.instr ? [] : b.ops.filter(o => o.length === 3).map(o => o[2])));
+      if (js.length) { const u = PC.union(js.map(j => nq.B.chars[j].box)), m = 0.02 * Math.hypot(nq.B.w, nq.B.h); pr.region = [Math.max(0, u[0] - m), Math.max(0, u[1] - m), Math.min(nq.B.w, u[2] + m), Math.min(nq.B.h, u[3] + m)]; }
+    }
     step('表示用の画像を作成', 0.8); await PC.tick();
     return {
       kind: 'content', q: pr.q, pr, A, annots, imgs, blocks, nq, extra: [], noText,
       ch: [], im: [], an: [], notes: annots.map(n => ({ ...n, box: n.box.map(v => v * k) })), restBoxes: [], ot: [], nt: [], pairs: [], nc: [],
-      oc: A.chars.map(c => [c.c, c.box.map(v => v * k)]), w: left.w,
-      thumbs: { left: await toThumb(left), right: nq.thumb },
+      oc: (A.blocks || [[0, A.chars.length]]).flatMap(([s, e]) => A.chars.slice(s, e)).map(c => [c.c, c.box.map(v => v * k)]), w: left.w,
+      thumbs: { left: sub ? sub.thumb : await toThumb(left), right: nq.thumb },
     };
   }
+  // 位置の対応(変換)がない、データファイルのページ: 対応づいた字の組のうち、いちばん近いもので位置を移す
+  const pairsOf = d => d.fm || (d.fm = d.blocks.flatMap(b => (b.instr ? [] : b.ops.filter(o => o.length === 3).map(o => [d.A.chars[b.s + o[1]].box, d.nq.B.chars[o[2]].box]))));
+  const nearestPair = (d, box, side) => {
+    const c = PC.center(box); let best = null, bd = Infinity;
+    for (const x of pairsOf(d)) { const q = PC.center(x[side]), dd = Math.hypot(q[0] - c[0], 3 * (q[1] - c[1])); if (dd < bd) { bd = dd; best = x; } }   // 同じ行を優先
+    return best;
+  };
+  // 成果物の位置 → 原稿でのおよその位置 / 原稿の位置 → 成果物でのおよその位置(pt)
+  const backOf = (d, box) => { if (!d.pr.free) return PC.mapBox(PC.invT(d.pr.Tv || d.pr.T), box); const x = nearestPair(d, box, 1); return x ? x[0] : [0, 0, 20, 20]; };
+  const fwdOf = (d, box) => { if (!d.pr.free) return PC.mapBox(d.pr.T, box); const x = nearestPair(d, box, 0); return x ? x[1] : d.pr.region; };
   // 対応する成果物のページがない原稿のページ(または、レイアウトが違う紙の原稿): 原稿の画像だけ
   async function nonePage(src, p) {
-    const it = src.page(p), img = it.doc ? await PC.renderPage(it.doc, it.i, PC.DPI, true) : (await src.image(p)).img;
+    const it = src.page(p), img = it.virt ? it.virt.render(PC.DPI) : it.doc ? await PC.renderPage(it.doc, it.i, PC.DPI, true) : (await src.image(p)).img;
     return { kind: 'none', q: -1, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], w: img.w, thumbs: { left: await toThumb(img), right: null } };
   }
   // 内容で照合したページの残り: 成果物の字のうち、どの原稿にも対応しなかったもの(原稿にない文字・原稿が画像の部分)と、成果物の書き込み
@@ -2735,7 +3440,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     for (const [q, nq] of NQ) {
       const ds = P.filter(d => d.kind === 'content' && d.q === q);
       if (!ds.length) continue;
-      const { B, used, notes } = nq;
+      const { B, used, usedFree, notes } = nq;
       const owner = pt => {   // 範囲の中なら範囲の中心がいちばん近いもの、どの範囲にも入らなければ範囲がいちばん近いもの
         let best = null, bd = Infinity;
         for (const d of ds) { const R = d.pr.region, out = dist(pt, R), c = PC.center(R), key = out > 0 ? 1e6 + out : Math.hypot(pt[0] - c[0], pt[1] - c[1]); if (key < bd) { bd = key; best = d; } }
@@ -2744,7 +3449,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       // 字のまとまり(item)ごとに、使われなかった字をまとめる。近いまとまりどうしはつなげる
       const groups = [];
       B.items.forEach((it, idx) => {
-        const js = []; B.chars.forEach((c, j) => { if (c.it === idx && !used[j]) js.push(j); });
+        const js = []; B.chars.forEach((c, j) => { if (c.it === idx && !used[j] && !usedFree[j]) js.push(j); });
         const isNote = notes.has(idx);
         if (!js.length || (!isNote && !js.some(j => /[\p{L}\p{N}]/u.test(B.chars[j].c)))) return;
         const box = PC.union(js.map(j => B.chars[j].box)), g = groups[groups.length - 1];
@@ -2754,16 +3459,29 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         if (close) { g.js.push(...js); g.box = PC.union([g.box, box]); g.size = Math.max(g.size, it.size); }
         else groups.push({ js, box, note: isNote, size: it.size });
       });
+      // データファイルの範囲では、同じ行に並ぶまとまり(表の1行のセルなど)は、間に対応づいた字がなければ1件にまとめる
+      const taken = j => used[j] || usedFree[j];
+      for (let k = groups.length - 1; k > 0; k--) {
+        const a = groups[k - 1], b = groups[k];
+        if (a.note || b.note) continue;
+        const da = owner(PC.center(a.box)), db = owner(PC.center(b.box));
+        if (da !== db || !da.pr.free) continue;
+        const lo = Math.max(a.box[1], b.box[1]), hi = Math.min(a.box[3], b.box[3]);
+        if (hi - lo <= 0.5 * Math.min(a.box[3] - a.box[1], b.box[3] - b.box[1])) continue;
+        const x0 = Math.min(a.box[2], b.box[2]), x1 = Math.max(a.box[0], b.box[0]);
+        if (B.chars.some((c, j) => { const [cx, cy] = PC.center(c.box); return taken(j) && cy >= lo && cy <= hi && cx > x0 && cx < x1; })) continue;
+        a.js.push(...b.js); a.box = PC.union([a.box, b.box]); a.size = Math.max(a.size, b.size); groups.splice(k, 1);
+      }
       for (const d of ds) d.nc = [];
       B.chars.forEach(c => owner(PC.center(B.items[c.it].box)).nc.push([c.c, c.box.map(v => v * k)]));
       const far = 0.08 * Math.hypot(B.w, B.h);   // どの原稿の範囲からもこれより離れた所は「原稿が見つからない部分」
       for (const g of groups) {
-        const d = owner(PC.center(g.box)), text = g.js.map(j => B.chars[j].c).join(''), T = d.pr.Tv || d.pr.T, Ti = PC.invT(T);
-        const back = PC.mapBox(Ti, g.box), R = d.pr.region, M = 0.04 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+        const d = owner(PC.center(g.box)), text = g.js.map(j => B.chars[j].c).join('');
+        const back = backOf(d, g.box), R = d.pr.region, M = 0.04 * Math.hypot(R[2] - R[0], R[3] - R[1]);
         if (g.note) { d.extra.push({ cat: 'W', nbox: g.box, box: back, show: text }); continue; }
         if (dist(PC.center(g.box), R) > far) {   // 原稿のない部分は1件にまとめる(成果物のその部分の原稿を渡していないとき)
           const prev = d.extra.find(e => e.cat === 'I' && e.noSrc);
-          if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.nbox = PC.union([prev.nbox, g.box]); prev.box = PC.mapBox(Ti, prev.nbox); }
+          if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.nbox = PC.union([prev.nbox, g.box]); prev.box = backOf(d, prev.nbox); }
           else d.extra.push({ cat: 'I', noSrc: true, nbox: g.box, nboxes: [g.box], box: back, texts: [text] });
           continue;
         }
@@ -2797,36 +3515,86 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const caretOf = side => { const p = near(side, -1), n = near(side, 1); if (p) return [p[2] - 1, p[1], p[2] + 1, p[3]]; if (n) return [n[0] - 1, n[1], n[0] + 1, n[3]]; return null; };
     return { segs, box: ab.length ? union(ab) : caretOf('A'), nbox: bb.length ? union(bb) : caretOf('B') };
   }
+  // 違いが、数字のすぐ前後の通貨の記号だけ(「¥1,280」→「1,280円」)
+  function unitOnly(ops, h, cs, B) {
+    const chOf = o => (o[0] === '-' ? cs[o[1]].c : o[0] === '+' ? B[o[1]].c : null), digit = o => o && (o[0] === '=' || o[0] === '~') && /\d/.test(cs[o[1]].k);
+    let unit = false;
+    for (let q = h.s; q < h.e; q++) {
+      const o = ops[q];
+      if (o[0] === '=' || o[0] === '~') continue;
+      if (o[0] === 'x' ? !(PC.UNIT.test(cs[o[1]].c) && PC.UNIT.test(B[o[2]].c)) : !PC.UNIT.test(chOf(o))) return false;
+      unit = true;
+    }
+    return unit && (digit(ops[h.s - 1]) || digit(ops[h.e]));
+  }
   const instrCheck = t => /後送/.test(t) ? '後送（素材はあとから届く）' : /\.(png|jpe?g|psd|ai|pdf|tiff?|eps|gif)\b|ファイル名/i.test(t) ? '使う画像・素材の指定' : '指示どおりか確認';
   function contentFindings(d, p, add) {
-    const k = PC.S, px = b => b && b.map(v => v * k), A = d.A.chars, B = d.nq.B.chars, T = d.pr.T;
-    const toNew = b => { const m = PC.mapBox(T, b), R = d.pr.region; return [Math.max(R[0], Math.min(m[0], R[2] - 20)), Math.max(R[1], Math.min(m[1], R[3] - 20)), Math.min(R[2], Math.max(m[2], R[0] + 20)), Math.min(R[3], Math.max(m[3], R[1] + 20))]; };
+    const k = PC.S, px = b => b && b.map(v => v * k), A = d.A.chars, B = d.nq.B.chars;
+    const toNew = b => { const m = fwdOf(d, b), R = d.pr.region; return [Math.max(R[0], Math.min(m[0], R[2] - 20)), Math.max(R[1], Math.min(m[1], R[3] - 20)), Math.min(R[2], Math.max(m[2], R[0] + 20)), Math.min(R[3], Math.max(m[3], R[1] + 20))]; };
+    const refOf = new Map((d.A.blocks || []).map(b => [b[0], b[4] || '']));   // データファイルの表の行番号(「3行目」)
+    const pend = [];   // 違い(T)・書き方の違い(V)。同じ違いのくり返しは、あとで1件にまとめる
     for (const b of d.blocks) {
       const cs = A.slice(b.s, b.e), box = PC.union(cs.map(c => c.box));
       if (b.instr) {
         const hit = b.ops.filter(o => o.length === 3).map(o => B[o[2]]), found = b.found >= 0.8 && hit.length;
         const f = add(p + 1, 'K', px(box), b.text, '原稿の書き込み', b.text, found ? '指示の文字が成果物にある（自動確認OK）' : instrCheck(b.text), px(found ? PC.union(hit.map(c => c.box)) : toNew(box)));
         if (!found) f.approx = true;
+        if (refOf.get(b.s)) f.ref = refOf.get(b.s);
         continue;
       }
       const vs = [];
       for (const h of PC.hunksOf(b.ops)) {
         const r = hunkView(b.ops, h, cs, B);
-        if (h.variant) { vs.push(r); continue; }
-        const f = add(p + 1, 'T', px(r.box || box), '', '', '', '', px(r.nbox || toNew(r.box || box)));
-        Object.assign(f, { segs: r.segs, same: false, pboxes: r.box ? [px(r.box)] : [], pnboxes: r.nbox ? [px(r.nbox)] : [] });
-        if (!r.nbox) f.approx = true;
+        if (h.variant || (d.pr.free && unitOnly(b.ops, h, cs, B))) { vs.push(r); continue; }
+        pend.push({ cat: 'T', box: px(r.box || box), nbox: px(r.nbox || toNew(r.box || box)), segs: r.segs, pboxes: r.box ? [px(r.box)] : [], pnboxes: r.nbox ? [px(r.nbox)] : [], approx: !r.nbox, ref: refOf.get(b.s), gone: d.A.order && b.ops.length > 0 && b.ops.every(o => o[0] === '-') ? d.A.order.get(b.s) : -1 });
       }
       if (vs.length) {   // 書き方だけの違いは、まとまりごとに1件
         const segs = []; vs.forEach((r, i) => { if (i) segs.push(['=', '…']); segs.push(...r.segs); });
-        const f = add(p + 1, 'V', px(union(vs.map(r => r.box))), '', '', '', '', px(union(vs.map(r => r.nbox))));
-        Object.assign(f, { segs, same: false, pboxes: vs.map(r => px(r.box)), pnboxes: vs.map(r => px(r.nbox)) });
+        pend.push({ cat: 'V', box: px(union(vs.map(r => r.box))), nbox: px(union(vs.map(r => r.nbox))), segs, pboxes: vs.map(r => px(r.box)), pnboxes: vs.map(r => px(r.nbox)), ref: refOf.get(b.s) });
+      }
+    }
+    // データファイルの原稿で、同じ違い(「¥」→「円」、「(」→「（」など)が3か所以上くり返すときは1件にまとめる(位置はすべて示す)
+    //   数字の違い(値の違い)はまとめない(1か所ずつ確かめるもの)
+    const keyOf = x => x.segs.filter(g => g[0] !== '=').map(g => g[0] + g[1]).join('|');
+    const byKey = new Map();
+    // データファイルの原稿で、成果物に見当たらないまとまり(表の行・段落)が、原稿の並びで3つ以上続くときは1件にまとめる
+    //   (支給された表のうち、一部の行だけを載せたときなど。行番号の範囲と、すべての位置を示す)
+    if (d.pr.free) {
+      const gone = pend.filter(x => x.gone >= 0).sort((x, y) => x.gone - y.gone);
+      for (let k = 0; k < gone.length;) {
+        let e = k; while (e + 1 < gone.length && gone[e + 1].gone === gone[e].gone + 1) e++;
+        if (e - k >= 2) {
+          const run = gone.slice(k, e + 1), [x, ...rest] = run;
+          for (const y of rest) pend.splice(pend.indexOf(y), 1);
+          Object.assign(x, { goneN: run.length, refs: run.map(y => y.ref).filter(Boolean), moreBoxes: rest.map(y => y.box), moreNboxes: [] });
+        }
+        k = e + 1;
+      }
+    }
+    for (const x of pend) {
+      if (x.goneN) { byKey.set(Symbol(), [x]); continue; }
+      const k = keyOf(x);
+      if (!d.pr.free || (x.cat === 'T' && /\p{N}/u.test(k))) { byKey.set(Symbol(), [x]); continue; }
+      if (!byKey.has(x.cat + k)) byKey.set(x.cat + k, []);
+      byKey.get(x.cat + k).push(x);
+    }
+    for (const xs of byKey.values()) {
+      const g = xs.length >= 3 ? [xs] : xs.map(x => [x]);
+      for (const [x, ...rest] of g) {
+        const f = add(p + 1, x.cat, x.box, '', '', '', '', x.nbox);
+        Object.assign(f, { segs: x.segs, same: false, pboxes: x.pboxes, pnboxes: x.pnboxes });
+        if (x.approx) f.approx = true;
+        if (x.ref) f.ref = x.ref;
+        if (x.goneN) Object.assign(f, { goneN: x.goneN, refs: x.refs, moreBoxes: x.moreBoxes, moreNboxes: [] });
+        if (rest.length) Object.assign(f, { more: rest.length + 1, moreBoxes: rest.flatMap(y => y.pboxes.length ? y.pboxes : [y.box]), moreNboxes: rest.flatMap(y => y.pnboxes.length ? y.pnboxes : [y.nbox]), refs: [x, ...rest].map(y => y.ref).filter(Boolean) });
       }
     }
     for (const n of d.annots) {   // コメント(注釈): 書かれた指示を、成果物の対応する位置と並べて示す
       if (!n.text.trim()) continue;
       const f = add(p + 1, 'K', px(n.box), n.text, 'コメント', n.text, instrCheck(n.text), px(toNew(n.box)));
       f.approx = true;
+      const rb = (d.A.blocks || []).find(b => b[4] && ov(PC.union(d.A.chars.slice(b[0], b[1]).map(c => c.box)), n.box));
+      if (rb) f.ref = rb[4];
     }
     for (const e of d.extra) {
       if (e.cat === 'I') {
@@ -2854,7 +3622,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       if (NQ.has(q)) return NQ.get(q);
       const img = await PC.renderPage(newDoc, q, PC.DPI, false), B = await PC.pageText(newDoc, q);
       PC.snapChars(B, img, PC.S);
-      const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
+      const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), usedFree: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
       NQ.set(q, v);
       return v;
     };
@@ -2862,16 +3630,35 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     for (let p = 0; p < npages; p++) {
       const step = (s, f) => prog(`${p + 1} / ${npages} ページ：${s}`, W0 + (1 - W0) * 0.97 * (p + f) / npages);
       step('描画', 0.01); await PC.tick();
-      const pr = pairs[p], it = src.page(p);
-      if (pr.q < 0) { P.push(await nonePage(src, p)); continue; }
+      const pr = pairs[p], it = src.page(p), label = src.label(p);
+      const put = d => { d.src = p; d.label = label; P.push(d); return d; };
+      if (pr.q < 0) { put(await nonePage(src, p)); continue; }
+      if (it.virt) {   // データファイルのページ: まとまり(段落・表の行)ごとに、載っている成果物のページを決めて照合する
+        const nqs = []; for (const c of pr.qs) nqs.push(await newPage(c.q));
+        const blocks = it.virt.blocks, { who, also } = PC.splitFree(it.virt.text, blocks, nqs.map(x => ({ B: x.B })));
+        const left = it.virt.render(PC.DPI), thumb = await toThumb(left);
+        //   表の見出しの行が、表の続くページにもそのまま載っていれば、そのページでも照合する(「原稿にない文字」としないように)
+        const subs = pr.qs.map((c, ci) => ({ c, nq: nqs[ci], blocks: blocks.filter((_, b) => who[b] === ci), notes: [] })).filter(x => x.blocks.length);
+        for (const x of subs) { const ci = pr.qs.indexOf(x.c); x.blocks = blocks.filter((_, b) => who[b] === ci || also[b].includes(ci)); }
+        const boxOf = bs => PC.union(bs.map(([s, e]) => PC.union(it.virt.text.chars.slice(s, e).map(c => c.box))));
+        for (const n of it.virt.notes) {   // コメントは、重なるまとまりのあるページへ
+          const x = subs.find(x => x.blocks.some(b => ov(boxOf([b]), n.box))) || subs[0];
+          x.notes.push(n);
+        }
+        for (const x of subs) {
+          const d = put(await contentPage(src, p, { ...pr, q: x.c.q, region: x.c.region }, x.nq, step, { blocks: x.blocks, notes: x.notes, left, thumb }));
+          if (d.noText) warn.push(`${label} に当たる成果物の${x.c.q + 1}ページ目には文字データがほとんどないため（文字のアウトライン化など）、文字では比べられませんでした`);
+        }
+        continue;
+      }
       if (!pr.same && !it.doc) {
         warn.push(`${p + 1}ページ目は、成果物とレイアウトが違う紙の原稿のため、自動では比べられませんでした`);
-        P.push(await nonePage(src, p)); continue;
+        put(await nonePage(src, p)); continue;
       }
       if (!pr.same) {
         const d = await contentPage(src, p, pr, await newPage(pr.q), step);
         if (d.noText) warn.push(`${p + 1}ページ目に当たる成果物のページには文字データがほとんどないため（文字のアウトライン化など）、文字では比べられませんでした`);
-        P.push(d); continue;
+        put(d); continue;
       }
       const kind = await src.kind(p);
       let nw = await PC.renderPage(newDoc, pr.q, PC.DPI, false), nc = await PC.textChars(newDoc, pr.q);
@@ -2885,11 +3672,12 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       step('表示用の画像を作成', 0.96); await PC.tick();
       d.q = pr.q; d.crop = pr.crop; d.extra = [];
       d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right) }; d.left = d.right = null;
-      P.push(d);
+      put(d);
     }
     leftovers(P, NQ);
-    const none = P.map((d, p) => (d.kind === 'none' ? p + 1 : 0)).filter(Boolean);
+    const none = P.map(d => (d.kind === 'none' && !d.label ? d.src + 1 : 0)).filter(Boolean), noneV = P.filter(d => d.kind === 'none' && d.label).map(d => d.label);
     if (none.length) warn.push(`原稿の${spans(none)}ページ目は、対応する成果物のページが見つかりませんでした（照合していません）`);
+    if (noneV.length) warn.push(`${noneV.join('、')}は、成果物に載っている所が見つかりませんでした（照合していません）`);
     const usedQ = new Set(P.map(d => d.q).filter(q => q >= 0)), lost = [];
     for (let q = 0; q < newDoc.numPages; q++) if (!usedQ.has(q)) lost.push(q + 1);
     if (lost.length) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
@@ -3007,7 +3795,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       return ob.length ? union(ob) : null;
     };
     // 原稿での位置が分からない項目の、切り抜きの中心(内容で照合したページは、対応の変換を逆にたどったおよその位置)
-    const approx = (d, nb) => d.kind === 'content' ? PC.mapBox(PC.invT(d.pr.T), nb.map(v => v / PC.S)).map(v => v * PC.S) : nb;
+    const approx = (d, nb) => d.kind !== 'content' ? nb : (d.pr.free ? backOf(d, nb.map(v => v / PC.S)) : PC.mapBox(PC.invT(d.pr.T), nb.map(v => v / PC.S))).map(v => v * PC.S);
     const tokBox = (d, k) => pm(d).has(k) ? d.nt[pm(d).get(k)].box : null;
     // 結果の一覧
     const F = [];
@@ -3092,7 +3880,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     prog('完了', 1);
     // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
     const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
-    const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null }));
+    const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null }));
     return { findings: F, pages, rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
   };
 })();
@@ -3218,15 +4006,23 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 
   // ---- 入力: 各欄に複数のファイル。選んだときに中身を読み込んでおき(あとで元のファイルが変わっても照合できるように)、ページ数を数える ----
   const KIND = { marks: { input: 'fMarks', list: 'lMarks', tot: 'tMarks' }, nw: { input: 'fNew', list: 'lNew', tot: 'tNew' } };
-  const accepts = (kind, f) => PC.isPdf(f) || (kind === 'marks' && /^image\//.test(f.type));
+  const accepts = (kind, f) => PC.isPdf(f) || (kind === 'marks' && (/^image\//.test(f.type) || PC.dataKind(f) || PC.oldOffice(f)));
+  const OLD_NAME = { '.xlsx': 'Excel ブック', '.docx': 'Word 文書', '.pptx': 'PowerPoint プレゼンテーション' };
   const byName = (a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true });
   const READ_ERR = '読み込めません。パソコン内（デスクトップなど）にコピーしてから、選び直してください。';
   async function load(e) {
+    const old = PC.oldOffice(e);   // 古い形式(.xls・.doc・.ppt)は読めない: 新しい形式で保存し直してもらう
+    if (old) { e.err = `古い形式のファイルは読めません。「名前を付けて保存」で「${OLD_NAME[old]}（${old}）」かPDFにしてから選んでください。`; return; }
     try { e.buf = await e.file.arrayBuffer(); } catch (err) { e.err = READ_ERR + '（' + (err && err.name || err) + '）'; return; }
     await countPages(e);
   }
   async function countPages(e) {
     if (!e.buf || e.pages != null || e.err) return;
+    if (PC.dataKind(e)) {   // データファイル: 読み取って、照合に使うページの数を数える(読めないファイルはここで分かる)
+      try { e.pages = (await PC.readDataFile(e)).length; if (!e.pages) e.err = '文字が見つかりません（空のファイル、または文字のない内容です）。'; }
+      catch (err) { e.err = (err && err.message || String(err)) + '。ファイルが壊れていないか、パスワードが付いていないか確かめてください。'; }
+      return;
+    }
     if (!PC.isPdf(e)) { e.pages = 1; return; }
     if (!PC.libsReady) return;   // 部品の準備ができたら数える
     try { const d = await PC.openPdf(e.buf.slice(0)); e.pages = d.numPages; d.destroy(); }
@@ -3252,7 +4048,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   const total = kind => S.lists[kind].reduce((n, e) => n + (e.pages || 0), 0);
   function renderFiles(kind) {
     const k = KIND[kind], L = S.lists[kind];
-    $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : e.pages + (PC.isPdf(e) ? 'ページ' : '枚')}</span>` +
+    $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : PC.dataKind(e) ? `${PC.dataLabel(e)}・${e.pages}ページ` : e.pages + (PC.isPdf(e) ? 'ページ' : '枚')}</span>` +
       `<span class="ops"><button data-op="up" data-i="${i}" title="上へ" ${i === 0 ? 'disabled' : ''}>↑</button> <button data-op="down" data-i="${i}" title="下へ" ${i === L.length - 1 ? 'disabled' : ''}>↓</button> <button data-op="del" data-i="${i}" title="外す">×</button></span>` +
       (e.err ? `<div class="em">${esc(e.err)}</div>` : '') + '</li>').join('');
     $(k.list).querySelectorAll('button').forEach(b => b.onclick = () => { const i = +b.dataset.i; b.dataset.op === 'up' ? move(kind, i, -1) : b.dataset.op === 'down' ? move(kind, i, 1) : removeAt(kind, i); });
@@ -3341,26 +4137,31 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 
   // ページの表示名: 原稿の何ページ目が、成果物のどのページ(のどちら側)に当たるか。ファイルが複数ならファイル名も示す
   const nm = (parts, x) => (parts || []).length > 1 ? `${x.name} の` : '';
-  const newPlace = p => {   // 原稿の p ページ目が当たる成果物の場所(「2ページ目・右側」)。なければ null
+  const newPlace = p => {   // 結果の p ページ目(原稿のページ)が当たる成果物の場所(「2ページ目・右側」)。なければ null
     const pg = S.res.pages[p - 1], im = S.imgs[p - 1], n = pg.q >= 0 ? PC.pageOf(S.res.newParts, pg.q) : null;
     if (!n) return null;
-    const r = pg.region || (pg.crop && pg.crop.map(v => v * PC.S)), c = r && im && im.rw ? (r[0] + r[2]) / 2 / im.rw : 0.5, wide = r && im && im.rw && r[2] - r[0] < 0.7 * im.rw;
+    const r = pg.region || (pg.crop && pg.crop.map(v => v * PC.S)), c = r && im && im.rw ? (r[0] + r[2]) / 2 / im.rw : 0.5, wide = r && im && im.rw && im.rw > im.rh && r[2] - r[0] < 0.7 * im.rw;   // 左右は、横長のページ(見開き)のときだけ
     return nm(S.res.newParts, n) + n.page + 'ページ目' + (wide ? (c < 0.4 ? '・左側' : c > 0.6 ? '・右側' : '') : '');
   };
-  const pageLabel = p => {
-    const o = PC.pageOf(S.res.markParts, p - 1), n = newPlace(p);
-    return `p.${p}（原稿 ${o ? nm(S.res.markParts, o) + o.page + 'ページ目' : ''} → 成果物 ${n || 'なし'}）`;
-  };
-  // ページの対応の一覧(結果の概要に出す)。対応のない原稿のページが続くときはまとめる
+  //   結果のページは原稿のページごと(データファイルのページは、載っている成果物のページごとに分かれることがある)
+  const srcOf = p => { const pg = S.res.pages[p - 1]; return pg.src != null ? pg.src : p - 1; };
+  const srcName = p => { const pg = S.res.pages[p - 1], o = PC.pageOf(S.res.markParts, srcOf(p)); return pg.label || (o ? nm(S.res.markParts, o) + o.page + 'ページ目' : ''); };
+  const pageLabel = p => `p.${p}（原稿 ${srcName(p)} → 成果物 ${newPlace(p) || 'なし'}）`;
+  // ページの対応の一覧(結果の概要に出す)。対応のない原稿のページが続くときはまとめる。同じデータファイルのページは1つにまとめる
   const mapSummary = () => {
-    const out = [];
-    for (let p = 1; p <= S.res.pages.length; p++) {
-      const n = newPlace(p);
-      if (!n) { let e = p; while (e + 1 <= S.res.pages.length && !newPlace(e + 1)) e++; out.push(`原稿${p}${e > p ? '〜' + e : ''} → なし`); p = e; continue; }
-      out.push(`原稿${p} → 成果物 ${n}`);
+    const out = [], P = S.res.pages;
+    for (let p = 1; p <= P.length; p++) {
+      const pg = P[p - 1], n = newPlace(p);
+      if (pg.label) {
+        const prev = out[out.length - 1];
+        if (prev && prev.label === pg.label) { if (n) prev.to.push(n); } else out.push({ label: pg.label, to: n ? [n] : [] });
+        continue;
+      }
+      if (!n) { let e = p; while (e + 1 <= P.length && !P[e].label && !newPlace(e + 1)) e++; out.push(`原稿${srcOf(p) + 1}${e > p ? '〜' + (srcOf(e) + 1) : ''} → なし`); p = e; continue; }
+      out.push(`原稿${srcOf(p) + 1} → 成果物 ${n}`);
     }
-    return out.join('、');
-  };
+    return out.map(x => typeof x === 'string' ? x : `${x.label} → ${x.to.length ? '成果物 ' + x.to.join('・') : 'なし'}`).join('、');
+  };;
   const visible = f => {
     const g = groupOf(f);
     if (g.minor && !$('showMinor').checked) return false;
@@ -3378,8 +4179,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     list.innerHTML = F.map(f => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${f.id}" style="--c: var(--c-${COLOR[f.cat]})">
-        <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}</span></div>
-        ${whatHtml(f)}${markOf(f)}
+        <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
+        ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
         <div class="crops"><figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure><figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
         <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"></div>
       </div>`;
@@ -3460,8 +4261,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     for (const f of S.res.findings) {
       if (f.page !== S.page + 1 || !visible(f) || f.cat === 'F2') continue;
       const sel = f.id === S.sel; ctx.strokeStyle = css.getPropertyValue('--c-' + COLOR[f.cat]); ctx.lineWidth = sel ? 3 : 1.5;
-      for (const b of marks(f, 'L')) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
-      if (im.R) for (const n of marks(f, 'R')) { const r = [ox + n[0] * sR - 3, n[1] * sR - 3, (n[2] - n[0]) * sR + 6, (n[3] - n[1]) * sR + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
+      for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
+      if (im.R) for (const n of [...marks(f, 'R'), ...(f.moreNboxes || [])]) { const r = [ox + n[0] * sR - 3, n[1] * sR - 3, (n[2] - n[0]) * sR + 6, (n[3] - n[1]) * sR + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
     }
     geo = { boxes };
     if (scrollToSel && S.sel !== null) { const f = S.res.findings[S.sel]; $('vscroll').scrollTo({ top: Math.max(0, f.box[1] * sL - 150), behavior: 'smooth' }); }
@@ -3481,8 +4282,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const V = { ok: 'OK', fix: '要修正', hold: '保留' }, q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
     const rows = [['No.', 'ページ', '原稿のファイル', '原稿のページ', '成果物のファイル', '成果物のページ', '区分', '結論', 'すること', '違い（原稿→成果物）', '指示', '自動確認', '確認', 'メモ', '補足', '位置（原稿・200dpi）']];
     S.res.findings.filter(f => f.cat !== 'F2').sort(cmp).forEach((f, i) => {
-      const v = S.verdict[f.id] || {}, nq = S.res.pages[f.page - 1].q, o = PC.pageOf(S.res.markParts, f.page - 1) || {}, n = (nq >= 0 && PC.pageOf(S.res.newParts, nq)) || {}, [title, todo] = verdictOf(f);
-      rows.push([i + 1, f.page, o.name, o.page, n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f), f.note, f.check, V[v.v] || '', v.memo || '', f.how, f.box.join(' ')]);
+      const v = S.verdict[f.id] || {}, pg = S.res.pages[f.page - 1], nq = pg.q, o = PC.pageOf(S.res.markParts, srcOf(f.page)) || {}, n = (nq >= 0 && PC.pageOf(S.res.newParts, nq)) || {}, [title, todo] = verdictOf(f);
+      rows.push([i + 1, f.page, o.name, [(pg.label && pg.label.replace(o.name, '').trim()) || o.page, f.refs ? f.refs.join('・') : f.ref].filter(Boolean).join(' '), n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f) + (f.more ? `（同じ違い 全${f.more}か所）` : '') + (f.goneN ? `（ほか${f.goneN - 1}つ続けて成果物にない）` : ''), f.note, f.check, V[v.v] || '', v.memo || '', f.how, f.box.join(' ')]);
     });
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '照合結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);

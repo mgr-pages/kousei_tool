@@ -125,8 +125,9 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 <main>
   <section class="card" id="setup">
     <div class="steps">
-      <div class="step" data-kind="marks"><div class="t"><span>1</span>原稿（朱書き）</div>
-        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*" multiple></label>
+      <div class="step" data-kind="marks"><div class="t"><span>1</span>原稿</div>
+        <div class="hint">PDF（朱書き・ラフ）・画像・Excel・Word・PowerPoint・テキスト・CSV</div>
+        <label class="btn small pick">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*,.xlsx,.xlsm,.docx,.docm,.pptx,.pptm,.txt,.csv,.tsv,.xls,.doc,.ppt" multiple></label>
         <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div></div>
       <div class="step" data-kind="nw"><div class="t"><span>2</span>成果物（PDF）</div>
         <label class="btn small pick">＋ ファイルを追加<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label>

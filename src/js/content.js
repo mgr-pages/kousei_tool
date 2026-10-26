@@ -228,7 +228,7 @@
   //   used[j]: ほかのまとまりがすでに対応づけたBの字(同じ文が2か所にあるとき、同じ所に2度当てないよう、一致しない字と同じ扱いにする)
   //   返り値 ops: ['=', i, j] 同じ字 / ['~', i, j] 書き方だけ違う / ['x', i, j] 違う字 / ['-', i] Aにだけある / ['+', j] Bにだけある / ['|'] 別の区間へ
   PC.collate = (A, B, opt = {}) => {
-    const n = A.length, m = B.length, J = opt.jump ?? 3, nr = opt.near || null, W = m + 1, near = nr ? (i, j) => nr[j] : null, used = opt.used || null;
+    const n = A.length, m = B.length, J = opt.jump ?? 3, nr = opt.near || null, W = m + 1, near = nr ? (i, j) => nr[j] : null, used = opt.used || null, strict = !!opt.strict;
     if (!n) return [];
     if (!m) return A.map((_, i) => ['-', i]);
     const D = new Float32Array((n + 1) * W), op = new Uint8Array((n + 1) * W), from = new Int32Array(n + 1);
@@ -246,6 +246,8 @@
     }
     let i = n, j = 0, best = Infinity;
     for (let q = 0; q <= m; q++) if (D[n * W + q] < best) { best = D[n * W + q]; j = q; }
+    // strict(データファイルの原稿): 最後の字は、手間が同じなら字を消すより置き換えとみなす(「4444」→「4445」を、4を消して5を足す、としない)
+    if (strict && j < m && D[n * W + j + 1] === best && op[n * W + j + 1] === 0 && !(used && used[j])) j++;
     const ops = [];
     while (i > 0) {
       const o = op[i * W + j];
@@ -255,11 +257,26 @@
       else { ops.push(['|']); j = from[i]; }
     }
     ops.reverse();
+    // strict: 1つのまとまりの中で、同じ成果物の字を2度使わない(抜けた文が、前の文の字に当たり直さないように)。一致の多い区間を残す
+    if (strict) {
+      const segOf = [], hitsOf = []; let sg = 0;
+      ops.forEach((o, k) => { if (o[0] === '|') { sg++; return; } segOf[k] = sg; hitsOf[sg] = (hitsOf[sg] || 0) + (o[0] === '=' || o[0] === '~' ? 1 : 0); });
+      const owner = new Map();
+      ops.forEach((o, k) => { const jj = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1; if (jj < 0) return; const s0 = owner.get(jj); if (s0 === undefined || hitsOf[segOf[k]] > hitsOf[s0]) owner.set(jj, segOf[k]); });
+      for (let k = 0; k < ops.length; k++) {
+        const o = ops[k], jj = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1;
+        if (jj >= 0 && owner.get(jj) !== segOf[k]) ops[k] = o[0] === '+' ? null : ['-', o[1]];
+        else if (jj >= 0) owner.set(jj, -1);   // 同じ区間の中でも1度だけ
+      }
+      for (let k = ops.length - 1; k >= 0; k--) if (!ops[k]) ops.splice(k, 1);
+    }
     // 一致した字が少ない区間(区間のAの字の半分未満、かつ3字未満)は、たまたま同じ字に当たっただけとみなし、対応させない
+    //   strict のとき、6字以上の区間で一致した字が1字ずつばらばらなもの(2字続けて一致した所がない)も同じ
     const out = []; let seg = [];
+    const run2 = () => seg.some((o, k) => k > 0 && (o[0] === '=' || o[0] === '~') && (seg[k - 1][0] === '=' || seg[k - 1][0] === '~'));
     const flush = () => {
       const a = seg.filter(o => o[0] !== '+').length, hit = seg.filter(o => o[0] === '=' || o[0] === '~').length;
-      if (hit >= Math.min(3, Math.ceil(a / 2))) out.push(...seg);
+      if (hit >= Math.min(3, Math.ceil(a / 2)) && !(strict && a >= 6 && !run2())) out.push(...seg);
       else for (const o of seg) if (o[0] !== '+') out.push(['-', o[1]]);
       seg = [];
     };
@@ -272,11 +289,13 @@
       let a = k; while (a > 0 && out[a - 1][0] === '+') a--;
       let b = k; while (b + 1 < out.length && out[b + 1][0] === '+') b++;
       const atStart = a === 0 || out[a - 1][0] === '|', atEnd = b === out.length - 1 || out[b + 1][0] === '|';
-      if (atStart || atEnd) keep[k] = false;
+      if ((atStart || atEnd) && !(opt.keepEdge && opt.keepEdge(out[k][1]))) keep[k] = false;
     }
     return out.filter((_, k) => keep[k]);
   };
 
+  // 通貨の記号(数字のすぐ前後にあれば、あるなし・前後の違いを書き方の違いとみなす: 「¥1,280」と「1,280円」)
+  PC.UNIT = /^[¥￥円$＄]$/;
   // ---- opsを、違いのまとまり(hunk)に分ける: [開始, 終了) は ops の番号 ----
   //   区間の切れ目('|')は違いではない(配置が違うだけ)。同じ字が2字以上続く所、区間の切れ目で分ける
   PC.hunksOf = ops => {
@@ -315,18 +334,45 @@
   const PLACE = /^(モデル|写真|画像|イメージ|ロゴ|QR|ＱＲ|図|イラスト|地図|表|グラフ)(写真|画像|コード|後送)?$/;
   PC.isInstr = s => { const t = s.replace(/\s/g, ''); return PLACE.test(t) || ([...t].length <= 24 && INSTR.test(t)); };
 
+  // 位置の手がかりがない原稿(データファイル)のまとまり(段落・表の行)を、候補の成果物ページ(cands: [{ B }]、手がかりの多い順)に振り分ける
+  //   まとまりの字のかたまり(2字以上)がそのまま最も多く(半分以上)含まれるページ。どのページにもないまとまりは、前(なければ後ろ)のまとまりと同じページ
+  //   返り値: who(まとまりごとに、cands の何番目か)・also(表の見出しの行が、そのまま載っているほかのページ)
+  PC.splitFree = (A, blocks, cands) => {
+    const ks = cands.map(c => PC.keyStr(c.B.chars, true).s);
+    const who = blocks.map(([s, e]) => {
+      const byIt = new Map();
+      for (let i = s; i < e; i++) { const c = A.chars[i]; if (!byIt.has(c.it)) byIt.set(c.it, []); byIt.get(c.it).push(c); }
+      const sc = cands.map(() => 0); let n = 0;
+      for (const cs of byIt.values()) { const k = PC.keyStr(cs, true).s; if ([...k].length < 2) continue; n += k.length; ks.forEach((K, ci) => { if (K.includes(k)) sc[ci] += k.length; }); }
+      //   字の半分以上がそのまま含まれるページだけを数える(「1個」のような短い字が合っただけのページには振り分けない)
+      let best = -1; sc.forEach((v, ci) => { if (v >= 0.5 * n && v > 0 && (best < 0 || v > sc[best])) best = ci; });
+      return best;
+    });
+    for (let b = 0; b < who.length; b++) if (who[b] < 0) { let k = b - 1; while (k >= 0 && who[k] < 0) k--; if (k >= 0) who[b] = who[k]; }
+    for (let b = who.length - 1; b >= 0; b--) if (who[b] < 0) who[b] = b + 1 < who.length ? who[b + 1] : 0;
+    const also = blocks.map(([s, e, , tag], b) => {
+      if (tag !== 'head') return [];
+      const k = PC.keyStr(A.chars.slice(s, e), true).s;
+      return ks.map((K, ci) => (ci !== who[b] && [...k].length >= 2 && K.includes(k) ? ci : -1)).filter(ci => ci >= 0);
+    });
+    return { who, also };
+  };
+
   // ---- 原稿の1ページ(文字データあり・レイアウトが違う)を、成果物のページと照合する ----
   //   A: 原稿の文字データ、B: 成果物の文字データ、pr: ページの対応(T・範囲)、used: 成果物の字のうち、すでに対応づいたもの(ページの間で共有)
   //   skip: 照合に使わない成果物のまとまり(成果物の書き込み)
   //   返り値 blocks: [{ s, e, ops, instr, found }] (s, e は原稿の字の番号、ops は PC.collate の結果。字の番号はまとまりの中での番号)
+  //   A.blocks があれば、まとまりはそれを使う(データファイル: 段落 'para'・表の行 'row')。pr.free(位置の手がかりがない原稿)のときは位置を問わない
+  //   A.loose(Excel・CSV): 数字の桁区切りの「,」は、あってもなくても同じとみなす
   PC.collatePage = (A, B, pr, used, skip) => {
-    const T = pr.Tt || pr.T, R = pr.region, D = 0.5 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+    const free = !!pr.free, T = free ? null : pr.Tt || pr.T, R = pr.region, D = 0.5 * Math.hypot(R[2] - R[0], R[3] - R[1]);
     const Bk = B.chars.map(c => (skip.has(c.it) ? { c: c.c, k: '\uFFFF', box: c.box, it: c.it } : c));   // 書き込みの字は、どの字とも一致しない字に置き換える
     const ctr = B.items.map(it => PC.center(it.box));
     const dist = (p, b) => Math.hypot(Math.max(b[0] - p[0], 0, p[0] - b[2]), Math.max(b[1] - p[1], 0, p[1] - b[3]));
     // まとまりが来るはずの範囲(写した枠を少し広げたもの)から遠いほど、そこから始める手間を大きくする
     //   (字ごとの位置でなだらかに、最大1.5まで: 隣の字との差が、字を1つ足す・替える手間を超えないように)
     const nearFor = box => {
+      if (!T) return null;
       const bb = PC.mapBox(T, box), M = 0.08 * D, ex = [bb[0] - M, bb[1] - M, bb[2] + M, bb[3] + M], out = new Float32Array(Bk.length);
       Bk.forEach((c, j) => { out[j] = 1.5 * Math.min(1, dist(PC.center(c.box), ex) / (0.25 * D)); });
       return out;
@@ -337,13 +383,49 @@
     //   (段組みを組み替えたデザインでは、本文でも位置の対応から外れるため、長く一致する文字があれば本文とみなす)
     const src = pr.src, inSrc = c => { const [x, y] = PC.center(c.box); return x >= src[0] && x <= src[2] && y >= src[1] && y <= src[3]; };
     const cov = new Uint8Array(A.chars.length);
-    for (const x of PC.textAnchors(A.chars, Bk, 6)) cov.fill(1, x.i, x.i + x.n);
-    const blocks = PC.blocksOf(A.chars, A.items).map(([s, e]) => {
+    if (!free) for (const x of PC.textAnchors(A.chars, Bk, 6)) cov.fill(1, x.i, x.i + x.n);
+    const blocks = (A.blocks || PC.blocksOf(A.chars, A.items).map(([s, e]) => [s, e, 'para'])).map(([s, e, kind]) => {
       const cs = A.chars.slice(s, e), text = cs.map(c => c.c).join('');
       let inside = 0, hit = 0; for (let k = s; k < e; k++) { if (inSrc(A.chars[k])) inside++; if (cov[k]) hit++; }
-      return { s, e, cs, text, margin: inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
+      return { s, e, cs, text, kind, margin: !free && inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
     });
+    // 桁区切りの「,」を除いた並びで対応づけ、字の番号を元に戻す(A.loose のとき)
+    const comma = (X, j) => (X[j].k === ',' || X[j].k === '，') && j > 0 && j + 1 < X.length && /\d/.test(X[j - 1].k) && /\d/.test(X[j + 1].k);
+    const bmap = A.loose ? Bk.map((_, j) => j).filter(j => !comma(Bk, j)) : null, Bf = bmap ? bmap.map(j => Bk[j]) : Bk;
+    // 数字のすぐ前後の通貨の記号(「1,280円」の「円」など)は、まとまりの端にあっても外さない(書き方の違いとして示すため)
+    const keepEdge = free ? j => PC.UNIT.test(Bk[j].c) && [j - 1, j + 1].some(t => Bk[t] && Bk[t].it === Bk[j].it && /\d/.test(Bk[t].k)) : null;
+    //   対応づいた数字のすぐ前後にある、まだ使われていない通貨の記号も、そのまとまりの字として加える(「1,050」に対する「1,050円」の「円」)
+    const units = (ops, u) => {
+      if (!free) return ops;
+      const has = new Set(ops.flatMap(o => (o.length === 3 ? [o[2]] : o[0] === '+' ? [o[1]] : [])));
+      const out = [];
+      ops.forEach((o, k) => {
+        const dig = o.length === 3 && o[0] !== 'x' && /\d/.test(Bk[o[2]].k), add = t => Bk[t] && Bk[t].it === Bk[o[2]].it && PC.UNIT.test(Bk[t].c) && !u[t] && !has.has(t);
+        if (dig && add(o[2] - 1) && !(k > 0 && ops[k - 1].length === 3 && ops[k - 1][2] === o[2] - 1)) { out.push(['+', o[2] - 1]); has.add(o[2] - 1); }
+        out.push(o);
+        if (dig && add(o[2] + 1)) { out.push(['+', o[2] + 1]); has.add(o[2] + 1); }
+      });
+      return out;
+    };
+    const coll = (cs, near, u = used) => units(collRaw(cs, near, u), u);
+    const collRaw = (cs, near, u) => {
+      if (!bmap) return PC.collate(cs, Bk, { jump: 3, near, used: u, strict: free, keepEdge });
+      const amap = cs.map((_, i) => i).filter(i => !comma(cs, i));
+      const ops = PC.collate(amap.map(i => cs[i]), Bf, { jump: 3, near: near ? Float32Array.from(bmap, j => near[j]) : null, used: Uint8Array.from(bmap, j => u[j]), strict: free, keepEdge: keepEdge && (j => keepEdge(bmap[j])) });
+      return ops.map(o => (o[0] === '|' ? o : o[0] === '-' ? ['-', amap[o[1]]] : o[0] === '+' ? ['+', bmap[o[1]]] : [o[0], amap[o[1]], bmap[o[2]]]));
+    };
+    // 表の行: いちばん長く一致した区間の成果物での行(上下に字の高さの1.6倍まで)から外れた所から始める手間を大きくする
+    //   (同じ値が別の行にもあるとき、別の行の値に当ててしまい、この行の値の違いを見落とさないように)
+    const band = ops => {
+      let best = [], cur = [];
+      for (const o of [...ops, ['|']]) { if (o[0] === '=' || o[0] === '~') cur.push(o); else { if (cur.length > best.length) best = cur; cur = []; } }
+      if (best.length < 2) return null;
+      const bs = best.map(o => Bk[o[2]].box), yc = bs.reduce((t, b) => t + (b[1] + b[3]) / 2, 0) / bs.length, hh = Math.max(...bs.map(b => b[3] - b[1]));
+      return Float32Array.from(Bk, c => (Math.abs((c.box[1] + c.box[3]) / 2 - yc) <= 1.6 * hh ? 0 : 6));
+    };
     const hits = ops => ops.filter(o => o[0] === '=' || o[0] === '~').length;
+    //   行の範囲に絞ると一致が2割以上減るとき(表の行と列を入れ替えて組んだときなど)は、絞らない
+    const rowColl = (b, ops) => { if (b.kind !== 'row') return ops; const nb = band(ops); if (!nb) return ops; const o2 = coll(b.cs, nb); return hits(o2) >= 0.8 * hits(ops) ? o2 : ops; };
     // 対応づいた成果物の字に印を付け、新しく印を付けた字を返す(指示として扱い直すときは、その字の印だけを外す)
     const mark = ops => { const js = []; for (const o of ops) { const j = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1; if (j >= 0 && !used[j]) { used[j] = 1; js.push(j); } } return js; };
     const byLen = xs => xs.slice().sort((x, y) => (y.e - y.s) - (x.e - x.s) || x.s - y.s);
@@ -369,20 +451,32 @@
       });
     };
     // 1) 本文(欄外でないまとまり): 長いものから、まだ対応づいていない成果物の字に当てる
-    for (const b of byLen(blocks.filter(b => !b.margin))) {
-      b.ops = PC.collate(b.cs, Bk, { jump: 3, near: nearFor(PC.union(b.cs.map(c => c.box))), used });
+    //   位置の手がかりがない原稿は、まず全部を(印を付けずに)当ててみて、よく一致したまとまりから決める
+    //   (成果物に載っていない表の行が、似た別の行の字を先に取ってしまわないように)
+    let order = byLen(blocks.filter(b => !b.margin));
+    if (free) {
+      const rate = new Map();
+      for (const b of order) rate.set(b, hits(rowColl(b, coll(b.cs, null))) / b.cs.length);
+      order = order.slice().sort((x, y) => rate.get(y) - rate.get(x) || (y.e - y.s) - (x.e - x.s) || x.s - y.s);
+    }
+    for (const b of order) {
+      b.ops = coll(b.cs, nearFor(PC.union(b.cs.map(c => c.box))));
+      b.ops = rowColl(b, b.ops);
       reanchor(b.ops, b.cs);
-      const js = mark(b.ops);
+      const low = hits(b.ops) < 0.5 * b.cs.length;
       // 成果物に見当たらない短い書き込みで、指示の言い方のもの → 指示として扱い直す
-      if (hits(b.ops) < 0.5 * b.cs.length && PC.isInstr(b.text)) { for (const j of js) used[j] = 0; b.instr = true; }
+      if (low && b.kind !== 'row' && PC.isInstr(b.text)) { b.instr = true; continue; }
+      // データファイルの原稿: 半分も一致しないまとまりは、成果物に載っていないとみなす(似た別の行・文の字を取らないように)
+      if (low && free) { b.ops = b.cs.map((_, i) => ['-', i]); continue; }
+      mark(b.ops);
     }
     // 2) 指示(欄外の書き込み・指示の言い方の書き込み): 残りの成果物の字から探す(新しく入れる文の指示なら、成果物にあるはず)
     for (const b of byLen(blocks.filter(b => b.margin || b.instr))) {
       b.instr = true;
-      b.ops = PC.collate(b.cs, Bk, { jump: 3, near: nearRegion, used });
+      b.ops = coll(b.cs, nearRegion);
       b.found = hits(b.ops) / b.cs.length;
       if (b.found >= 0.8) mark(b.ops);
     }
-    return blocks.map(({ s, e, ops, instr, found, text }) => ({ s, e, ops, instr, found, text }));
+    return blocks.map(({ s, e, ops, instr, found, text, kind }) => ({ s, e, ops, instr, found, text, kind }));
   };
 })();

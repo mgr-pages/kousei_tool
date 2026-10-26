@@ -349,27 +349,48 @@
   const coreOf = (frm, to) => { const c = splitCore(frm, to); return [c.b, c.a]; };
 
   // ---- レイアウトが違うページ(内容で照合する): 原稿の文字データを、成果物の文字データと並べ替えに強いやり方で対応づける ----
-  async function contentPage(src, p, pr, nq, step) {
-    const { doc, i } = src.page(p);
+  //   sub: データファイルのページのとき、このページ(成果物)で照合するまとまり・コメントと、原稿の描画
+  async function contentPage(src, p, pr, nq, step, sub) {
+    const it = src.page(p), k = PC.S;
     step('文字データを読み取り', 0.1); await PC.tick();
-    const A = await PC.pageText(doc, i), annots = await PC.annotations(doc, i, 72), imgs = await PC.imageBoxes(doc, i);
-    const left = await PC.renderPage(doc, i, PC.DPI, true), k = PC.S;
-    PC.snapChars(A, left, k);   // 字の枠を、描画した字の形に合わせる(違う字を示す枠がずれないように)
+    let A, annots, imgs, left;
+    if (it.virt) { A = { ...it.virt.text, blocks: sub.blocks, loose: it.virt.loose, order: new Map(it.virt.blocks.map((b, k) => [b[0], k])) }; annots = sub.notes; imgs = []; left = sub.left; }
+    else {
+      const { doc, i } = it;
+      A = await PC.pageText(doc, i); annots = await PC.annotations(doc, i, 72); imgs = await PC.imageBoxes(doc, i);
+      left = await PC.renderPage(doc, i, PC.DPI, true);
+      PC.snapChars(A, left, k);   // 字の枠を、描画した字の形に合わせる(違う字を示す枠がずれないように)
+    }
     step('文字を照合', 0.3); await PC.tick();
     // 成果物の文字データがほとんどない(文字がアウトライン化・画像化されている)ページは、文字では比べない(すべて「ない」と出てしまうため)
-    const noText = nq.B.chars.length < Math.max(10, 0.2 * A.chars.length);
-    const blocks = noText ? [] : PC.collatePage(A, nq.B, pr, nq.used, nq.notes);
+    const nA = A.blocks ? A.blocks.reduce((t, [s, e]) => t + e - s, 0) : A.chars.length, noText = nq.B.chars.length < Math.max(10, 0.2 * nA);
+    //   データファイルは、PDFの原稿とは別に成果物の字に印を付ける(ラフとExcelの表のように、同じ所の原稿が2つあってもよいように)
+    const blocks = noText ? [] : PC.collatePage(A, nq.B, pr, pr.free ? nq.usedFree : nq.used, nq.notes);
+    if (pr.free) {   // 成果物での範囲: 対応づいた字を囲む範囲
+      const js = blocks.flatMap(b => (b.instr ? [] : b.ops.filter(o => o.length === 3).map(o => o[2])));
+      if (js.length) { const u = PC.union(js.map(j => nq.B.chars[j].box)), m = 0.02 * Math.hypot(nq.B.w, nq.B.h); pr.region = [Math.max(0, u[0] - m), Math.max(0, u[1] - m), Math.min(nq.B.w, u[2] + m), Math.min(nq.B.h, u[3] + m)]; }
+    }
     step('表示用の画像を作成', 0.8); await PC.tick();
     return {
       kind: 'content', q: pr.q, pr, A, annots, imgs, blocks, nq, extra: [], noText,
       ch: [], im: [], an: [], notes: annots.map(n => ({ ...n, box: n.box.map(v => v * k) })), restBoxes: [], ot: [], nt: [], pairs: [], nc: [],
-      oc: A.chars.map(c => [c.c, c.box.map(v => v * k)]), w: left.w,
-      thumbs: { left: await toThumb(left), right: nq.thumb },
+      oc: (A.blocks || [[0, A.chars.length]]).flatMap(([s, e]) => A.chars.slice(s, e)).map(c => [c.c, c.box.map(v => v * k)]), w: left.w,
+      thumbs: { left: sub ? sub.thumb : await toThumb(left), right: nq.thumb },
     };
   }
+  // 位置の対応(変換)がない、データファイルのページ: 対応づいた字の組のうち、いちばん近いもので位置を移す
+  const pairsOf = d => d.fm || (d.fm = d.blocks.flatMap(b => (b.instr ? [] : b.ops.filter(o => o.length === 3).map(o => [d.A.chars[b.s + o[1]].box, d.nq.B.chars[o[2]].box]))));
+  const nearestPair = (d, box, side) => {
+    const c = PC.center(box); let best = null, bd = Infinity;
+    for (const x of pairsOf(d)) { const q = PC.center(x[side]), dd = Math.hypot(q[0] - c[0], 3 * (q[1] - c[1])); if (dd < bd) { bd = dd; best = x; } }   // 同じ行を優先
+    return best;
+  };
+  // 成果物の位置 → 原稿でのおよその位置 / 原稿の位置 → 成果物でのおよその位置(pt)
+  const backOf = (d, box) => { if (!d.pr.free) return PC.mapBox(PC.invT(d.pr.Tv || d.pr.T), box); const x = nearestPair(d, box, 1); return x ? x[0] : [0, 0, 20, 20]; };
+  const fwdOf = (d, box) => { if (!d.pr.free) return PC.mapBox(d.pr.T, box); const x = nearestPair(d, box, 0); return x ? x[1] : d.pr.region; };
   // 対応する成果物のページがない原稿のページ(または、レイアウトが違う紙の原稿): 原稿の画像だけ
   async function nonePage(src, p) {
-    const it = src.page(p), img = it.doc ? await PC.renderPage(it.doc, it.i, PC.DPI, true) : (await src.image(p)).img;
+    const it = src.page(p), img = it.virt ? it.virt.render(PC.DPI) : it.doc ? await PC.renderPage(it.doc, it.i, PC.DPI, true) : (await src.image(p)).img;
     return { kind: 'none', q: -1, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], w: img.w, thumbs: { left: await toThumb(img), right: null } };
   }
   // 内容で照合したページの残り: 成果物の字のうち、どの原稿にも対応しなかったもの(原稿にない文字・原稿が画像の部分)と、成果物の書き込み
@@ -380,7 +401,7 @@
     for (const [q, nq] of NQ) {
       const ds = P.filter(d => d.kind === 'content' && d.q === q);
       if (!ds.length) continue;
-      const { B, used, notes } = nq;
+      const { B, used, usedFree, notes } = nq;
       const owner = pt => {   // 範囲の中なら範囲の中心がいちばん近いもの、どの範囲にも入らなければ範囲がいちばん近いもの
         let best = null, bd = Infinity;
         for (const d of ds) { const R = d.pr.region, out = dist(pt, R), c = PC.center(R), key = out > 0 ? 1e6 + out : Math.hypot(pt[0] - c[0], pt[1] - c[1]); if (key < bd) { bd = key; best = d; } }
@@ -389,7 +410,7 @@
       // 字のまとまり(item)ごとに、使われなかった字をまとめる。近いまとまりどうしはつなげる
       const groups = [];
       B.items.forEach((it, idx) => {
-        const js = []; B.chars.forEach((c, j) => { if (c.it === idx && !used[j]) js.push(j); });
+        const js = []; B.chars.forEach((c, j) => { if (c.it === idx && !used[j] && !usedFree[j]) js.push(j); });
         const isNote = notes.has(idx);
         if (!js.length || (!isNote && !js.some(j => /[\p{L}\p{N}]/u.test(B.chars[j].c)))) return;
         const box = PC.union(js.map(j => B.chars[j].box)), g = groups[groups.length - 1];
@@ -399,16 +420,29 @@
         if (close) { g.js.push(...js); g.box = PC.union([g.box, box]); g.size = Math.max(g.size, it.size); }
         else groups.push({ js, box, note: isNote, size: it.size });
       });
+      // データファイルの範囲では、同じ行に並ぶまとまり(表の1行のセルなど)は、間に対応づいた字がなければ1件にまとめる
+      const taken = j => used[j] || usedFree[j];
+      for (let k = groups.length - 1; k > 0; k--) {
+        const a = groups[k - 1], b = groups[k];
+        if (a.note || b.note) continue;
+        const da = owner(PC.center(a.box)), db = owner(PC.center(b.box));
+        if (da !== db || !da.pr.free) continue;
+        const lo = Math.max(a.box[1], b.box[1]), hi = Math.min(a.box[3], b.box[3]);
+        if (hi - lo <= 0.5 * Math.min(a.box[3] - a.box[1], b.box[3] - b.box[1])) continue;
+        const x0 = Math.min(a.box[2], b.box[2]), x1 = Math.max(a.box[0], b.box[0]);
+        if (B.chars.some((c, j) => { const [cx, cy] = PC.center(c.box); return taken(j) && cy >= lo && cy <= hi && cx > x0 && cx < x1; })) continue;
+        a.js.push(...b.js); a.box = PC.union([a.box, b.box]); a.size = Math.max(a.size, b.size); groups.splice(k, 1);
+      }
       for (const d of ds) d.nc = [];
       B.chars.forEach(c => owner(PC.center(B.items[c.it].box)).nc.push([c.c, c.box.map(v => v * k)]));
       const far = 0.08 * Math.hypot(B.w, B.h);   // どの原稿の範囲からもこれより離れた所は「原稿が見つからない部分」
       for (const g of groups) {
-        const d = owner(PC.center(g.box)), text = g.js.map(j => B.chars[j].c).join(''), T = d.pr.Tv || d.pr.T, Ti = PC.invT(T);
-        const back = PC.mapBox(Ti, g.box), R = d.pr.region, M = 0.04 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+        const d = owner(PC.center(g.box)), text = g.js.map(j => B.chars[j].c).join('');
+        const back = backOf(d, g.box), R = d.pr.region, M = 0.04 * Math.hypot(R[2] - R[0], R[3] - R[1]);
         if (g.note) { d.extra.push({ cat: 'W', nbox: g.box, box: back, show: text }); continue; }
         if (dist(PC.center(g.box), R) > far) {   // 原稿のない部分は1件にまとめる(成果物のその部分の原稿を渡していないとき)
           const prev = d.extra.find(e => e.cat === 'I' && e.noSrc);
-          if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.nbox = PC.union([prev.nbox, g.box]); prev.box = PC.mapBox(Ti, prev.nbox); }
+          if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.nbox = PC.union([prev.nbox, g.box]); prev.box = backOf(d, prev.nbox); }
           else d.extra.push({ cat: 'I', noSrc: true, nbox: g.box, nboxes: [g.box], box: back, texts: [text] });
           continue;
         }
@@ -442,36 +476,86 @@
     const caretOf = side => { const p = near(side, -1), n = near(side, 1); if (p) return [p[2] - 1, p[1], p[2] + 1, p[3]]; if (n) return [n[0] - 1, n[1], n[0] + 1, n[3]]; return null; };
     return { segs, box: ab.length ? union(ab) : caretOf('A'), nbox: bb.length ? union(bb) : caretOf('B') };
   }
+  // 違いが、数字のすぐ前後の通貨の記号だけ(「¥1,280」→「1,280円」)
+  function unitOnly(ops, h, cs, B) {
+    const chOf = o => (o[0] === '-' ? cs[o[1]].c : o[0] === '+' ? B[o[1]].c : null), digit = o => o && (o[0] === '=' || o[0] === '~') && /\d/.test(cs[o[1]].k);
+    let unit = false;
+    for (let q = h.s; q < h.e; q++) {
+      const o = ops[q];
+      if (o[0] === '=' || o[0] === '~') continue;
+      if (o[0] === 'x' ? !(PC.UNIT.test(cs[o[1]].c) && PC.UNIT.test(B[o[2]].c)) : !PC.UNIT.test(chOf(o))) return false;
+      unit = true;
+    }
+    return unit && (digit(ops[h.s - 1]) || digit(ops[h.e]));
+  }
   const instrCheck = t => /後送/.test(t) ? '後送（素材はあとから届く）' : /\.(png|jpe?g|psd|ai|pdf|tiff?|eps|gif)\b|ファイル名/i.test(t) ? '使う画像・素材の指定' : '指示どおりか確認';
   function contentFindings(d, p, add) {
-    const k = PC.S, px = b => b && b.map(v => v * k), A = d.A.chars, B = d.nq.B.chars, T = d.pr.T;
-    const toNew = b => { const m = PC.mapBox(T, b), R = d.pr.region; return [Math.max(R[0], Math.min(m[0], R[2] - 20)), Math.max(R[1], Math.min(m[1], R[3] - 20)), Math.min(R[2], Math.max(m[2], R[0] + 20)), Math.min(R[3], Math.max(m[3], R[1] + 20))]; };
+    const k = PC.S, px = b => b && b.map(v => v * k), A = d.A.chars, B = d.nq.B.chars;
+    const toNew = b => { const m = fwdOf(d, b), R = d.pr.region; return [Math.max(R[0], Math.min(m[0], R[2] - 20)), Math.max(R[1], Math.min(m[1], R[3] - 20)), Math.min(R[2], Math.max(m[2], R[0] + 20)), Math.min(R[3], Math.max(m[3], R[1] + 20))]; };
+    const refOf = new Map((d.A.blocks || []).map(b => [b[0], b[4] || '']));   // データファイルの表の行番号(「3行目」)
+    const pend = [];   // 違い(T)・書き方の違い(V)。同じ違いのくり返しは、あとで1件にまとめる
     for (const b of d.blocks) {
       const cs = A.slice(b.s, b.e), box = PC.union(cs.map(c => c.box));
       if (b.instr) {
         const hit = b.ops.filter(o => o.length === 3).map(o => B[o[2]]), found = b.found >= 0.8 && hit.length;
         const f = add(p + 1, 'K', px(box), b.text, '原稿の書き込み', b.text, found ? '指示の文字が成果物にある（自動確認OK）' : instrCheck(b.text), px(found ? PC.union(hit.map(c => c.box)) : toNew(box)));
         if (!found) f.approx = true;
+        if (refOf.get(b.s)) f.ref = refOf.get(b.s);
         continue;
       }
       const vs = [];
       for (const h of PC.hunksOf(b.ops)) {
         const r = hunkView(b.ops, h, cs, B);
-        if (h.variant) { vs.push(r); continue; }
-        const f = add(p + 1, 'T', px(r.box || box), '', '', '', '', px(r.nbox || toNew(r.box || box)));
-        Object.assign(f, { segs: r.segs, same: false, pboxes: r.box ? [px(r.box)] : [], pnboxes: r.nbox ? [px(r.nbox)] : [] });
-        if (!r.nbox) f.approx = true;
+        if (h.variant || (d.pr.free && unitOnly(b.ops, h, cs, B))) { vs.push(r); continue; }
+        pend.push({ cat: 'T', box: px(r.box || box), nbox: px(r.nbox || toNew(r.box || box)), segs: r.segs, pboxes: r.box ? [px(r.box)] : [], pnboxes: r.nbox ? [px(r.nbox)] : [], approx: !r.nbox, ref: refOf.get(b.s), gone: d.A.order && b.ops.length > 0 && b.ops.every(o => o[0] === '-') ? d.A.order.get(b.s) : -1 });
       }
       if (vs.length) {   // 書き方だけの違いは、まとまりごとに1件
         const segs = []; vs.forEach((r, i) => { if (i) segs.push(['=', '…']); segs.push(...r.segs); });
-        const f = add(p + 1, 'V', px(union(vs.map(r => r.box))), '', '', '', '', px(union(vs.map(r => r.nbox))));
-        Object.assign(f, { segs, same: false, pboxes: vs.map(r => px(r.box)), pnboxes: vs.map(r => px(r.nbox)) });
+        pend.push({ cat: 'V', box: px(union(vs.map(r => r.box))), nbox: px(union(vs.map(r => r.nbox))), segs, pboxes: vs.map(r => px(r.box)), pnboxes: vs.map(r => px(r.nbox)), ref: refOf.get(b.s) });
+      }
+    }
+    // データファイルの原稿で、同じ違い(「¥」→「円」、「(」→「（」など)が3か所以上くり返すときは1件にまとめる(位置はすべて示す)
+    //   数字の違い(値の違い)はまとめない(1か所ずつ確かめるもの)
+    const keyOf = x => x.segs.filter(g => g[0] !== '=').map(g => g[0] + g[1]).join('|');
+    const byKey = new Map();
+    // データファイルの原稿で、成果物に見当たらないまとまり(表の行・段落)が、原稿の並びで3つ以上続くときは1件にまとめる
+    //   (支給された表のうち、一部の行だけを載せたときなど。行番号の範囲と、すべての位置を示す)
+    if (d.pr.free) {
+      const gone = pend.filter(x => x.gone >= 0).sort((x, y) => x.gone - y.gone);
+      for (let k = 0; k < gone.length;) {
+        let e = k; while (e + 1 < gone.length && gone[e + 1].gone === gone[e].gone + 1) e++;
+        if (e - k >= 2) {
+          const run = gone.slice(k, e + 1), [x, ...rest] = run;
+          for (const y of rest) pend.splice(pend.indexOf(y), 1);
+          Object.assign(x, { goneN: run.length, refs: run.map(y => y.ref).filter(Boolean), moreBoxes: rest.map(y => y.box), moreNboxes: [] });
+        }
+        k = e + 1;
+      }
+    }
+    for (const x of pend) {
+      if (x.goneN) { byKey.set(Symbol(), [x]); continue; }
+      const k = keyOf(x);
+      if (!d.pr.free || (x.cat === 'T' && /\p{N}/u.test(k))) { byKey.set(Symbol(), [x]); continue; }
+      if (!byKey.has(x.cat + k)) byKey.set(x.cat + k, []);
+      byKey.get(x.cat + k).push(x);
+    }
+    for (const xs of byKey.values()) {
+      const g = xs.length >= 3 ? [xs] : xs.map(x => [x]);
+      for (const [x, ...rest] of g) {
+        const f = add(p + 1, x.cat, x.box, '', '', '', '', x.nbox);
+        Object.assign(f, { segs: x.segs, same: false, pboxes: x.pboxes, pnboxes: x.pnboxes });
+        if (x.approx) f.approx = true;
+        if (x.ref) f.ref = x.ref;
+        if (x.goneN) Object.assign(f, { goneN: x.goneN, refs: x.refs, moreBoxes: x.moreBoxes, moreNboxes: [] });
+        if (rest.length) Object.assign(f, { more: rest.length + 1, moreBoxes: rest.flatMap(y => y.pboxes.length ? y.pboxes : [y.box]), moreNboxes: rest.flatMap(y => y.pnboxes.length ? y.pnboxes : [y.nbox]), refs: [x, ...rest].map(y => y.ref).filter(Boolean) });
       }
     }
     for (const n of d.annots) {   // コメント(注釈): 書かれた指示を、成果物の対応する位置と並べて示す
       if (!n.text.trim()) continue;
       const f = add(p + 1, 'K', px(n.box), n.text, 'コメント', n.text, instrCheck(n.text), px(toNew(n.box)));
       f.approx = true;
+      const rb = (d.A.blocks || []).find(b => b[4] && ov(PC.union(d.A.chars.slice(b[0], b[1]).map(c => c.box)), n.box));
+      if (rb) f.ref = rb[4];
     }
     for (const e of d.extra) {
       if (e.cat === 'I') {
@@ -499,7 +583,7 @@
       if (NQ.has(q)) return NQ.get(q);
       const img = await PC.renderPage(newDoc, q, PC.DPI, false), B = await PC.pageText(newDoc, q);
       PC.snapChars(B, img, PC.S);
-      const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
+      const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), usedFree: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
       NQ.set(q, v);
       return v;
     };
@@ -507,16 +591,35 @@
     for (let p = 0; p < npages; p++) {
       const step = (s, f) => prog(`${p + 1} / ${npages} ページ：${s}`, W0 + (1 - W0) * 0.97 * (p + f) / npages);
       step('描画', 0.01); await PC.tick();
-      const pr = pairs[p], it = src.page(p);
-      if (pr.q < 0) { P.push(await nonePage(src, p)); continue; }
+      const pr = pairs[p], it = src.page(p), label = src.label(p);
+      const put = d => { d.src = p; d.label = label; P.push(d); return d; };
+      if (pr.q < 0) { put(await nonePage(src, p)); continue; }
+      if (it.virt) {   // データファイルのページ: まとまり(段落・表の行)ごとに、載っている成果物のページを決めて照合する
+        const nqs = []; for (const c of pr.qs) nqs.push(await newPage(c.q));
+        const blocks = it.virt.blocks, { who, also } = PC.splitFree(it.virt.text, blocks, nqs.map(x => ({ B: x.B })));
+        const left = it.virt.render(PC.DPI), thumb = await toThumb(left);
+        //   表の見出しの行が、表の続くページにもそのまま載っていれば、そのページでも照合する(「原稿にない文字」としないように)
+        const subs = pr.qs.map((c, ci) => ({ c, nq: nqs[ci], blocks: blocks.filter((_, b) => who[b] === ci), notes: [] })).filter(x => x.blocks.length);
+        for (const x of subs) { const ci = pr.qs.indexOf(x.c); x.blocks = blocks.filter((_, b) => who[b] === ci || also[b].includes(ci)); }
+        const boxOf = bs => PC.union(bs.map(([s, e]) => PC.union(it.virt.text.chars.slice(s, e).map(c => c.box))));
+        for (const n of it.virt.notes) {   // コメントは、重なるまとまりのあるページへ
+          const x = subs.find(x => x.blocks.some(b => ov(boxOf([b]), n.box))) || subs[0];
+          x.notes.push(n);
+        }
+        for (const x of subs) {
+          const d = put(await contentPage(src, p, { ...pr, q: x.c.q, region: x.c.region }, x.nq, step, { blocks: x.blocks, notes: x.notes, left, thumb }));
+          if (d.noText) warn.push(`${label} に当たる成果物の${x.c.q + 1}ページ目には文字データがほとんどないため（文字のアウトライン化など）、文字では比べられませんでした`);
+        }
+        continue;
+      }
       if (!pr.same && !it.doc) {
         warn.push(`${p + 1}ページ目は、成果物とレイアウトが違う紙の原稿のため、自動では比べられませんでした`);
-        P.push(await nonePage(src, p)); continue;
+        put(await nonePage(src, p)); continue;
       }
       if (!pr.same) {
         const d = await contentPage(src, p, pr, await newPage(pr.q), step);
         if (d.noText) warn.push(`${p + 1}ページ目に当たる成果物のページには文字データがほとんどないため（文字のアウトライン化など）、文字では比べられませんでした`);
-        P.push(d); continue;
+        put(d); continue;
       }
       const kind = await src.kind(p);
       let nw = await PC.renderPage(newDoc, pr.q, PC.DPI, false), nc = await PC.textChars(newDoc, pr.q);
@@ -530,11 +633,12 @@
       step('表示用の画像を作成', 0.96); await PC.tick();
       d.q = pr.q; d.crop = pr.crop; d.extra = [];
       d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right) }; d.left = d.right = null;
-      P.push(d);
+      put(d);
     }
     leftovers(P, NQ);
-    const none = P.map((d, p) => (d.kind === 'none' ? p + 1 : 0)).filter(Boolean);
+    const none = P.map(d => (d.kind === 'none' && !d.label ? d.src + 1 : 0)).filter(Boolean), noneV = P.filter(d => d.kind === 'none' && d.label).map(d => d.label);
     if (none.length) warn.push(`原稿の${spans(none)}ページ目は、対応する成果物のページが見つかりませんでした（照合していません）`);
+    if (noneV.length) warn.push(`${noneV.join('、')}は、成果物に載っている所が見つかりませんでした（照合していません）`);
     const usedQ = new Set(P.map(d => d.q).filter(q => q >= 0)), lost = [];
     for (let q = 0; q < newDoc.numPages; q++) if (!usedQ.has(q)) lost.push(q + 1);
     if (lost.length) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
@@ -652,7 +756,7 @@
       return ob.length ? union(ob) : null;
     };
     // 原稿での位置が分からない項目の、切り抜きの中心(内容で照合したページは、対応の変換を逆にたどったおよその位置)
-    const approx = (d, nb) => d.kind === 'content' ? PC.mapBox(PC.invT(d.pr.T), nb.map(v => v / PC.S)).map(v => v * PC.S) : nb;
+    const approx = (d, nb) => d.kind !== 'content' ? nb : (d.pr.free ? backOf(d, nb.map(v => v / PC.S)) : PC.mapBox(PC.invT(d.pr.T), nb.map(v => v / PC.S))).map(v => v * PC.S);
     const tokBox = (d, k) => pm(d).has(k) ? d.nt[pm(d).get(k)].box : null;
     // 結果の一覧
     const F = [];
@@ -737,7 +841,7 @@
     prog('完了', 1);
     // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
     const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
-    const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null }));
+    const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null }));
     return { findings: F, pages, rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
   };
 })();

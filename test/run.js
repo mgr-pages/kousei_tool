@@ -21,7 +21,7 @@ const { chromium } = require('playwright'), path = require('path'), fs = require
     const r = await window.__pc.run();   // 画面で選んだファイル(リストの順)で照合する
     const dbg = debug ? PC._last.map(d => ({ kind: d.kind, ot: d.ot.length, nt: d.nt.length, ch: d.ch.length, an: d.an.length, matched: d.matched, sg: d.sp && d.sp.sg, gm: d.sp && d.sp.gm,
       changes: d.ch.map(c => ({ oi: c.oi, nj: c.nj, obox: c.obox, nbox: c.nbox, before: c.before, after: c.after, status: c.status })), removed: d.removed })) : null;
-    const pages = r.pages.map(p => ({ kind: p.kind, q: p.q, region: p.region && p.region.map(Math.round), crop: p.crop && p.crop.map(Math.round), w: p.right ? p.right.w : 0 }));
+    const pages = r.pages.map(p => ({ kind: p.kind, q: p.q, src: p.src, label: p.label || null, region: p.region && p.region.map(Math.round), crop: p.crop && p.crop.map(Math.round), w: p.right ? p.right.w : 0 }));
     return { findings: r.findings, seconds: r.seconds, warn: r.warn, rules: r.rules, pages, dbg: dbg && { pages: dbg, ctx: PC._ctx } };
   }, !!process.env.DEBUG);
   fs.writeFileSync(out, JSON.stringify(res.findings, null, 1));
