@@ -1,5 +1,5 @@
 {
-  "note": "test/jcheck/make.py で作る模擬データ(genko.txt × seika.pdf 3ページ)の正解。成果物だけで見るチェック(区分 J)。kind は種類、has は項目の文字、level は need(直す必要がありそう)・check(確認だけ)、want は直す候補、msg は説明に含まれる文字",
+  "note": "test/jcheck/make.py で作る模擬データ(genko.txt × seika.pdf 4ページ)の正解。成果物だけで見るチェック(区分 J)。kind は種類、has は項目の文字、level は need(直す必要がありそう)・check(確認だけ)、want は直す候補、msg は説明に含まれる文字",
   "expect": [
     {
       "id": "J1",
@@ -238,7 +238,46 @@
       "level": "check",
       "msg": "句読点",
       "what": "「、。」と「，．」"
+    },
+    {
+      "id": "E1",
+      "kind": "spell",
+      "has": "visting",
+      "want": "visiting",
+      "level": "check",
+      "what": "つづりの誤り（visting→visiting）"
+    },
+    {
+      "id": "E2",
+      "kind": "dup",
+      "has": "the the",
+      "level": "need",
+      "what": "同じ語の重なり（the the）"
+    },
+    {
+      "id": "E3",
+      "kind": "article",
+      "has": "a original",
+      "want": "an",
+      "level": "check",
+      "what": "冠詞（a original→an）"
+    },
+    {
+      "id": "E4",
+      "kind": "article",
+      "has": "an family",
+      "want": "a",
+      "level": "check",
+      "what": "冠詞（an family→a）"
+    },
+    {
+      "id": "E5",
+      "kind": "date",
+      "has": "Monday",
+      "want": "Tuesday",
+      "level": "need",
+      "what": "October 26, 2027 は Tuesday"
     }
   ],
-  "note2": "次は誤りではない(出たら余分な検出)：2027年5月8日（土）、5/10(月)〜5/14(金)、0120-123-456、（受付時間 9:00〜18:00）、1）2）（注）、〒123-4567、申込書・取扱説明書、重ねて描いた「myZ（マイゼット）」、3ページ目のすべて（2028年2月29日（火）、ここからが・AとBとを、ますます、見られる・来られる・食べられる、行かせて、見たり聞いたり・休んだりします、機械・機会、について・続けていきます・行きます、内臓脂肪・首尾一貫して・確率が高い・分かりづらい・という、¥1,280と¥980）"
+  "note2": "次は誤りではない(出たら余分な検出)：2027年5月8日（土）、5/10(月)〜5/14(金)、0120-123-456、（受付時間 9:00〜18:00）、1）2）（注）、〒123-4567、申込書・取扱説明書、重ねて描いた「myZ（マイゼット）」、3ページ目のすべて（2028年2月29日（火）、ここからが・AとBとを、ますます、見られる・来られる・食べられる、行かせて、見たり聞いたり・休んだりします、機械・機会、について・続けていきます・行きます、内臓脂肪・首尾一貫して・確率が高い・分かりづらい・という、¥1,280と¥980）、4ページ目の正しい英語（Sunday, October 31, 2027・Made in Japan・Wi-Fi・LED・URLとメール・iPhone・Tokyo・Kousei・an hour・A university・An LED・KT21-NA・3T・Natural Wood Collection）"
 }

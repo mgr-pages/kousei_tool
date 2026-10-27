@@ -1,5 +1,5 @@
 # 成果物だけで見る日本語のチェックの模擬データ(文言はすべて架空)
-#   python3 test/jcheck/make.py 出力フォルダ   → genko.txt(原稿：成果物と同じ文) と seika.pdf(成果物 A4縦 3ページ)
+#   python3 test/jcheck/make.py 出力フォルダ   → genko.txt(原稿：成果物と同じ文) と seika.pdf(成果物 A4縦 4ページ。4ページ目は英語)
 #   成果物には、決まった誤りと、誤りと間違えやすい正しい書き方を入れてある(正解は test/jcheck/gt.json)
 import sys, os
 from reportlab.pdfgen import canvas
@@ -67,6 +67,22 @@ LINES3 = [
     '内臓脂肪の話。首尾一貫して確率が高い。分かりづらい点という話。',   # 似ているが正しい言い方
     '価格 ¥1,280　特価 ¥980',                                   # 3桁の金額は桁区切りなし
 ]
+# 4ページ目: 英語(誤りと、誤りと間違えやすい正しい書き方)
+LINES4 = [
+    'Autumn Stationery Fair',
+    'Thank you for visting our shop.',                          # つづりの誤り(visiting)
+    'Please read the the manual before use.',                    # 同じ語の重なり
+    'This is a original design.',                                # 冠詞(an)
+    'We are an family company.',                                 # 冠詞(a)
+    'Open: Monday, October 26, 2027',                            # 曜日の誤り(Tuesday)
+    'Closed: Sunday, October 31, 2027',                          # 正しい
+    'Made in Japan. Free Wi-Fi and LED lights.',                 # 正しい(略語・ハイフン)
+    'Visit www.example.com or e-mail info@example.com.',         # 正しい(URL・メール)
+    'Available for iPhone users. Made in Tokyo by Kousei.',      # 正しい(商品名・ローマ字)
+    'It takes an hour. A university student designed it. An LED lamp.',   # 正しい冠詞
+    'Product code KT21-NA and size 3T.',                         # 品番
+    'Natural Wood Collection',                                   # 正しい
+]
 c = canvas.Canvas(os.path.join(out, 'seika.pdf'), pagesize=(595, 842))
 y = 800
 for s in LINES:
@@ -78,7 +94,7 @@ c.setFont('ipag', 14)
 c.setFillColorRGB(0.7, 0.7, 0.7); c.drawString(51, y - 1, '「myZ（マイゼット')
 c.setFillColorRGB(0, 0, 0); c.drawString(50, y, '「myZ（マイゼット）」から！')
 c.showPage()
-for lines in (LINES2, LINES3):
+for lines in (LINES2, LINES3, LINES4):
     y = 800
     for s in lines:
         c.setFont('ipag', 11 if y < 800 else 18)
@@ -87,5 +103,5 @@ for lines in (LINES2, LINES3):
     c.showPage()
 c.save()
 with open(os.path.join(out, 'genko.txt'), 'w', encoding='utf-8') as f:
-    f.write('\n'.join(LINES + ['「myZ（マイゼット）」から！'] + LINES2 + LINES3) + '\n')
+    f.write('\n'.join(LINES + ['「myZ（マイゼット）」から！'] + LINES2 + LINES3 + LINES4) + '\n')
 print('ok', out)

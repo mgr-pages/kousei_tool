@@ -4,6 +4,7 @@
 //   確認だけ: 表記ゆれ(一覧・辞書の読み・カタカナ語・全角半角・金額の桁区切り・句読点)・ら抜き言葉・さ入れ言葉・「〜たり」が1つだけ
 //     ・二重敬語など・重複表現・語の重なり・カタカナ語の1字違い・半角カナ
 //   辞書を使うもの(形態素解析: kuromoji.js と IPADIC)は、辞書が読めないときは行わない(ら抜き言葉だけは決まった動詞の一覧で見る)
+//   英語は echeck.js
 'use strict';
 (function () {
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
@@ -436,7 +437,7 @@
     let raw = [...dates(P), ...badDates(P), ...P.flatMap(parens), ...P.flatMap(rules), ...M2, ...P.flatMap(numbers), ...yure(P), ...(tk ? yureDict(P, tk) : []), ...mixes(P)];
     // 同じ所の同じ種類の項目は1つにする(決まった言い方の一覧と辞書の両方で見つかったもの)
     raw = raw.filter((r, k) => r.multi || !raw.some((o, j) => j < k && !o.multi && o.pg === r.pg && o.kind === r.kind && o.i < r.i + r.n && r.i < o.i + o.n));
-    const out = E.found.slice();
+    const out = [...E.found, ...(PC.echeck ? PC.echeck(P, E.skip) : [])];   // 英語(echeck.js)
     for (const r of raw) {
       if (r.multi) {   // 表記ゆれ: 少ないほうの書き方の最初の所を代表にし、すべての位置を添える
         const x = r.multi[0], byQ = new Map();

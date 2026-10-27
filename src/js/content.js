@@ -25,9 +25,9 @@
   PC.pageText = async (doc, pno) => {
     const page = await doc.getPage(pno + 1), vp = page.getViewport({ scale: 1 }), tc = await page.getTextContent();
     const items = [], chars = [];
-    let wide = false;   // 直前に幅の広い空白(全角の空白など)があった
+    let wide = false, spc = false;   // 直前に幅の広い空白(全角の空白など)があった・直前に空白があった(英語の語の切れ目を戻すのに使う)
     for (const it of tc.items) {
-      if (!it.str || !it.str.trim()) { if (it.str && (it.str.includes('\u3000') || it.width >= 0.6 * (Math.hypot(it.transform[2], it.transform[3]) || 1))) wide = true; continue; }
+      if (!it.str || !it.str.trim()) { if (it.str) spc = true; if (it.str && (it.str.includes('\u3000') || it.width >= 0.6 * (Math.hypot(it.transform[2], it.transform[3]) || 1))) wide = true; continue; }
       const st = tc.styles[it.fontName] || {}, [a, b, c, d, e, f] = it.transform;
       const size = Math.hypot(c, d) || Math.hypot(a, b) || 1, chs = [...it.str], n = chs.length, vert = !!st.vertical;
       const asc = st.ascent ? Math.min(st.ascent, 1) : 0.88, desc = st.descent ? Math.min(-st.descent, 0.3) : 0.12;
@@ -48,7 +48,7 @@
       items.push({ s: it.str, box, vert, size, font: fontOf(page, it.fontName) });
       // 全角の空白・2つ以上続く空白のあとの字には印(見出しと中身の区切りとして、まとまりを分ける)
       let ws = '';
-      chs.forEach((ch, i) => { if (!ch.trim()) { ws += ch; return; } chars.push({ c: ch, k: PC.fold(ch), box: rects[i], it: idx, brk: wide || /\u3000|\s{2,}/.test(ws) }); ws = ''; wide = false; });
+      chs.forEach((ch, i) => { if (!ch.trim()) { ws += ch; return; } chars.push({ c: ch, k: PC.fold(ch), box: rects[i], it: idx, brk: wide || /\u3000|\s{2,}/.test(ws), sp: spc || !!ws }); ws = ''; wide = false; spc = false; });
     }
     // 少しずらして重ねて描いた文字(影・縁取り)で、ほかの文字列の一部だけが重なって描かれたものも除く
     const key = s => s.replace(/\s/g, '');
