@@ -166,8 +166,8 @@
     M('的を得', '的を射', '「的を射る」が本来の言い方です'), M('汚名挽回', '汚名返上', '「汚名返上」または「名誉挽回」です'), M('名誉返上', '名誉挽回', '「名誉挽回」または「汚名返上」です'),
     M('取り付く暇|取りつく暇', '取り付く島', '「取り付く島もない」です'), M('一同に会', '一堂に会', '「一堂に会する」です'), M('采配を振るう', '采配を振る', '「采配を振る」が本来の言い方です'),
     M('押しも押されぬ', '押しも押されもせぬ', '「押しも押されもせぬ」です'), M('熱にうなされ', '熱に浮かされ', '「熱に浮かされる」です'), M('怒り心頭に達', '怒り心頭に発', '「怒り心頭に発する」です'),
-    M('足元をすくわれ', '足をすくわれ'), M('明るみになっ', '明るみに出'), M('念頭に入れ', '念頭に置'), M('上や下への', '上を下への'), M('二の舞を踏', '二の舞を演じ', '「二の舞を演じる」（または「二の足を踏む」）です'),
-    M('愛想を振りま', '愛嬌を振りま'), M('口先三寸', '舌先三寸'), M('雪辱を晴ら', '雪辱を果た', '「雪辱を果たす」（または「屈辱を晴らす」）です'), M('白羽の矢が当た', '白羽の矢が立'), M('寸暇を惜しまず', '寸暇を惜しんで'),
+    M('足元をすくわれ', '足をすくわれ'), M('明るみになっ', '明るみに出'), M('明るみになる', '明るみに出る'), M('明るみになり', '明るみに出'), M('念頭に入れ(?=て|た)', '念頭に置い'), M('念頭に入れる', '念頭に置く'), M('念頭に入れ(?=ま|な|ず|よう)', '念頭に置き'), M('上や下への', '上を下への'), M('二の舞を踏む', '二の舞を演じる', '「二の舞を演じる」（または「二の足を踏む」）です'), M('二の舞を踏ん(?=で|だ)', '二の舞を演じ', '「二の舞を演じる」（または「二の足を踏む」）です'), M('二の舞を踏み', '二の舞を演じ', '「二の舞を演じる」（または「二の足を踏む」）です'),
+    M('愛想を振りま', '愛嬌を振りま'), M('口先三寸', '舌先三寸'), M('雪辱を晴ら', '雪辱を果た', '「雪辱を果たす」（または「屈辱を晴らす」）です'), M('白羽の矢が当たる', '白羽の矢が立つ'), M('白羽の矢が当たっ', '白羽の矢が立っ'), M('白羽の矢が当たり', '白羽の矢が立ち'), M('白羽の矢が当たら', '白羽の矢が立た'), M('寸暇を惜しまず', '寸暇を惜しんで'),
     M('物議をかもし出|物議を醸し出', '物議を醸'), M('舌の先の乾かぬ', '舌の根の乾かぬ'), M('腹を据えかね|腹をすえかね', '腹に据えかね'),
     M('絶対絶命', '絶体絶命'), M('危機一発', '危機一髪'), M('五里夢中', '五里霧中'), M('意味慎重', '意味深長'), M('自我自賛', '自画自賛'), M('興味深々|興味深深', '興味津々'),
     M('心機一点', '心機一転'), M('異句同音', '異口同音'), M('無我無中', '無我夢中'), M('短刀直入', '単刀直入'), M('責任転化', '責任転嫁'), M('厚顔無知', '厚顔無恥'),
@@ -186,7 +186,7 @@
     M('(?<=[\\p{Script=Han}いきしちにひみりぎじびぴえけせてねへめれげぜでべぺ])ずら(?=い|く|かっ|さ)', 'づら', '「〜づらい」の誤りです'),
   ];
   // 送りがなの誤り(許容の書き方ではないもの)。[正規表現, 正しい書き方]
-  const OKURI = [[/短かい/g, '短い'], [/明かる(?=[いくさかけ])/g, '明る'], [/新らし(?=[いくさかけ])/g, '新し'], [/必らず/g, '必ず'], [/危い/g, '危ない（危うい）'], [/少い/g, '少ない'],
+  const OKURI = [[/短かい/g, '短い'], [/明かる(?=[いくさかけ])/g, '明る'], [/新らし(?=[いくさかけ])/g, '新し'], [/必らず/g, '必ず'], [/危い/g, '危ない'], [/少い/g, '少ない'],
     [/美くし(?=[いくさかけ])/g, '美し'], [/珍らし(?=[いくさかけ])/g, '珍し'], [/著るし(?=[いくさかけ])/g, '著し'], [/確め(?=[るたてまなよれ])/g, '確かめ']];
 
   // ---- 同じ字の重なり・よくある誤用・誤字・送りがな・二重敬語・重複表現・半角カナ(決まった言い方の一覧) ----
@@ -196,7 +196,7 @@
     [/([。、，．])\1/g, 'dup', '', '句読点が重なっています', true],
     [/、。|。、/g, 'dup', '', '句読点が重なっています', true],
     ...MISUSE.map(([re, want, msg]) => [re, 'misuse', want, msg, true]),
-    ...OKURI.map(([re, want]) => [re, 'okuri', want, `送りがなの誤りです（「${want}」）`, true]),
+    ...OKURI.map(([re, want]) => [re, 'okuri', want, `送りがなの誤りです（「${want}」${want === '危ない' ? '・「危うい」' : ''}）`, true]),
     [/おっしゃられ|ご覧になられ|お召し上がりになられ|拝見させていただ|拝読させていただ|お伺いさせていただ|お[\p{Script=Han}ぁ-ゖ]{1,6}になられ|ご[\p{Script=Han}]{1,4}になられ/gu, 'keigo', '', '二重敬語の可能性があります', false],
     [/申され(?:る|た|ま|て)|参られ(?:る|た|ま|て)/g, 'keigo', '', '謙譲語に「れる・られる」を付けた言い方です（「おっしゃる」「いらっしゃる」など）', false],
     [/ご(?:利用|使用|購入|予約|参加|応募|確認|注文|返品|入金|相談|案内)(?:でき|出来)|お(?:求め|買い求め|使い|申し込み|申込み|問い合わせ|問合せ|取り寄せ|受け取り)(?:でき|出来)/g, 'keigo', '', '「ご〜できる」「お〜できる」は謙譲の形です（「ご〜いただけます」「ご〜になれます」）', false],
@@ -209,7 +209,8 @@
     const out = [];
     for (const [re, kind, want, msg, need] of RULES) for (const m of pg.s.matchAll(re)) {
       if (m[0].includes('\u0000')) continue;
-      out.push({ pg, i: m.index, n: m[0].length, kind, level: need ? 'need' : 'check', want, msg });
+      const w = want || (kind === 'dup' && m[0].length === 2 && m[0][0] === m[0][1] ? m[0][0] : '');   // 「をを」→「を」、「。。」→「。」
+      out.push({ pg, i: m.index, n: m[0].length, kind, level: need ? 'need' : 'check', want: w, msg });
     }
     // 同じ語(漢字2字以上・カタカナ3字以上)がすぐ続けてくり返す
     for (const m of pg.s.matchAll(/(\p{Script=Han}{2,}|\p{Script=Katakana}{3,})\1/gu)) if (new Set(pg.at.slice(m.index, m.index + m[0].length).map(j => pg.B.chars[j].it)).size === 1) out.push({ pg, i: m.index, n: m[0].length, kind: 'dup', level: 'check', want: m[1], msg: `「${m[1]}」が2回続いています` });
@@ -273,8 +274,9 @@
       const n = T[k + 1] || {};
       // ら抜き言葉(一段・カ変の動詞＋「れる」)。可能動詞＋「れる」は、れ足す言葉
       if (t.pos === '動詞' && t.pos_detail_1 === '自立' && /一段|カ変/.test(t.conjugated_type) && t.conjugated_form === '未然形' && n.pos === '動詞' && n.pos_detail_1 === '接尾' && n.basic_form === 'れる')
-        span(pg, t, n, 'ranuki', 'check', '', potential(t.basic_form) ? '「れ足す言葉」の可能性があります（「行けれる」→「行ける」など）' : 'ら抜き言葉の可能性があります（「〜られる」）');
-      if (t.pos === '動詞' && /^(見れる|来れる)$/.test(t.basic_form)) span(pg, t, t, 'ranuki', 'check', '', 'ら抜き言葉の可能性があります（「〜られる」）');
+        if (potential(t.basic_form)) span(pg, t, n, 'ranuki', 'check', t.surface_form + n.surface_form.slice(1), '「れ足す言葉」の可能性があります（「行けれる」→「行ける」など）');
+        else span(pg, t, n, 'ranuki', 'check', t.surface_form + 'ら' + n.surface_form, 'ら抜き言葉の可能性があります（「〜られる」）');
+      if (t.pos === '動詞' && /^(見れる|来れる)$/.test(t.basic_form)) span(pg, t, t, 'ranuki', 'check', t.surface_form.replace(/^(見|来)れ/, '$1られ'), 'ら抜き言葉の可能性があります（「〜られる」）');
       // さ入れ言葉(五段の動詞＋「させる」)
       if (t.pos === '動詞' && /五段/.test(t.conjugated_type) && t.conjugated_form === '未然形' && n.pos === '動詞' && n.pos_detail_1 === '接尾' && n.basic_form === 'させる')
         span(pg, t, n, 'saire', 'check', t.surface_form + n.surface_form.slice(1), 'さ入れ言葉の可能性があります（「〜せる」）');
@@ -283,7 +285,7 @@
       if (cs(t) && cs(n) && t.surface_form !== n.surface_form && ((/^[がを]$/.test(t.surface_form) && /^[がをにへで]$/.test(n.surface_form)) || (/^[にへで]$/.test(t.surface_form) && /^[がを]$/.test(n.surface_form))))
         span(pg, t, n, 'particle', 'need', '', '助詞の続き方がおかしい可能性があります');
       // 助動詞の重なり(「ありますます」)
-      if (t.pos === '助動詞' && n.pos === '助動詞' && t.surface_form === n.surface_form && /^(ます|です|まし|でし)$/.test(t.surface_form)) span(pg, t, n, 'dup', 'need', '', '同じ言葉が重なっています');
+      if (t.pos === '助動詞' && n.pos === '助動詞' && t.surface_form === n.surface_form && /^(ます|です|まし|でし)$/.test(t.surface_form)) span(pg, t, n, 'dup', 'need', t.surface_form, '同じ言葉が重なっています');
       // 語の並びの重なり(「ご利用ご利用」など。かなを含むもの。漢字だけ・カタカナだけのものは決まった言い方の一覧で見る)。同じ文字列のまとまりの中だけ
       for (let L = 1; L <= 3 && k + 2 * L <= T.length; L++) {
         const A = T.slice(k, k + L), B2 = T.slice(k + L, k + 2 * L);
@@ -311,6 +313,13 @@
   // 表記ゆれ(辞書の読み): 読みと品詞が同じ語で、送りがなだけが違う・漢字とかなが違う書き方が混ざっているもの
   //   読みが同じでも漢字が違う語(「機会」と「機械」)は数えない。送りがなを省いた書き方のあとに漢字が続くもの(複合語「取扱説明書」)、
   //   「て・で」のあとの動詞(補助動詞「〜ていく」「〜てみる」)と「〜について」「〜によって」「〜にとって」などの動詞は、かなで書くのがふつうなので数えない。一覧(YURE)で見る組は除く
+  // base(基本形)を surf(活用した形)にしたのと同じ変え方で、to(別の書き方の基本形)を変える(「分かる」→「分かり」なら「わかる」→「わかり」)
+  function conjAs(base, surf, to) {
+    let p = 0; while (p < base.length && p < surf.length && base[p] === surf[p]) p++;
+    const tb = base.slice(p), ts = surf.slice(p);
+    if (!tb) return to + ts;
+    return to.endsWith(tb) ? to.slice(0, to.length - tb.length) + ts : '';   // そろえられないときは候補を出さない
+  }
   function yureDict(pages, tk) {
     const reads = new Map(), readOf = w => { if (!reads.has(w)) { const t = tk.tokenize(w); reads.set(w, t.length === 1 ? t[0].reading : null); } return reads.get(w); };
     const groups = new Map(), han = w => [...w].filter(c => /\p{Script=Han}/u.test(c)).join('');
@@ -324,7 +333,7 @@
       const r = readOf(t.basic_form); if (!r) return;
       const key = r + '|' + t.pos + '|' + t.pos_detail_1;
       if (!groups.has(key)) groups.set(key, new Map());
-      const g = groups.get(key); if (!g.has(t.basic_form)) g.set(t.basic_form, []); g.get(t.basic_form).push({ pg, i: t.i, n: t.n, w: t.surface_form });
+      const g = groups.get(key); if (!g.has(t.basic_form)) g.set(t.basic_form, []); g.get(t.basic_form).push({ pg, i: t.i, n: t.n, w: t.surface_form, cf: t.conjugated_form });
     });
     const out = [];
     for (const g of groups.values()) {
@@ -337,7 +346,9 @@
       const surf = new Set(use.flatMap(w => g.get(w).map(x => x.w)));
       if (YURE.some(y => y.filter(w => surf.has(w)).length >= 2)) continue;   // 一覧で見る組
       const xs = use.map(w => ({ w, xs: g.get(w) })).sort((a, b) => a.xs.length - b.xs.length);
-      out.push({ multi: xs.flatMap(x => x.xs), kind: 'yure', level: 'check', want: xs[xs.length - 1].w, msg: `書き方が混ざっています：${xs.slice().reverse().map(x => `「${x.w}」${x.xs.length}か所`).join('・')}` });
+      // 候補は、表示する所(少ないほうの書き方の最初の所)と同じ活用形にした、多いほうの書き方(「分かり」→「わかり」。基本形の「わかる」ではない)
+      const top = xs[xs.length - 1], x0 = xs[0].xs[0], same = top.xs.find(y => y.cf === x0.cf);
+      out.push({ multi: xs.flatMap(x => x.xs), kind: 'yure', level: 'check', want: same ? same.w : conjAs(xs[0].w, x0.w, top.w), msg: `書き方が混ざっています：${xs.slice().reverse().map(x => `「${x.w}」${x.xs.length}か所`).join('・')}` });
     }
     return out;
   }
@@ -372,7 +383,8 @@
     // 句読点(「、。」と「，．」。日本語の文の中のものだけ)
     const ten = find(/(?<=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])[，．]/gu), maru = find(/[、。]/g);
     const [pa, pb] = minor(ten, maru);
-    if (pa.length && pb.length) out.push({ multi: [...pa, ...pb], kind: 'yure', level: 'check', want: pb[0].w, msg: `句読点の書き方が混ざっています：「、。」${maru.length}か所・「，．」${ten.length}か所` });
+    const PUNCT = { '，': '、', '．': '。', '、': '，', '。': '．' };
+    if (pa.length && pb.length) out.push({ multi: [...pa, ...pb], kind: 'yure', level: 'check', want: PUNCT[pa[0].w] || '', msg: `句読点の書き方が混ざっています：「、。」${maru.length}か所・「，．」${ten.length}か所` });
     return out;
   }
 
@@ -425,7 +437,7 @@
         const v = words.get(k); if (!v.has(m[0])) v.set(m[0], []); v.get(m[0]).push({ pg, i: m.index, n: m[0].length });
       }
     });
-    for (const [k, v] of words) if (v.size >= 2) out.push({ multi: [...v.values()].flat(), kind: 'yure', level: 'check', want: k, msg: `全角と半角が混ざっています：${[...v].map(([w, xs]) => `「${w}」${xs.length}か所`).join('・')}` });
+    for (const [k, v] of words) if (v.size >= 2) out.push({ multi: [...v].sort((a, b) => (a[0] === k) - (b[0] === k)).flatMap(x => x[1]), kind: 'yure', level: 'check', want: k, msg: `全角と半角が混ざっています：${[...v].map(([w, xs]) => `「${w}」${xs.length}か所`).join('・')}` });
     return out;
   }
 
@@ -433,7 +445,7 @@
   //   tk: 形態素解析(PC.tokenizer()。読めなかったときは null で、辞書を使うチェックを行わない)
   PC.jcheck = (pages, tk) => {
     const E = edges(pages), P = pages.map(({ q, B }, n) => ({ q, B, ...textOf(B, E.skip[n]) }));
-    const M2 = tk ? morph(P, tk) : P.flatMap(pg => [...pg.s.matchAll(RANUKI)].map(m => ({ pg, i: m.index, n: m[0].length, kind: 'ranuki', level: 'check', want: '', msg: 'ら抜き言葉の可能性があります（「〜られる」）' })));
+    const M2 = tk ? morph(P, tk) : P.flatMap(pg => [...pg.s.matchAll(RANUKI)].map(m => ({ pg, i: m.index, n: m[0].length, kind: 'ranuki', level: 'check', want: m[0].replace(/れ(る|ます|ません|ない|た|て)$/, 'られ$1'), msg: 'ら抜き言葉の可能性があります（「〜られる」）' })));
     let raw = [...dates(P), ...badDates(P), ...P.flatMap(parens), ...P.flatMap(rules), ...M2, ...P.flatMap(numbers), ...yure(P), ...(tk ? yureDict(P, tk) : []), ...mixes(P)];
     // 同じ所の同じ種類の項目は1つにする(決まった言い方の一覧と辞書の両方で見つかったもの)
     raw = raw.filter((r, k) => r.multi || !raw.some((o, j) => j < k && !o.multi && o.pg === r.pg && o.kind === r.kind && o.i < r.i + r.n && r.i < o.i + o.n));
@@ -448,6 +460,7 @@
       const { pg, i, n } = r;
       out.push({ q: pg.q, box: boxOf(pg.B, pg.at, i, n), kind: r.kind, level: r.level, show: pg.s.substr(i, n), want: r.want, msg: r.msg, ctx: ctxOf(pg.s, i, n) });
     }
+    out.forEach(x => { if (x.want === x.show) x.want = ''; });   // 候補が表示する字と同じなら出さない
     return out.filter(x => x.box);
   };
 })();

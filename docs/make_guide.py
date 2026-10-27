@@ -41,15 +41,15 @@ ol, ul {{ margin: 1mm 0; padding-left: 6mm }} img {{ width: 100%; border: 0.3mm 
 del {{ background: #fde2e2; color: #a3151b; text-decoration: none; font-weight: 700 }} ins {{ background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 700 }}
 table, .warn, .fig {{ break-inside: avoid }}
 </style><body>
-<h1>朱書き照合ツール</h1>
+<h1>校正ツール</h1>
 
 <h2>使い方</h2>
 <ol>
-<li>「朱書き照合ツール.html」をダブルクリックで開く。または Web版 <b>https://mgr-pages.github.io/kousei_tool/</b> を開く（どちらも Google Chrome・Microsoft Edge）。</li>
-<li><b>原稿</b>を入れる：紙はカラーでスキャンしたPDFか画像。注釈で赤字を入れたPDF・ラフ（Googleスライドなどから書き出したPDF）はそのPDF。支給されたデータ（Excel・Word・PowerPoint・テキスト・CSV）はそのファイル。種類の違う原稿を混ぜて入れてもかまいません。</li>
+<li>「校正ツール.html」をダブルクリックで開く。または Web版 <b>https://mgr-pages.github.io/kousei_tool/</b> を開く（どちらも Google Chrome・Microsoft Edge）。</li>
+<li><b>原稿</b>を入れる（なくてもかまいません。入れなければ、成果物だけで文字・表記をチェックします）：紙はカラーでスキャンしたPDFか画像。注釈で赤字を入れたPDF・ラフ（Googleスライドなどから書き出したPDF）はそのPDF。支給されたデータ（Excel・Word・PowerPoint・テキスト・CSV）はそのファイル。種類の違う原稿を混ぜて入れてもかまいません。</li>
 <li><b>成果物（PDF）</b>を入れる。</li>
 <li>前回の成果物があれば<b>旧版（任意・PDF）</b>に入れる。原稿のない部分で前回から変わった所を「指示にない変更」として出し、前回から変わっていない所は一覧から外します（「前回のまま」）。</li>
-<li>「照合」を押す。</li>
+<li>「照合」（原稿がなければ「成果物だけチェック」）を押す。</li>
 </ol>
 <p>どちらも複数のファイルを入れられます（上から順にページをつなげます）。原稿と成果物でページの順番・数・大きさが違っていてもかまいません。原稿の各ページが成果物のどのページのどの範囲に当たるかを自動で探し、ページの表示に点線で示します。ファイルはブラウザの中だけで処理し、外部に送信しません（Web版も同じ。外部への通信を禁止する設定を入れてあります）。</p>
 <div class="fig"><img src="data:image/png;base64,{shot}"></div>

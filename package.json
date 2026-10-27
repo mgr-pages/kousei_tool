@@ -1,7 +1,7 @@
 {
   "name": "proof-checker",
   "version": "1.0.0",
-  "description": "朱書き照合ツール: 初校・朱書き・修正後を照合し、確認が必要な箇所を一覧にする静的なHTML",
+  "description": "校正ツール: 原稿（朱書き・ラフ・データ）と成果物を照合し、成果物だけでも文字・表記を確かめて、確認が必要な箇所を一覧にする静的なHTML",
   "private": true,
   "scripts": {
     "build": "node build.js"

@@ -196,8 +196,9 @@
     const all = [...S.lists.marks, ...S.lists.nw, ...S.lists.old];
     Object.keys(KIND).forEach(renderFiles);
     const bad = all.some(e => e.err), busy = all.some(e => e.pages == null && !e.err);
-    const ready = PC.libsReady && S.lists.marks.length && S.lists.nw.length && !bad && !busy;
+    const ready = PC.libsReady && S.lists.nw.length && !bad && !busy;   // 原稿はなくてもよい(成果物だけをチェックする)
     $('run').disabled = !ready;
+    $('run').textContent = S.lists.marks.length ? '照合' : '成果物だけチェック';
     if (S.running) return;
     let msg = !PC.libsReady ? '準備中…' : S.doneMsg;
     if (!msg) {
@@ -233,7 +234,7 @@
       S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1);
       return res;
     } catch (e) {
-      console.error(e); $('err').textContent = '照合できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
+      console.error(e); $('err').textContent = '処理できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
       throw e;
     } finally { S.running = false; refresh(); }
   }
@@ -248,7 +249,7 @@
     $('results').classList.remove('hidden');
     const F = res.findings, ruleNote = res.rules.length ? '／全体の直し：' + res.rules.map(r => `「${r.frm}」→「${r.to}」`).join('、') : '';
     $('sumNote').textContent = `${res.pages.length}ページ・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '');
-    $('mapNote').textContent = 'ページの対応：' + mapSummary();
+    $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : '原稿なし：成果物だけでチェックしました';
     const card = g => {
       const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && isLight(f)).length;
       return `<div class="sum ${S.off.has(g.key) ? 'off' : ''} ${n ? '' : 'zero'}" data-g="${g.key}" style="--c: var(--c-${g.c})"><div class="n">${n}</div><div class="l">${esc(g.label)}${light ? `<br>（うち念のため ${light}）` : ''}</div></div>`;
@@ -437,7 +438,7 @@
       rows.push([i + 1, f.page, o.name, [(pg.label && pg.label.replace(o.name, '').trim()) || o.page, f.refs ? f.refs.join('・') : f.ref].filter(Boolean).join(' '), n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).auto ? '自動で確認済み' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f) + (f.more ? `（同じ違い 全${f.more}か所）` : '') + (f.goneN ? `（ほか${f.goneN - 1}つ続けて成果物にない）` : ''), f.note, f.check, V[v.v] || '', v.memo || '', [f.how, f.oldSame || f.vsOld === 'same' ? '旧版と同じ' : f.vsOld === 'changed' && !f.fromOld ? '旧版から変わった' : ''].filter(Boolean).join('／'), f.box.join(' ')]);
     });
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '照合結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '校正結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
   $('print').onclick = async () => { for (let i = 0; i < S.imgs.length; i++) await ensure(i); document.querySelectorAll('.item').forEach(drawCrops); window.print(); };
 

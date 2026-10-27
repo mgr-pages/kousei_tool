@@ -126,7 +126,8 @@
         if (isAll(w) || /\d/.test(next) || w.length < 2) continue;
         const v = vowelSound(w); if (v === null) continue;
         const an = m[1].toLowerCase() === 'an';
-        if (an !== v) push(n, m.index, m[0].length, 'article', 'check', (an ? 'a' : 'an') + ' ' + w, `「${w}」の前の冠詞は「${an ? 'a' : 'an'}」ではないか確認してください`);
+        const art = an ? 'a' : 'an', Art = /^A/.test(m[1]) ? art[0].toUpperCase() + art.slice(1) : art;   // 文の始めは大文字のまま
+        if (an !== v) push(n, m.index, m[0].length, 'article', 'check', Art + ' ' + w, `「${w}」の前の冠詞は「${an ? 'a' : 'an'}」ではないか確認してください`);
       }
       // 日付と曜日(「Monday, October 26, 2027」「Oct. 26 (Mon)」「Monday 26 October」)・存在しない日付
       const RES = [[new RegExp(`\\b${WD},?\\s+${MO}\\s+${DAY}${YEAR}\\b`, 'gi'), m => ({ w: m[1], mo: m[2], d: m[3], y: m[4], wi: m[0].indexOf(m[1]) })],

@@ -872,7 +872,7 @@
     const cb = new PC.Codebook(), P = [], npages = src.numPages, warn = [];
     // 1) 原稿の各ページが、成果物のどのページのどの範囲に当たるか
     const W0 = 0.15;
-    const pairs = await PC.pairPages(src, newDoc, (s, f) => prog(s, W0 * f));
+    const pairs = npages ? await PC.pairPages(src, newDoc, (s, f) => prog(s, W0 * f)) : [];   // 原稿がなければ、成果物だけをチェックする
     // 成果物のページの描画・文字データ・書き込みは、内容で照合するページのために1回だけ作る
     const NQ = new Map();
     const newPage = async q => {
@@ -947,13 +947,13 @@
     if (noneV.length) warn.push(`${noneV.join('、')}は、成果物に載っている所が見つかりませんでした（照合していません）`);
     const usedQ = new Set(P.map(d => d.q).filter(q => q >= 0)), lost = [];
     for (let q = 0; q < newDoc.numPages; q++) if (!usedQ.has(q)) lost.push(q + 1);
-    if (lost.length) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
+    if (lost.length && npages) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
     // 3) 成果物だけを読んで、問題がありそうな所(ページの端の切れ端・かっこ・日付・表記ゆれなど。原稿とは照らし合わせない)。項目は、その成果物のページを表示している結果のページに付ける
     //   (見開きの片側だけを照合したページは、その側にある項目だけ。どこにも表示していない成果物のページは「成果物だけ」のページを足す)
     prog('辞書を読み込み、成果物だけで文字・表記を確認', 0.985); await PC.tick();
     const TK = await PC.tokenizer();
     if (!TK) warn.push('辞書を読み込めなかったため、成果物だけのチェックの一部（表記ゆれの一部・助詞の続き方など）を行っていません');
-    for (const x of PC.jcheck(JP, TK)) {
+    for (const x of PC.jcheck(JP, TK).sort((a, b) => a.q - b.q)) {   // 成果物のページの順に(「成果物だけ」のページもこの順に足す)
       const c = PC.center(x.box), ds = P.filter(d => d.q === x.q && d.kind !== 'none');
       let d = ds.find(d => d.crop && c[0] >= d.crop[0] && c[0] <= d.crop[2] && c[1] >= d.crop[1] && c[1] <= d.crop[3]) || ds.find(d => !d.crop);
       if (!d) {

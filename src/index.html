@@ -6,7 +6,7 @@
 <!-- 外部への通信を一切させない(読み込んだファイルを送れないようにする)。部品はすべてこのファイルに埋め込んである -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; worker-src blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src data: blob:; form-action 'none'; base-uri 'none'">
 <link rel="icon" href="data:,">
-<title>朱書き照合ツール</title>
+<title>校正ツール</title>
 <style>
 :root {
   --bg: #f5f6f8; --panel: #fff; --ink: #1d2330; --sub: #5b6475; --line: #dde1e8; --accent: #0b6bcb; --accent-ink: #fff;
@@ -124,14 +124,14 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 </head>
 <body>
 <header>
-  <h1>朱書き照合ツール</h1>
+  <h1>校正ツール</h1>
   <span class="priv">ファイルはこのブラウザの中だけで処理し、外部には送信しません</span>
 </header>
 <main>
   <section class="card" id="setup">
     <div class="steps">
       <div class="step" data-kind="marks"><div class="t"><span>1</span>原稿</div>
-        <div class="hint">PDF（朱書き・ラフ）・画像・Excel・Word・PowerPoint・テキスト・CSV</div>
+        <div class="hint">PDF（朱書き・ラフ）・画像・Excel・Word・PowerPoint・テキスト・CSV。入れなければ、成果物だけをチェックします</div>
         <label class="btn small pick">＋ ファイルを追加<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*,.xlsx,.xlsm,.docx,.docm,.pptx,.pptm,.txt,.csv,.tsv,.xls,.doc,.ppt" multiple></label>
         <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div></div>
       <div class="step" data-kind="nw"><div class="t"><span>2</span>成果物（PDF）</div>

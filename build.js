@@ -1,5 +1,5 @@
 // 1つのHTMLファイルに、pdf.js・OpenCV.js・CMap・標準フォント・形態素解析(kuromoji.js と辞書 IPADIC)・英語の辞書(SCOWL)・本体のコードをすべて埋め込む
-//   node build.js  →  dist/朱書き照合ツール.html(配る・手元で開くもの)と index.html(GitHub Pages で公開するもの。中身は同じ)
+//   node build.js  →  dist/校正ツール.html(配る・手元で開くもの)と index.html(GitHub Pages で公開するもの。中身は同じ)
 'use strict';
 const fs = require('fs'), path = require('path');
 const nm = p => path.join(__dirname, 'node_modules', p);
@@ -43,7 +43,7 @@ PC.ready();
 </script>`;
 const html = fs.readFileSync(path.join(__dirname, 'src/index.html'), 'utf8').replace('<!--ASSETS-->', () => assets);
 fs.mkdirSync(path.join(__dirname, 'dist'), { recursive: true });
-const out = path.join(__dirname, 'dist', '朱書き照合ツール.html');
+const out = path.join(__dirname, 'dist', '校正ツール.html');
 fs.writeFileSync(out, html);
 // GitHub Pages で公開するページ(リポジトリ直下の index.html。中身は同じ)
 fs.writeFileSync(path.join(__dirname, 'index.html'), html);
