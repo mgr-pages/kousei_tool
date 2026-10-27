@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@techstark/opencv-js": "4.10.0-release.1",
+    "kuromoji": "0.1.2",
     "pdfjs-dist": "4.10.38"
   }
 }

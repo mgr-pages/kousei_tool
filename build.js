@@ -1,4 +1,4 @@
-// 1つのHTMLファイルに、pdf.js・OpenCV.js・CMap・標準フォント・本体のコードをすべて埋め込む
+// 1つのHTMLファイルに、pdf.js・OpenCV.js・CMap・標準フォント・形態素解析(kuromoji.js と辞書 IPADIC)・本体のコードをすべて埋め込む
 //   node build.js  →  dist/朱書き照合ツール.html(配る・手元で開くもの)と index.html(GitHub Pages で公開するもの。中身は同じ)
 'use strict';
 const fs = require('fs'), path = require('path');
@@ -16,9 +16,19 @@ const pkg = n => JSON.parse(fs.readFileSync(nm(n + '/package.json'), 'utf8')).ve
 const assets = `
 <script id="pdfjs-lib" type="text/plain">${b64(nm('pdfjs-dist/build/pdf.min.mjs'))}</script>
 <script id="pdfjs-worker" type="text/plain">${b64(nm('pdfjs-dist/build/pdf.worker.min.mjs'))}</script>
-<script>window.PC = { ASSETS: { cmaps: ${JSON.stringify(cmaps)}, fonts: ${JSON.stringify(fonts)} }, VERSIONS: { pdfjs: '${pkg('pdfjs-dist')}', opencv: '${pkg('@techstark/opencv-js')}' } };</script>
+<script>window.PC = { ASSETS: { cmaps: ${JSON.stringify(cmaps)}, fonts: ${JSON.stringify(fonts)} }, VERSIONS: { pdfjs: '${pkg('pdfjs-dist')}', opencv: '${pkg('@techstark/opencv-js')}', kuromoji: '${pkg('kuromoji')}' } };</script>
 <script>${safe(fs.readFileSync(nm('@techstark/opencv-js/dist/opencv.js'), 'utf8'))}</script>
 <script>${safe(app)}</script>
+<script>
+// 形態素解析(kuromoji.js)。辞書は下に埋め込んだもの(ipadic-*)を PC.DictXHR で渡す(外部・ローカルの別ファイルを読みに行かない)
+(function (XMLHttpRequest) {
+${safe(fs.readFileSync(nm('kuromoji/build/kuromoji.js'), 'utf8'))}
+})(PC.DictXHR);
+</script>
+${fs.readdirSync(nm('kuromoji/dict')).filter(f => f.endsWith('.dat.gz')).map(f => `<script id="ipadic-${f}" type="text/plain">${b64(nm('kuromoji/dict/' + f))}</script>`).join('\n')}
+<script id="third-party-notices" type="text/plain">
+${['pdfjs-dist/LICENSE', '@techstark/opencv-js/LICENSE', 'kuromoji/LICENSE-2.0.txt', 'kuromoji/NOTICE.md'].filter(f => fs.existsSync(nm(f))).map(f => `==== ${f} ====\n` + safe(fs.readFileSync(nm(f), 'utf8'))).join('\n\n')}
+</script>
 <script type="module">
 // pdf.jsは埋め込んだコードからBlob URLで読み込む(file://で開いても外部・ローカルの別ファイルを読みに行かない)
 const blobUrl = id => URL.createObjectURL(new Blob([Uint8Array.from(atob(document.getElementById(id).textContent), c => c.charCodeAt(0))], { type: 'text/javascript' }));

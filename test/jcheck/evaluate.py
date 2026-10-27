@@ -6,7 +6,7 @@ gt = json.load(open(sys.argv[1], encoding='utf-8'))
 F = [f for f in json.load(open(sys.argv[2], encoding='utf-8')) if f['cat'] == 'J']
 used, lines, ok = set(), [], 0
 for e in gt['expect']:
-    hit = next((f for f in F if f['id'] not in used and f['j']['kind'] == e['kind'] and e['has'] in f['show'] and f['level'] == e['level'] and ('want' not in e or e['want'] in f['j']['want'])), None)
+    hit = next((f for f in F if f['id'] not in used and f['j']['kind'] == e['kind'] and e['has'] in f['show'] and f['level'] == e['level'] and ('want' not in e or e['want'] in f['j']['want']) and ('msg' not in e or e['msg'] in f['j']['msg'])), None)
     if hit: used.add(hit['id']); ok += 1
     else: lines.append(f"   {e['id']} 見逃し {e['what']}")
 extra = [f for f in F if f['id'] not in used]

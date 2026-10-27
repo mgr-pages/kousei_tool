@@ -30,7 +30,7 @@
   // 項目の色: 分類(結果の概要のカード)の色にそろえる(参考の項目は、もとの種類の色)
   const colorOf = f => { const g = groupOf(f); return g.minor && !g.auto ? COLOR[f.cat] : g.c; };
   // 一言の結論と、何をすればよいか
-  const JT = { edge: 'ページの端の文字', date: '日付と曜日が合わない', paren: 'かっこの閉じ忘れ', dup: '字の重なり', misuse: 'よくある誤用', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', ranuki: 'ら抜き言葉？', keigo: '二重敬語？', redund: '重複表現？', hankana: '半角カナ' };
+  const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ' };
   function verdictOf(f) {
     if (f.rec) {   // 表(商品マスタなど)の商品ごとの照合
       const r = f.rec;

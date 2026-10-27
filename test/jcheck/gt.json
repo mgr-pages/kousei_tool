@@ -1,16 +1,244 @@
 {
-  "note": "test/jcheck/make.py で作る模擬データ(genko.txt × seika.pdf)の正解。成果物だけで見る日本語のチェック(区分 J)。kind は種類、has は項目の文字、level は need(直す必要がありそう)・check(確認だけ)",
+  "note": "test/jcheck/make.py で作る模擬データ(genko.txt × seika.pdf 3ページ)の正解。成果物だけで見るチェック(区分 J)。kind は種類、has は項目の文字、level は need(直す必要がありそう)・check(確認だけ)、want は直す候補、msg は説明に含まれる文字",
   "expect": [
-    { "id": "J1", "kind": "date", "has": "水", "want": "火", "level": "need", "what": "2027年6月1日（水）→火曜日" },
-    { "id": "J2", "kind": "paren", "has": "（", "level": "need", "what": "（平日10時〜17時 の閉じかっこがない" },
-    { "id": "J3", "kind": "dup", "has": "をを", "level": "need", "what": "助詞の重なり" },
-    { "id": "J4", "kind": "dup", "has": "。。", "level": "need", "what": "句点の重なり" },
-    { "id": "J5", "kind": "misuse", "has": "的を得", "want": "的を射", "level": "need", "what": "的を得る→的を射る" },
-    { "id": "J6", "kind": "ranuki", "has": "見れる", "level": "check", "what": "ら抜き言葉" },
-    { "id": "J7", "kind": "phone", "has": "03-1234-567", "level": "need", "what": "電話番号の桁が足りない" },
-    { "id": "J8", "kind": "zip", "has": "〒12-3456", "level": "need", "what": "郵便番号の形" },
-    { "id": "J9", "kind": "yure", "has": "申", "level": "check", "what": "お申し込み・申込み の混在" },
-    { "id": "J10", "kind": "yure", "has": "サーバ", "level": "check", "what": "サーバ・サーバー の混在" }
+    {
+      "id": "J1",
+      "kind": "date",
+      "has": "水",
+      "want": "火",
+      "level": "need",
+      "what": "2027年6月1日（水）→火曜日"
+    },
+    {
+      "id": "J2",
+      "kind": "paren",
+      "has": "（",
+      "level": "need",
+      "what": "（平日10時〜17時 の閉じかっこがない"
+    },
+    {
+      "id": "J3",
+      "kind": "dup",
+      "has": "をを",
+      "level": "need",
+      "what": "助詞の重なり"
+    },
+    {
+      "id": "J4",
+      "kind": "dup",
+      "has": "。。",
+      "level": "need",
+      "what": "句点の重なり"
+    },
+    {
+      "id": "J5",
+      "kind": "misuse",
+      "has": "的を得",
+      "want": "的を射",
+      "level": "need",
+      "what": "的を得る→的を射る"
+    },
+    {
+      "id": "J6",
+      "kind": "ranuki",
+      "has": "見れる",
+      "level": "check",
+      "what": "ら抜き言葉"
+    },
+    {
+      "id": "J7",
+      "kind": "phone",
+      "has": "03-1234-567",
+      "level": "need",
+      "what": "電話番号の桁が足りない"
+    },
+    {
+      "id": "J8",
+      "kind": "zip",
+      "has": "〒12-3456",
+      "level": "need",
+      "what": "郵便番号の形"
+    },
+    {
+      "id": "J9",
+      "kind": "yure",
+      "has": "申",
+      "level": "check",
+      "what": "お申し込み・申込み の混在"
+    },
+    {
+      "id": "J10",
+      "kind": "yure",
+      "has": "サーバ",
+      "level": "check",
+      "what": "サーバ・サーバー の混在"
+    },
+    {
+      "id": "J11",
+      "kind": "date",
+      "has": "2月30日",
+      "level": "need",
+      "what": "存在しない日付（2月30日）"
+    },
+    {
+      "id": "J12",
+      "kind": "particle",
+      "has": "をが",
+      "level": "need",
+      "what": "助詞の続き方（資料をが）"
+    },
+    {
+      "id": "J13",
+      "kind": "dup",
+      "has": "ますます",
+      "level": "need",
+      "what": "助動詞の重なり（ありますます）"
+    },
+    {
+      "id": "J14",
+      "kind": "misuse",
+      "has": "完壁",
+      "want": "完璧",
+      "level": "need",
+      "what": "完壁→完璧"
+    },
+    {
+      "id": "J15",
+      "kind": "misuse",
+      "has": "一貫として",
+      "want": "一環として",
+      "level": "need",
+      "what": "一貫として→一環として"
+    },
+    {
+      "id": "J16",
+      "kind": "misuse",
+      "has": "内臓",
+      "want": "内蔵",
+      "level": "need",
+      "what": "内臓バッテリー→内蔵"
+    },
+    {
+      "id": "J17",
+      "kind": "okuri",
+      "has": "必らず",
+      "want": "必ず",
+      "level": "need",
+      "what": "必らず→必ず"
+    },
+    {
+      "id": "J18",
+      "kind": "misuse",
+      "has": "安",
+      "want": "やす",
+      "level": "need",
+      "what": "使い安い→使いやすい"
+    },
+    {
+      "id": "J19",
+      "kind": "misuse",
+      "has": "ずら",
+      "want": "づら",
+      "level": "need",
+      "what": "見ずらい→見づらい"
+    },
+    {
+      "id": "J20",
+      "kind": "misuse",
+      "has": "ゆう",
+      "want": "いう",
+      "level": "need",
+      "what": "とゆう→という"
+    },
+    {
+      "id": "J21",
+      "kind": "saire",
+      "has": "読まさせ",
+      "want": "読ませ",
+      "level": "check",
+      "what": "さ入れ言葉"
+    },
+    {
+      "id": "J22",
+      "kind": "ranuki",
+      "has": "来れ",
+      "level": "check",
+      "what": "ら抜き言葉（来れる）"
+    },
+    {
+      "id": "J23",
+      "kind": "tari",
+      "has": "だり",
+      "level": "check",
+      "what": "「〜たり」が1つだけ（読んだり、）"
+    },
+    {
+      "id": "J24",
+      "kind": "dup",
+      "has": "ご利用ご利用",
+      "level": "check",
+      "what": "語の重なり"
+    },
+    {
+      "id": "J25",
+      "kind": "keigo",
+      "has": "ご利用でき",
+      "level": "check",
+      "what": "ご〜できる"
+    },
+    {
+      "id": "J26",
+      "kind": "keigo",
+      "has": "お読みになられ",
+      "level": "check",
+      "what": "二重敬語（お〜になられる）"
+    },
+    {
+      "id": "J27",
+      "kind": "redund",
+      "has": "第1回目",
+      "level": "check",
+      "what": "重複表現（第1回目）"
+    },
+    {
+      "id": "J28",
+      "kind": "yure",
+      "has": "取",
+      "level": "check",
+      "msg": "拭き取る",
+      "what": "拭き取る・ふき取る（辞書の読み）"
+    },
+    {
+      "id": "J29",
+      "kind": "yure",
+      "has": "イオリン",
+      "level": "check",
+      "what": "ヴァイオリン・バイオリン"
+    },
+    {
+      "id": "J30",
+      "kind": "typo",
+      "has": "フローリンク",
+      "want": "フローリング",
+      "level": "check",
+      "what": "カタカナ語の1字違い"
+    },
+    {
+      "id": "J31",
+      "kind": "yure",
+      "has": "",
+      "level": "check",
+      "msg": "金額の桁区切り",
+      "what": "¥12,800 と 9800円"
+    },
+    {
+      "id": "J32",
+      "kind": "yure",
+      "has": "，",
+      "level": "check",
+      "msg": "句読点",
+      "what": "「、。」と「，．」"
+    }
   ],
-  "note2": "次は誤りではない(出たら余分な検出)：2027年5月8日（土）、5/10(月)〜5/14(金)、0120-123-456、（受付時間 9:00〜18:00）、1）2）（注）、〒123-4567、申込書・取扱説明書、重ねて描いた「myZ（マイゼット）」"
+  "note2": "次は誤りではない(出たら余分な検出)：2027年5月8日（土）、5/10(月)〜5/14(金)、0120-123-456、（受付時間 9:00〜18:00）、1）2）（注）、〒123-4567、申込書・取扱説明書、重ねて描いた「myZ（マイゼット）」、3ページ目のすべて（2028年2月29日（火）、ここからが・AとBとを、ますます、見られる・来られる・食べられる、行かせて、見たり聞いたり・休んだりします、機械・機会、について・続けていきます・行きます、内臓脂肪・首尾一貫して・確率が高い・分かりづらい・という、¥1,280と¥980）"
 }

@@ -950,8 +950,10 @@
     if (lost.length) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
     // 3) 成果物だけを読んで、問題がありそうな所(ページの端の切れ端・かっこ・日付・表記ゆれなど。原稿とは照らし合わせない)。項目は、その成果物のページを表示している結果のページに付ける
     //   (見開きの片側だけを照合したページは、その側にある項目だけ。どこにも表示していない成果物のページは「成果物だけ」のページを足す)
-    prog('成果物だけで文字・表記を確認', 0.985); await PC.tick();
-    for (const x of PC.jcheck(JP)) {
+    prog('辞書を読み込み、成果物だけで文字・表記を確認', 0.985); await PC.tick();
+    const TK = await PC.tokenizer();
+    if (!TK) warn.push('辞書を読み込めなかったため、成果物だけのチェックの一部（表記ゆれの一部・助詞の続き方など）を行っていません');
+    for (const x of PC.jcheck(JP, TK)) {
       const c = PC.center(x.box), ds = P.filter(d => d.q === x.q && d.kind !== 'none');
       let d = ds.find(d => d.crop && c[0] >= d.crop[0] && c[0] <= d.crop[2] && c[1] >= d.crop[1] && c[1] <= d.crop[3]) || ds.find(d => !d.crop);
       if (!d) {
