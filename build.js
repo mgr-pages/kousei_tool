@@ -1,5 +1,5 @@
 // 1つのHTMLファイルに、pdf.js・OpenCV.js・CMap・標準フォント・本体のコードをすべて埋め込む
-//   node build.js  →  dist/朱書き照合ツール.html
+//   node build.js  →  dist/朱書き照合ツール.html(配る・手元で開くもの)と index.html(GitHub Pages で公開するもの。中身は同じ)
 'use strict';
 const fs = require('fs'), path = require('path');
 const nm = p => path.join(__dirname, 'node_modules', p);
@@ -9,7 +9,7 @@ const safe = s => s.replace(/<\/script/gi, '<\\/script');   // HTMLの中に埋�
 const cmaps = {}, fonts = {};
 for (const f of fs.readdirSync(nm('pdfjs-dist/cmaps'))) if (f.endsWith('.bcmap')) cmaps[f.replace('.bcmap', '')] = b64(nm('pdfjs-dist/cmaps/' + f));
 for (const f of fs.readdirSync(nm('pdfjs-dist/standard_fonts'))) if (/\.(pfb|ttf)$/.test(f)) fonts[f] = b64(nm('pdfjs-dist/standard_fonts/' + f));
-const order = ['util', 'myers', 'docsrc', 'pdfio', 'vision', 'marks', 'scan', 'content', 'jcheck', 'pairing', 'analyze', 'ui'];
+const order = ['util', 'myers', 'docsrc', 'pdfio', 'vision', 'marks', 'scan', 'content', 'jcheck', 'records', 'pairing', 'analyze', 'ui'];
 const app = order.map(n => `// ---- ${n}.js ----\n` + fs.readFileSync(path.join(__dirname, 'src/js', n + '.js'), 'utf8')).join('\n');
 const pkg = n => JSON.parse(fs.readFileSync(nm(n + '/package.json'), 'utf8')).version;
 
@@ -32,4 +32,6 @@ const html = fs.readFileSync(path.join(__dirname, 'src/index.html'), 'utf8').rep
 fs.mkdirSync(path.join(__dirname, 'dist'), { recursive: true });
 const out = path.join(__dirname, 'dist', '朱書き照合ツール.html');
 fs.writeFileSync(out, html);
+// GitHub Pages で公開するページ(リポジトリ直下の index.html。中身は同じ)
+fs.writeFileSync(path.join(__dirname, 'index.html'), html);
 console.log(out, (html.length / 1e6).toFixed(1) + ' MB');

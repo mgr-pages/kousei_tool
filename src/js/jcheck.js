@@ -1,5 +1,5 @@
-// 成果物だけを読んで、日本語として問題がありそうな所を挙げる(原稿とは照らし合わせない。決まったルールだけで判定する)
-//   日付と曜日の食い違い・かっこの閉じ忘れ・同じ字の重なり・よくある誤用・電話番号と郵便番号の形(直す必要がありそう)
+// 成果物だけを読んで、問題がありそうな所を挙げる(原稿とは照らし合わせない。決まったルールだけで判定する)
+//   ページの端の切れ端・日付と曜日の食い違い・かっこの閉じ忘れ・同じ字の重なり・よくある誤用・電話番号と郵便番号の形(直す必要がありそう)
 //   表記ゆれ・ら抜き言葉・二重敬語・重複表現・半角カナ(確認だけ)
 'use strict';
 (function () {
@@ -7,13 +7,16 @@
 
   // ページの文字を、まとまり(段落・行のつながり)ごとの文字列にする。at: 文字列の位置 → 文字の番号、ls: 行の始めの位置
   //   (飾りのために重ねて描いた文字は、文字データを読むとき(PC.pageText)に除いてある)
-  function textOf(B) {
+  //   skip: 読まないまとまり(ページの端の切れ端・仕上がりの外の文字)の番号
+  function textOf(B, skip) {
     let s = ''; const at = [], ls = new Set();
     for (const [a, e] of PC.blocksOf(B.chars, B.items)) {
-      let n0 = s.length;
+      let n0 = s.length, p = null;
       for (let i = a; i < e; i++) {
-        const c = B.chars[i].c, p = B.chars[i - 1];
+        if (skip.has(B.chars[i].it)) continue;
+        const c = B.chars[i].c;
         if (s.length === n0 || (p.it !== B.chars[i].it && B.chars[i].box[1] > p.box[3] - 0.3 * (p.box[3] - p.box[1]))) ls.add(s.length);
+        p = B.chars[i];
         for (let k = 0; k < c.length; k++) { s += c[k]; at.push(i); }
       }
       if (s.length === n0) continue;
@@ -25,6 +28,58 @@
   const ctxOf = (s, i, n) => [s.slice(Math.max(0, i - 8), i).replace(/^.*\u0000/, ''), s.slice(i + n, i + n + 8).replace(/\u0000.*$/, '')];
   // 1字ずつ NFKC にする(全角の数字・かっこを半角にそろえる。字の数が変わる字はそのまま: 文字列の位置がずれないように)
   const nfkc = s => [...s].map(c => { const k = c.normalize('NFKC'); return k.length === 1 && c.length === 1 ? k : c; }).join('');
+
+  // ---- ページの端の切れ端 ----
+  //   ページの外枠をまたぐ文字(ページの端で切れている)、仕上がりの外(断裁で落ちる所)にある文字、仕上がり線をまたぐ文字(断裁で切れる)を挙げる
+  //   仕上がりの外の文字のうち、印刷用の情報(ファイル名・日時など。決まった形の文字か、ほかのページの同じ高さに同じ形の文字があるもの)は除く
+  //   切れ端と仕上がりの外の文字は、ほかのチェック(かっこの対応など)では読まない
+  const inside = (b, r, m) => b[0] >= r[0] - m && b[1] >= r[1] - m && b[2] <= r[2] + m && b[3] <= r[3] + m;
+  const apart = (b, r) => b[2] <= r[0] || b[0] >= r[2] || b[3] <= r[1] || b[1] >= r[3];
+  const SLUG = /\.(indd|idml|ai|eps|psd|pdf|qxd|qxp)\b|\d{4}\s*[\/.\-年]\s*\d{1,2}\s*[\/.\-月]\s*\d{1,2}|\d{1,2}:\d{2}/i;
+  const EDGE = { cut: 'ページの端で文字が切れています（データの切れ端が残っていないか確認してください）', out: '仕上がりの外に文字があります（断裁で落ちます。データの切れ端が残っていないか確認してください）', trim: '仕上がり線にかかって、文字が断裁で切れます' };
+  function edges(pages) {
+    const cls = pages.map(({ B }) => B.items.map(it => {
+      const b = it.box, m = 0.25 * Math.max(1, Math.min(b[2] - b[0], b[3] - b[1])), pg = [0, 0, B.w, B.h];
+      if (apart(b, pg)) return 'away';   // ページの外(見えない)
+      if (!inside(b, pg, m)) return 'cut';
+      if (!B.trim) return null;
+      if (apart(b, B.trim)) return 'out';
+      return inside(b, B.trim, m) ? null : 'trim';
+    }));
+    const key = it => it.s.replace(/\s/g, '').replace(/\d+/g, '9'), cy = b => (b[1] + b[3]) / 2;
+    const slug = (n, k) => {
+      const it = pages[n].B.items[k];
+      if (SLUG.test(it.s)) return true;
+      return pages.some(({ B }, m) => m !== n && B.items.some((o, j) => cls[m][j] === 'out' && key(o) === key(it) && Math.abs(cy(o.box) - cy(it.box)) < 3));
+    };
+    const found = [], skip = pages.map(() => new Set());
+    pages.forEach(({ q, B }, n) => {
+      const hits = [];
+      cls[n].forEach((c, k) => {
+        if (!c) return;
+        if (c !== 'trim') skip[n].add(k);
+        if (c === 'away' || (c === 'out' && slug(n, k))) return;
+        hits.push({ c, k, box: B.items[k].box });
+      });
+      // 近くの同じ種類のものは1つにまとめる(「〈フ」と、その下の「YR」など)
+      const used = new Set();
+      for (const h of hits) {
+        if (used.has(h)) continue;
+        const g = [h]; used.add(h);
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const x of hits) {
+            if (used.has(x) || x.c !== h.c) continue;
+            if (g.some(y => { const s = Math.max(4, y.box[3] - y.box[1]); return x.box[0] < y.box[2] + 1.5 * s && x.box[2] > y.box[0] - 1.5 * s && x.box[1] < y.box[3] + 1.5 * s && x.box[3] > y.box[1] - 1.5 * s; })) { g.push(x); used.add(x); grew = true; }
+          }
+        }
+        g.sort((a, b) => a.k - b.k);
+        const show = g.map((x, j) => (j && Math.abs(cy(x.box) - cy(g[j - 1].box)) > 0.5 * (x.box[3] - x.box[1]) ? ' ' : '') + B.items[x.k].s.trim()).join('');
+        found.push({ q, box: PC.union(g.map(x => x.box)), kind: 'edge', sub: h.c, level: 'need', show, want: '', msg: EDGE[h.c], ctx: ['', ''] });
+      }
+    });
+    return { found, skip };
+  }
 
   // ---- 日付と曜日 ----
   //   年がない日付は、成果物にいちばん多く出てくる年(なければ今年と来年のどちらでも合わないとき)で調べる。「〜22日（月）」のように月がない日付は前の日付の月
@@ -75,7 +130,9 @@
         if (!CLOSE.includes(c)) continue;
         // 番号の閉じかっこ: 行の始め・空白・句読点のあとの1〜2字の英数字に続く「)」(「（1）」のように開きかっこがすぐ前にあるものは除く)
         let k = i; while (k > b0 && i - k < 2 && NUM.test(s[k - 1])) k--;
-        if (/[)）]/.test(c) && k < i && (k === b0 || pg.ls.has(k) || /[\s、。・　]/.test(s[k - 1])) && !(st.length && st[st.length - 1] === k - 1)) continue;
+        //   同じ行に閉じていない「（」があれば、番号ではなくそちらの閉じかっことする(「（■■・JH）」など)
+        let ls0 = b0; for (let q = i; q > b0; q--) if (pg.ls.has(q)) { ls0 = q; break; }
+        if (/[)）]/.test(c) && k < i && (k === b0 || pg.ls.has(k) || /[\s、。・　]/.test(s[k - 1])) && !st.some(x => KIND(s[x]) === 0 && x >= ls0)) continue;
         const top = st.length ? st[st.length - 1] : -1;
         if (top >= 0 && KIND(s[top]) === KIND(c)) { st.pop(); continue; }
         const j = st.map(x => KIND(s[x])).lastIndexOf(KIND(c));
@@ -88,7 +145,14 @@
       carry = st.filter(x => !prev.has(x));
     }
     carry.forEach(miss);
-    return out;
+    // 読む順番の都合で離れた所に来たかっこ: 同じ行の右(閉じかっこなら左)に対のかっこがあれば、閉じ忘れとしない
+    const B = pg.B, at = pg.at;
+    const sameLine = (a, b) => Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 0.5 * Math.min(a[3] - a[1], b[3] - b[1]);
+    return out.filter(o => {
+      const c = s[o.i], ci = at[o.i]; if (ci < 0) return true;
+      const open = OPEN.includes(c), box = B.chars[ci].box, h = box[3] - box[1];
+      return !B.chars.some(x => (open ? CLOSE : OPEN).includes(x.c) && KIND(x.c) === KIND(c) && sameLine(x.box, box) && (open ? x.box[0] > box[0] : x.box[0] < box[0]) && Math.abs(x.box[0] - box[0]) < 60 * h);
+    });
   }
 
   // ---- 同じ字の重なり・よくある誤用・ら抜き言葉・二重敬語・重複表現・半角カナ(決まった言い方の一覧) ----
@@ -117,7 +181,7 @@
       out.push({ pg, i: m.index, n: m[0].length, kind, level: need ? 'need' : 'check', want, msg });
     }
     // 同じ語(漢字2字以上・カタカナ3字以上)がすぐ続けてくり返す
-    for (const m of pg.s.matchAll(/(\p{Script=Han}{2,}|\p{Script=Katakana}{3,})\1/gu)) out.push({ pg, i: m.index, n: m[0].length, kind: 'dup', level: 'check', want: m[1], msg: `「${m[1]}」が2回続いています` });
+    for (const m of pg.s.matchAll(/(\p{Script=Han}{2,}|\p{Script=Katakana}{3,})\1/gu)) if (new Set(pg.at.slice(m.index, m.index + m[0].length).map(j => pg.B.chars[j].it)).size === 1) out.push({ pg, i: m.index, n: m[0].length, kind: 'dup', level: 'check', want: m[1], msg: `「${m[1]}」が2回続いています` });
     return out;
   }
 
@@ -162,16 +226,24 @@
     }
     // 全角と半角の数字・英字(同じ書き方の語が、全角と半角で混ざっているもの)
     const words = new Map();
-    pages.forEach(pg => { for (const m of pg.s.matchAll(/[0-9A-Za-z０-９Ａ-Ｚａ-ｚ][0-9A-Za-z０-９Ａ-Ｚａ-ｚ,，.．]*/g)) { const k = nfkc(m[0]); if (!/[A-Za-z]{2,}|\d{2,}/.test(k)) continue; if (!words.has(k)) words.set(k, new Map()); const v = words.get(k); if (!v.has(m[0])) v.set(m[0], []); v.get(m[0]).push({ pg, i: m.index, n: m[0].length }); } });
+    //   数字だけの語は見ない(カタログでは、文字データの全角・半角が見た目と合わないことが多い)。1語の中で混ざっているもの(文字データの癖)も見ない
+    pages.forEach(pg => {
+      for (const m of pg.s.matchAll(/[0-9A-Za-z０-９Ａ-Ｚａ-ｚ][0-9A-Za-z０-９Ａ-Ｚａ-ｚ,，.．]*/g)) {
+        const k = nfkc(m[0]);
+        if (!/[A-Za-z]{2,}/.test(k) || (/[0-9A-Za-z]/.test(m[0]) && /[０-９Ａ-Ｚａ-ｚ]/.test(m[0]))) continue;
+        if (!words.has(k)) words.set(k, new Map());
+        const v = words.get(k); if (!v.has(m[0])) v.set(m[0], []); v.get(m[0]).push({ pg, i: m.index, n: m[0].length });
+      }
+    });
     for (const [k, v] of words) if (v.size >= 2) out.push({ multi: [...v.values()].flat(), kind: 'yure', level: 'check', want: k, msg: `全角と半角が混ざっています：${[...v].map(([w, xs]) => `「${w}」${xs.length}か所`).join('・')}` });
     return out;
   }
 
   // pages: [{ q: 成果物のページ番号, B: 文字データ(PC.pageText) }] → 項目 [{ q, box(pt), boxes, kind, level, show, want, msg, ctx }]
   PC.jcheck = pages => {
-    const P = pages.map(({ q, B }) => ({ q, B, ...textOf(B) }));
+    const E = edges(pages), P = pages.map(({ q, B }, n) => ({ q, B, ...textOf(B, E.skip[n]) }));
     const raw = [...dates(P), ...P.flatMap(parens), ...P.flatMap(rules), ...P.flatMap(numbers), ...yure(P)];
-    const out = [];
+    const out = E.found.slice();
     for (const r of raw) {
       if (r.multi) {   // 表記ゆれ: 少ないほうの書き方の最初の所を代表にし、すべての位置を添える
         const x = r.multi[0], byQ = new Map();

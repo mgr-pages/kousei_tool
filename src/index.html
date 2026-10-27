@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 外部への通信を一切させない(読み込んだファイルを送れないようにする)。部品はすべてこのファイルに埋め込んである -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; worker-src blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src data: blob:; form-action 'none'; base-uri 'none'">
+<link rel="icon" href="data:,">
 <title>朱書き照合ツール</title>
 <style>
 :root {
@@ -15,6 +18,7 @@ html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "
 button, input, select { font: inherit }
 header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap }
 header h1 { font-size: 18px; margin: 0 }
+header .priv { font-size: 12px; color: var(--sub) }
 main { max-width: 1500px; margin: 0 auto; padding: 16px 20px 60px }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px }
 .card h2 { font-size: 15px; margin: 0 0 12px }
@@ -121,6 +125,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 <body>
 <header>
   <h1>朱書き照合ツール</h1>
+  <span class="priv">ファイルはこのブラウザの中だけで処理し、外部には送信しません</span>
 </header>
 <main>
   <section class="card" id="setup">

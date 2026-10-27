@@ -144,6 +144,7 @@
     if (pg) pg.h = y + M;
     return pages;
   }
+  PC.tablePages = tablePages;
   // 段落と表の並び(Word・テキスト)を、A4の幅のページに流し込む。flow: [{ kind: 'para', text } | { kind: 'row', cells, widths? }]
   function flowPages(label, flow, opt = {}) {
     const W = 595, H = 842, M = 40, size = opt.size || 10.5, width = W - 2 * M, pages = [];
@@ -365,7 +366,8 @@
       if (!rows.size) continue;
       const cols = [...new Set([...rows.values()].flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
       const list = [...rows.keys()].sort((a, b) => a - b).map(k => { const m = rows.get(k); return { rn: k, cells: cols.map(c => (m.get(c) || {}).s || ''), notes: cols.map(c => (m.get(c) || {}).note).filter(Boolean) }; });
-      pages.push(...tablePages(`${name}　シート「${sname}」`, list, { cols: cols.map(colName) }));
+      const sheet = { name: `${name}　シート「${sname}」`, cols: cols.map(colName), rows: list.map(r => ({ rn: r.rn, cells: r.cells })) };   // 商品ごと(行ごと)の照合に使う表
+      for (const pg of tablePages(sheet.name, list, { cols: sheet.cols })) { pg.sheet = sheet; pages.push(pg); }
     }
     return pages;
   }
@@ -525,7 +527,10 @@
       } else if (ext === 'csv' || ext === 'tsv') {
         const s = PC.decodeText(f.buf), head = s.split('\n')[0], sep = ext === 'tsv' || (head.includes('\t') && !head.includes(',')) ? '\t' : ',';
         const rs = csvRows(s, sep);
-        pages = tablePages(f.name, rs.map((r, k) => ({ cells: r, rn: r.ln || k + 1 })), { cols: Array.from({ length: Math.max(...rs.map(r => r.length)) }, (_, c) => colName(c + 1)) });
+        const list = rs.map((r, k) => ({ cells: r, rn: r.ln || k + 1 })), cols = Array.from({ length: Math.max(...rs.map(r => r.length)) }, (_, c) => colName(c + 1));
+        const sheet = { name: f.name, cols, rows: list.map(r => ({ rn: r.rn, cells: r.cells })) };
+        pages = tablePages(f.name, list, { cols });
+        for (const pg of pages) pg.sheet = sheet;
       } else {
         const z = PC.unzip(f.buf);
         pages = ext.startsWith('xls') ? await readXlsx(z, f.name) : ext.startsWith('doc') ? await readDocx(z, f.name) : await readPptx(z, f.name);
@@ -533,6 +538,6 @@
     } catch (e) { throw new Error(`「${f.name}」を${KINDS[ext]}のファイルとして読めません（${e && e.message ? e.message : e}）`); }
     // Excel・CSV の数字は、成果物では桁区切りのカンマを付け外しすることが多いため、カンマの有無は違いとしない(loose)
     const loose = /^(xls|csv|tsv)/.test(ext);
-    return pages.filter(p => p.chars.length).map(p => ({ label: p.label, text: p.text(), blocks: p.blocks, notes: p.notes, loose, render: dpi => p.render(dpi) }));
+    return pages.filter(p => p.chars.length).map(p => ({ label: p.label, text: p.text(), blocks: p.blocks, notes: p.notes, loose, sheet: p.sheet || null, render: dpi => p.render(dpi) }));
   };
 })();

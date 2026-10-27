@@ -53,9 +53,12 @@
     // 少しずらして重ねて描いた文字(影・縁取り)で、ほかの文字列の一部だけが重なって描かれたものも除く
     const key = s => s.replace(/\s/g, '');
     const drop = items.map((it, k) => { const t = key(it.s); return !!t && items.some((o, j) => j !== k && key(o.s).length > t.length && key(o.s).includes(t) && inter(o.box, it.box) >= 0.6 * Math.min(area(o.box), area(it.box))); });
-    if (!drop.some(Boolean)) return { w: vp.width, h: vp.height, items, chars };
+    // 仕上がりの範囲(trim)・裁ち落としの範囲(bleed)。PDFに書かれていなければ null
+    const bx = page.pcBoxes, vr = r => { const p = vp.convertToViewportRectangle(r); return [Math.min(p[0], p[2]), Math.min(p[1], p[3]), Math.max(p[0], p[2]), Math.max(p[1], p[3])]; };
+    const trim = bx && bx.TrimBox ? vr(bx.TrimBox) : null, bleed = bx && bx.BleedBox ? vr(bx.BleedBox) : null;
+    if (!drop.some(Boolean)) return { w: vp.width, h: vp.height, trim, bleed, items, chars };
     const map = []; let n = 0; drop.forEach((x, k) => { map[k] = x ? -1 : n++; });
-    return { w: vp.width, h: vp.height, items: items.filter((_, k) => !drop[k]), chars: chars.filter(c => !drop[c.it]).map(c => ({ ...c, it: map[c.it] })) };
+    return { w: vp.width, h: vp.height, trim, bleed, items: items.filter((_, k) => !drop[k]), chars: chars.filter(c => !drop[c.it]).map(c => ({ ...c, it: map[c.it] })) };
   };
 
   // ---- 字の枠を、描画した画像の字の形(インク)に合わせる(表示の枠がずれないように) ----

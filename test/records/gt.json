@@ -1,0 +1,14 @@
+{
+  "note": "test/records/make.py で作った master.xlsx × catalog.pdf の正解(品番などはすべて架空)。rec: 商品ごとの照合の項目、edge: ページの端の文字(cut=ページの端で切れている・out=仕上がりの外・trim=仕上がり線にかかる)",
+  "expect": [
+    { "id": "R1", "what": "品番の1字違い（KT21-GR → KT27-GR）", "rec": "key", "want": "KT21-GR", "got": "KT27-GR" },
+    { "id": "R2", "what": "価格の違い（KT21-BK 13500 → 13,000）", "rec": "field", "key": "KT21-BK", "field": "設計価格", "got": "13000" },
+    { "id": "R3", "what": "入数の違い（KT22-OK 12 → 14）", "rec": "field", "key": "KT22-OK", "field": "入数", "got": "14" },
+    { "id": "R4", "what": "載せ忘れの商品 KT22-CH（1件で出す）", "rec": "missing", "n": 1, "refs": ["10行目"] },
+    { "id": "R5", "what": "このカタログに載せない商品5件を1件にまとめる", "rec": "missing", "n": 5 },
+    { "id": "E1", "what": "仕上がりの外に残った切れ端（1ページ目）", "edge": "out", "has": "部材" },
+    { "id": "E2", "what": "ページの端で切れた切れ端（2ページ目）", "edge": "cut", "has": "KT2" },
+    { "id": "E3", "what": "仕上がり線にかかって切れる字（2ページ目）", "edge": "trim", "has": "写真" }
+  ],
+  "ok": 4
+}

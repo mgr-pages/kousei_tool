@@ -9,7 +9,7 @@
     D: '全体・以下同様の直し忘れの候補', E: '見た目では分からない文字の違い',
     F: '指示箇所に結びつかない赤字（人が読む）', F2: '引き出し線・注記（指示箇所に付随）', G: '全体指示として読み取った注記',
     M: 'ママ・イキ（変更しない指示）どおり変更なし', H: '赤以外の書き込み（鉛筆・黒など）',
-    T: '原稿と違う文字', V: '書き方だけの違い（全角・半角など）', N: '原稿にない文字', I: '原稿が画像の部分（文字では比べられない）', J: '日本語の確認（成果物だけで判定）',
+    T: '原稿と違う文字', V: '書き方だけの違い（全角・半角など）', N: '原稿にない文字', I: '原稿が画像の部分（文字では比べられない）', J: '成果物だけで見つけた所（原稿とは比べない）',
     K: '原稿の指示（書き込み・コメント）', W: '成果物の書き込み（アタリ・確認事項）',
   };
   const KEEP = /ママ|イキ/;
@@ -494,6 +494,76 @@
     }
   }
 
+  // ---- 商品マスタのような表(1行が1商品で、成果物には一部の列だけが載るもの)の、商品ごとの照合 ----
+  //   行の文字の多くが成果物に載る表(価格表など)は、ほかのデータファイルと同じく文字の並びで照合する。ここでは、それで対応が見つからなかったシートだけを扱う
+  const charSegs = (a, b) => { const A = [...a], B = [...b], segs = []; for (const [t, i1, i2, j1, j2] of PC.opcodes(A, B)) { if (t === 'equal') segs.push(['=', A.slice(i1, i2).join('')]); else { if (i2 > i1) segs.push(['-', A.slice(i1, i2).join('')]); if (j2 > j1) segs.push(['+', B.slice(j1, j2).join('')]); } } return segs; };
+  async function recordPages(P, src, JP, newDoc, NQ) {
+    const sheets = new Map();
+    P.forEach(d => { if (d.src == null) return; const it = src.page(d.src); if (!it.virt || !it.virt.sheet) return; const sh = it.virt.sheet; if (!sheets.has(sh)) sheets.set(sh, { all: [], used: false, src: d.src }); const x = sheets.get(sh); x.all.push(d); if (d.kind !== 'none') x.used = true; });
+    for (const [sh, x] of sheets) {
+      const res = PC.matchRecords(sh, JP);
+      if (!res) continue;
+      // 文章として照合できたシートは、成果物に載らない列が多い表(商品マスタの一部の列だけを載せたもの)のときだけ、商品ごとの照合に切り替える
+      //   (載らない列の字が、商品ごとに「成果物にない」と出てしまうため。全部の列を載せた表は、字ごとに比べられる文章の照合のまま)
+      if (x.used && !(res.hidden >= 2 && res.fields.length <= 0.6 * res.filled && res.exact >= 3)) continue;
+      // 照合に使った列(かぎと成果物に載る列)だけの表を、原稿の表示にする
+      const cols = [res.key.c, ...res.fields.map(f => f.c)];
+      const list = [{ cells: [res.key.label, ...res.fields.map(f => f.label)], rn: '' }, ...res.records.map(r => ({ cells: cols.map(c => String(r.row.cells[c] ?? '')), rn: r.row.rn }))];
+      const vps = PC.tablePages(`${sh.name}（照合した列）`, list, { cols: cols.map(c => sh.cols[c]) });
+      const where = new Map();   // 商品 → [表示の表のページ, 行の枠(pt)]
+      let k = 0; vps.forEach((vp, vi) => vp.blocks.forEach(([s0, e0]) => { if (k > 0) where.set(res.records[k - 1], [vi, PC.union(vp.chars.slice(s0, e0).map(c => c.box))]); k++; }));
+      const thumbs = []; for (const vp of vps) thumbs.push(await toThumb(vp.render(PC.DPI)));
+      const qOf = r => (r.anchors[0] ? r.anchors[0].p.q : null), qs = res.records.map(qOf).filter(q => q != null);
+      const main = qs.sort((a, b) => qs.filter(q => q === b).length - qs.filter(q => q === a).length)[0];
+      const entries = new Map();
+      for (const r of res.records) {
+        const [vi, box] = where.get(r) || [0, null], q = qOf(r) ?? main, key = vi + ':' + q;
+        if (!entries.has(key)) {
+          const right = NQ.has(q) ? NQ.get(q).thumb : await toThumb(await PC.renderPage(newDoc, q, PC.DPI, false));
+          // 原稿のある範囲(旧版との比べ合わせで使う): このページで見つかった品番のまわり
+          const bs = res.records.flatMap(r => r.anchors.filter(a => a.p.q === q).map(a => a.box)), u = bs.length ? PC.union(bs) : null, B = JP[q].B, m = 0.1 * Math.hypot(B.w, B.h);
+          entries.set(key, { kind: 'records', q, src: x.src, label: sh.name, res, recs: [], cov: u && [u[0] - m, u[1] - m, u[2] + m, u[3] + m], ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], thumbs: { left: thumbs[vi], right } });
+        }
+        entries.get(key).recs.push({ r, box });
+      }
+      const at = P.indexOf(x.all[0]);
+      for (const d of x.all) P.splice(P.indexOf(d), 1);
+      P.splice(at, 0, ...entries.values());
+    }
+  }
+  // 商品ごとの照合の項目
+  function recordFindings(d, p, add) {
+    const k = PC.S, px = b => b && b.map(v => v * k), res = d.res, ok = [], gone = [];
+    for (const { r, box } of d.recs) {
+      const ref = `${r.row.rn}行目`;
+      if (!r.anchors.length) { gone.push({ r, box }); continue; }
+      if (r.fuzzy) {   // かぎがそのままは見つからず、1字違いがある
+        const f = add(p + 1, 'T', px(box), r.fuzzy.t, res.key.label, '', '', px(r.fuzzy.box));
+        Object.assign(f, { segs: charSegs(r.key, r.fuzzy.t), same: false, pboxes: [px(box)], pnboxes: [px(r.fuzzy.box)], ref, rec: { kind: 'key', field: res.key.label, want: r.key, got: r.fuzzy.t } });
+      }
+      for (const x of r.diffs) {
+        const nb = x.got ? x.got.box : r.anchors[0].box;
+        const f = add(p + 1, 'T', px(box), x.got ? x.got.t : '', x.f.label, '', '', px(nb));
+        Object.assign(f, { segs: x.got ? charSegs(norm(x.want), x.got.t) : [['-', x.want]], same: false, pboxes: [px(box)], pnboxes: [px(nb)], ref, rec: { kind: 'field', field: x.f.label, want: x.want, got: x.got && x.got.t, key: r.key } });
+        if (!x.got) f.approx = true;
+      }
+      if (!r.fuzzy && !r.diffs.length) ok.push({ r, box });
+    }
+    if (ok.length) {   // かぎも載る列もすべて一致した商品(まとめて1件。一覧には出さない)
+      const f = add(p + 1, 'T', px(PC.union(ok.map(x => x.box).filter(Boolean))), '', '', '', '', px(PC.union(ok.flatMap(x => x.r.anchors.map(a => a.box)))));
+      Object.assign(f, { auto: 'ok', refs: ok.map(x => `${x.r.row.rn}行目`), moreBoxes: ok.map(x => px(x.box)), moreNboxes: ok.flatMap(x => x.r.anchors.map(a => px(a.box))), rec: { kind: 'ok', n: ok.length, fields: [res.key.label, ...res.fields.map(f => f.label)] } });
+    }
+    // 成果物に見当たらない商品: 表の並びで続くものは1件にまとめる
+    for (let i = 0; i < gone.length;) {
+      let e = i; while (e + 1 < gone.length && res.records.indexOf(gone[e + 1].r) === res.records.indexOf(gone[e].r) + 1) e++;
+      const run = gone.slice(i, e + 1), bx = run.map(x => px(x.box)).filter(Boolean);
+      const f = add(p + 1, 'T', bx.length ? PC.union(bx) : [0, 0, 10, 10], '', res.key.label, '', '', null);
+      Object.assign(f, { segs: [['-', run.map(x => x.r.key).join('・')]], same: false, pboxes: bx, refs: run.map(x => `${x.r.row.rn}行目`), ref: `${run[0].r.row.rn}行目`, goneN: run.length > 1 ? run.length : 0, rec: { kind: 'missing', field: res.key.label, n: run.length } });
+      i = e + 1;
+    }
+  }
+  const norm = s => [...String(s).replace(/\s/g, '')].map(PC.fold).join('').replace(/(?<=\d)[,，](?=\d)/g, '');
+
   // ---- 旧版(前回の成果物)との比べ合わせ ----
   //   旧版の各ページが成果物のどのページ・範囲に当たるかを求め、字の並びで対応づける
   //   返り値: 成果物のページ → { B, st: 字ごとに 0=旧版にない・1=旧版と同じ・2=旧版の別の字から変わった, gone: 旧版から消えた字の続き, maps }
@@ -528,7 +598,7 @@
     const k = PC.S, px = b => b.map(v => v * k);
     for (const [q, o] of OLD.byQ) {
       const ds = P.filter(d => d.q === q && d.kind !== 'none' && d.kind !== 'newonly');
-      const covered = b => { const [x, y] = PC.center(b); return ds.some(d => { const R = d.kind === 'content' ? d.pr.region : d.crop || [0, 0, 1e9, 1e9]; return x >= R[0] && x <= R[2] && y >= R[1] && y <= R[3]; }); };
+      const covered = b => { const [x, y] = PC.center(b); return ds.some(d => { const R = d.kind === 'content' ? d.pr.region : d.kind === 'records' ? d.cov : d.crop || [0, 0, 1e9, 1e9]; return R && x >= R[0] && x <= R[2] && y >= R[1] && y <= R[3]; }); };
       const items = [];
       for (const g of o.gone) {
         const ob = PC.union(g.cs.map(c => c.box)), text = g.cs.map(c => c.c).join('');
@@ -862,6 +932,11 @@
       d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right) }; d.left = d.right = null;
       put(d);
     }
+    // 成果物の全ページの文字データ(商品ごとの照合・成果物だけで見るチェックに使う)
+    const JP = [];
+    for (let q = 0; q < newDoc.numPages; q++) JP.push({ q, B: NQ.has(q) ? NQ.get(q).B : await PC.pageText(newDoc, q) });
+    prog('表の商品ごとの照合', 0.93); await PC.tick();
+    await recordPages(P, src, JP, newDoc, NQ);
     // 旧版(任意)があれば、成果物の字が旧版から変わったかを求める(原稿のない部分の変化・前回のままの見分けに使う)
     const OLD = opts.oldDoc ? await oldDiff(opts.oldDoc, newDoc, NQ, prog) : null;
     if (OLD) for (const d of P) if (d.kind === 'content' && OLD.byQ.has(d.q)) d.oldSt = OLD.byQ.get(d.q).st;
@@ -873,11 +948,9 @@
     const usedQ = new Set(P.map(d => d.q).filter(q => q >= 0)), lost = [];
     for (let q = 0; q < newDoc.numPages; q++) if (!usedQ.has(q)) lost.push(q + 1);
     if (lost.length) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
-    // 3) 成果物だけを読んで、日本語として問題がありそうな所(原稿とは照らし合わせない)。項目は、その成果物のページを表示している結果のページに付ける
+    // 3) 成果物だけを読んで、問題がありそうな所(ページの端の切れ端・かっこ・日付・表記ゆれなど。原稿とは照らし合わせない)。項目は、その成果物のページを表示している結果のページに付ける
     //   (見開きの片側だけを照合したページは、その側にある項目だけ。どこにも表示していない成果物のページは「成果物だけ」のページを足す)
-    prog('成果物の日本語を確認', 0.985); await PC.tick();
-    const JP = [];
-    for (let q = 0; q < newDoc.numPages; q++) JP.push({ q, B: NQ.has(q) ? NQ.get(q).B : await PC.pageText(newDoc, q) });
+    prog('成果物だけで文字・表記を確認', 0.985); await PC.tick();
     for (const x of PC.jcheck(JP)) {
       const c = PC.center(x.box), ds = P.filter(d => d.q === x.q && d.kind !== 'none');
       let d = ds.find(d => d.crop && c[0] >= d.crop[0] && c[0] <= d.crop[2] && c[1] >= d.crop[1] && c[1] <= d.crop[3]) || ds.find(d => !d.crop);
@@ -1013,13 +1086,14 @@
     const add = (page, cat, box, show = '', how = '', note = '', check = '', nbox = null) => { const f = { id: F.length, page, cat, label: PC.CAT[cat], box: box.map(Math.trunc), nbox: nbox ? nbox.map(Math.trunc) : null, show, how, note, check }; F.push(f); return f; };
     P.forEach((d, p) => {
       if (d.kind === 'content') contentFindings(d, p, add);
+      if (d.kind === 'records') recordFindings(d, p, add);
       for (const x of d.olds || []) {   // 旧版から変わった所(原稿のない部分): 指示にない変更
         const f = add(p + 1, 'C2', x.nbox, x.text, '旧版から変わった所（原稿のない部分）', '', '', x.nbox);
         Object.assign(f, { onNew: true, newOnly: true, fromOld: x.kind, segs: x.segs, same: false, pnboxes: [x.nbox], old: x.old });
       }
-      for (const x of d.jf || []) {   // 成果物だけで見た日本語の問題
+      for (const x of d.jf || []) {   // 成果物だけで見た問題
         const f = add(p + 1, 'J', x.nbox, x.show, '', '', '', x.nbox);
-        Object.assign(f, { onNew: true, newOnly: true, level: x.level, j: { kind: x.kind, want: x.want, msg: x.msg, ctx: x.ctx, count: x.count || 0 }, moreNboxes: x.more, pnboxes: [x.nbox] });
+        Object.assign(f, { onNew: true, newOnly: true, level: x.level, j: { kind: x.kind, sub: x.sub, want: x.want, msg: x.msg, ctx: x.ctx, count: x.count || 0 }, moreNboxes: x.more, pnboxes: [x.nbox] });
       }
       for (const c of [...d.ch, ...d.im]) {
         const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};

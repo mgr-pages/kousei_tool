@@ -16,25 +16,32 @@
     { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', c: 'T', need: true },
     { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, c: 'D', need: true },
     { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', c: 'E', need: true },
-    { key: 'J', label: '日本語の誤り（成果物だけで確認）', test: f => f.cat === 'J' && f.level === 'need', c: 'J', need: true },
+    { key: 'J', label: '成果物だけで見つけた誤り（端の切れ端・かっこ・日付など）', test: f => f.cat === 'J' && f.level === 'need', c: 'J', need: true },
     { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG', c: 'A' },
     { key: 'K', label: '指示・書き込みの確認（人が判断）', test: f => f.cat === 'K' || f.cat === 'W', c: 'K' },
     { key: 'F', label: '読み取れない赤字', test: f => f.cat === 'F', c: 'F' },
     { key: 'C1', label: '全体・以下同様どおり', test: f => f.cat === 'C1', c: 'C1' },
     { key: 'V', label: '全角・半角などの違い', test: f => f.cat === 'V', c: 'V' },
     { key: 'I', label: '原稿が画像の部分（目で確認）', test: f => f.cat === 'I', c: 'I' },
-    { key: 'J2', label: '日本語の確認（表記ゆれなど）', test: f => f.cat === 'J', c: 'J' },
+    { key: 'J2', label: '成果物だけで見つけた確認事項（表記ゆれなど）', test: f => f.cat === 'J', c: 'J' },
     { key: 'minor', label: '参考', test: () => true, c: 'F', minor: true },
   ];
   const groupOf = f => GROUPS.find(g => g.test(f));
   // 項目の色: 分類(結果の概要のカード)の色にそろえる(参考の項目は、もとの種類の色)
   const colorOf = f => { const g = groupOf(f); return g.minor && !g.auto ? COLOR[f.cat] : g.c; };
   // 一言の結論と、何をすればよいか
-  const JT = { date: '日付と曜日が合わない', paren: 'かっこの閉じ忘れ', dup: '字の重なり', misuse: 'よくある誤用', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', ranuki: 'ら抜き言葉？', keigo: '二重敬語？', redund: '重複表現？', hankana: '半角カナ' };
+  const JT = { edge: 'ページの端の文字', date: '日付と曜日が合わない', paren: 'かっこの閉じ忘れ', dup: '字の重なり', misuse: 'よくある誤用', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', ranuki: 'ら抜き言葉？', keigo: '二重敬語？', redund: '重複表現？', hankana: '半角カナ' };
   function verdictOf(f) {
+    if (f.rec) {   // 表(商品マスタなど)の商品ごとの照合
+      const r = f.rec;
+      if (r.kind === 'ok') return ['原稿の表と一致', `${r.n}件の商品の${r.fields.join('・')}が一致しています（自動で確認済み）`];
+      if (r.kind === 'key') return [`${r.field}が違う？`, `原稿の「${r.want}」がそのままは見当たらず、1字違いの「${r.got}」があります`];
+      if (r.kind === 'field') return [`${r.field}が違う`, r.got ? `品番「${r.key}」の${r.field}が原稿の表と違います` : `品番「${r.key}」の近くに、原稿の表の${r.field}「${r.want}」が見当たりません`];
+      if (r.kind === 'missing') return ['成果物に見当たらない', `原稿の表の${r.field}${r.n > 1 ? `（${r.n}件）` : ''}が成果物に見当たりません。載せない商品なら OK にしてください`];
+    }
     if (f.oldSame) return ['前回のまま', '原稿のない部分ですが、旧版と同じです'];
     if (f.fromOld) return ['指示にない変更（旧版から）', f.fromOld === 'del' ? '旧版にあった文字がなくなっています（原稿のない部分）。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '旧版から変わっています（原稿のない部分）。意図した変更か確認' : '旧版にない文字があります（原稿のない部分）。意図した変更か確認'];
-    if (f.cat === 'J') return [JT[f.j.kind] || '日本語の確認', f.j.msg];
+    if (f.cat === 'J') return [JT[f.j.kind] || '成果物の確認', f.j.msg];
     if (f.auto === 'ok') return f.byInstr ? ['指示どおりの違い', `原稿の指示「${f.byInstr.replace(/\s+/g, ' ')}」のとおりに変わっています（自動で確認済み）`] : ['指示どおり', (f.check || '').includes('削除') ? '指示どおり消えています（自動で確認済み）' : '指示の文字が成果物にあります（自動で確認済み）'];
     if (f.auto === 'ng') return ['指示どおりになっていない？', (f.check || '').includes('削除') ? '消す指示の文字が、成果物に残っている可能性があります' : '指示の文字が、成果物の該当箇所に見当たりません'];
     if (f.cat === 'B' || f.cat === 'B2') return isLight(f) ? ['直っていない？', (f.how || '').includes('引き出し線') ? '細い線なので、引き出し線かもしれません' : '前の赤字の続き（行の折り返しなど）の可能性。念のため確認'] : ['直っていない', '赤字が修正後に反映されていません'];

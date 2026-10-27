@@ -20,10 +20,71 @@
   }
   PC.b64bytes = b64 => { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
 
-  PC.openPdf = async buf => pdfjsLib.getDocument({
-    data: new Uint8Array(buf), CMapReaderFactory: EmbeddedCMap, StandardFontDataFactory: EmbeddedStdFont,
-    cMapUrl: 'embedded/', cMapPacked: true, standardFontDataUrl: 'embedded/', useSystemFonts: false, isEvalSupported: false,
-  }).promise;
+  // 仕上がりの範囲(TrimBox)・裁ち落としの範囲(BleedBox)。pdf.jsでは読めないため、PDFの中身からページのオブジェクトごとに探す
+  //   → Map(オブジェクトの番号 → { TrimBox, BleedBox })。ページの辞書が圧縮したオブジェクト(ObjStm)の中にあるPDFは、それもほどいて探す
+  const latin1 = u => { let s = ''; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return s; };
+  const bytesOf = t => Uint8Array.from(t, c => c.charCodeAt(0));
+  function findBytes(u, pat, from) {
+    for (let i = u.indexOf(pat[0], from); i >= 0; i = u.indexOf(pat[0], i + 1)) {
+      let k = 1; while (k < pat.length && u[i + k] === pat[k]) k++;
+      if (k === pat.length) return i;
+    }
+    return -1;
+  }
+  function readBoxes(t, num, out) {
+    for (const m of t.matchAll(/\/(TrimBox|BleedBox)\s*\[\s*([-+\d.\s]+)\]/g)) {
+      const v = m[2].trim().split(/\s+/).map(Number);
+      if (v.length === 4 && v.every(Number.isFinite)) { const o = out.get(num) || {}; o[m[1]] = v; out.set(num, o); }
+    }
+  }
+  async function pageBoxes(u) {
+    const out = new Map(), heads = new Map();
+    // 1) 圧縮していないオブジェクト: 「/TrimBox」「/BleedBox」を含むオブジェクトの番号(直前の「N 0 obj」)
+    for (const name of ['/TrimBox', '/BleedBox']) {
+      const pat = bytesOf(name);
+      for (let i = findBytes(u, pat, 0); i >= 0; i = findBytes(u, pat, i + pat.length)) {
+        const w0 = Math.max(0, i - 4096), w = latin1(u.subarray(w0, i)); let h = null;
+        for (const x of w.matchAll(/(\d+)\s+\d+\s+obj\b/g)) h = x;
+        if (h && w.indexOf('endobj', h.index) < 0) heads.set(w0 + h.index, +h[1]);
+      }
+    }
+    for (const [p, num] of heads) { const e = findBytes(u, bytesOf('endobj'), p); readBoxes(latin1(u.subarray(p, e < 0 ? Math.min(u.length, p + 4096) : e)), num, out); }
+    if (out.size || typeof DecompressionStream === 'undefined') return out;
+    // 2) 圧縮したオブジェクト(ObjStm、FlateDecodeのもの)
+    const pat = bytesOf('/ObjStm');
+    for (let i = findBytes(u, pat, 0); i >= 0; i = findBytes(u, pat, i + pat.length)) {
+      const w0 = Math.max(0, i - 2048), w = latin1(u.subarray(w0, Math.min(u.length, i + 2048)));
+      const d0 = w.lastIndexOf('obj', i - w0), s0 = w.indexOf('stream', i - w0);
+      if (d0 < 0 || s0 < 0) continue;
+      const dict = w.slice(d0, s0), N = +(dict.match(/\/N\s+(\d+)/) || [])[1], F = +(dict.match(/\/First\s+(\d+)/) || [])[1];
+      if (!/FlateDecode/.test(dict) || !N || !F) continue;
+      let a = w0 + s0 + 6; if (u[a] === 13) a++; if (u[a] === 10) a++;
+      // 長さ: 辞書に数で書いてあればそれ、参照(「12 0 R」)なら endstream の手前の改行まで
+      const L = dict.match(/\/Length\s+(\d+)\b(?!\s+\d+\s+R)/);
+      let e = L ? a + +L[1] : findBytes(u, bytesOf('endstream'), a); if (e < 0 || e > u.length) continue;
+      if (!L) { if (u[e - 1] === 10) e--; if (u[e - 1] === 13) e--; }
+      let t;
+      try { t = latin1(new Uint8Array(await new Response(new Blob([u.subarray(a, e)]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer())); }
+      catch (err) { continue; }   // ほどけないものは飛ばす(ページの外枠だけで見る)
+      if (!/TrimBox|BleedBox/.test(t)) continue;
+      const hd = t.slice(0, F).trim().split(/\s+/).map(Number);
+      for (let k = 0; k + 1 < hd.length; k += 2) readBoxes(t.slice(F + hd[k + 1], k + 3 < hd.length ? F + hd[k + 3] : t.length), hd[k], out);
+    }
+    return out;
+  }
+
+  PC.openPdf = async buf => {
+    let boxes = null;
+    try { boxes = await pageBoxes(new Uint8Array(buf)); } catch (e) { boxes = null; }   // 読めなくても、ページの外枠だけで見る
+    const doc = await pdfjsLib.getDocument({
+      data: new Uint8Array(buf), CMapReaderFactory: EmbeddedCMap, StandardFontDataFactory: EmbeddedStdFont,
+      cMapUrl: 'embedded/', cMapPacked: true, standardFontDataUrl: 'embedded/', useSystemFonts: false, isEvalSupported: false,
+    }).promise;
+    // ページに、そのページの仕上がりの範囲などを添える(page.pcBoxes。PDFの座標)
+    const get = doc.getPage.bind(doc);
+    doc.getPage = async k => { const p = await get(k); if (p.pcBoxes === undefined) p.pcBoxes = (boxes && p.ref && boxes.get(p.ref.num)) || null; return p; };
+    return doc;
+  };
 
   // 複数のPDFを、並べた順にページをつなげて1冊として扱う(ほかの処理は numPages と getPage(n) だけを使うので、そのまま動く)
   PC.joinPdfs = (docs, names) => {

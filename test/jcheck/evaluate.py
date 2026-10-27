@@ -1,4 +1,4 @@
-# 成果物だけで見る日本語のチェックの採点: test/run.js の出力を正解(gt.json)と比べる
+# 成果物だけで見るチェックの採点: test/run.js の出力を正解(gt.json)と比べる
 #   python3 test/jcheck/evaluate.py test/jcheck/gt.json 出力.json
 #   1行目に「合格 / 見逃し / 余分な検出」の件数、2行目以降に不合格の内訳。区分 J 以外の項目は数えない
 import json, sys
@@ -12,5 +12,5 @@ for e in gt['expect']:
 extra = [f for f in F if f['id'] not in used]
 for f in extra:
     lines.append(f"   余分な検出 {f['j']['kind']} 「{f['show']}」 {f['j']['msg']}")
-print(f"日本語チェック {len(gt['expect'])}件中 合格{ok}件 / 見逃し{len(gt['expect']) - ok}件 / 余分な検出{len(extra)}件")
+print(f"成果物だけのチェック {len(gt['expect'])}件中 合格{ok}件 / 見逃し{len(gt['expect']) - ok}件 / 余分な検出{len(extra)}件")
 for l in lines: print(l)
