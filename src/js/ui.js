@@ -254,6 +254,7 @@
   const total = kind => S.lists[kind].reduce((n, e) => n + (e.pages || 0), 0);
   function renderFiles(kind) {
     const k = KIND[kind], L = S.lists[kind];
+    document.querySelector(`.step[data-kind="${kind}"]`).classList.toggle('has', L.length > 0);
     $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : PC.dataKind(e) ? `${PC.dataLabel(e)}・${e.pages}ページ` : e.pages + (PC.isPdf(e) ? 'ページ' : '枚')}</span>` +
       `<span class="ops"><button data-op="up" data-i="${i}" title="上へ" ${i === 0 ? 'disabled' : ''}>↑</button> <button data-op="down" data-i="${i}" title="下へ" ${i === L.length - 1 ? 'disabled' : ''}>↓</button> <button data-op="del" data-i="${i}" title="外す">×</button></span>` +
       (e.err ? `<div class="em">${esc(e.err)}</div>` : '') + '</li>').join('');
@@ -271,7 +272,9 @@
     $('run').disabled = !ready;
     const mode = modeOf();
     $('run').textContent = MODES[mode].run;
-    $('modeNote').textContent = S.lists.nw.length ? 'チェックの内容：' + MODES[mode].what : '';
+    // チェックの仕方: 入れたファイルの組み合わせの印と、何をするか(成果物がまだなければ、どれにも印を付けない)
+    document.querySelectorAll('#modes .chip').forEach(c => c.classList.toggle('on', !!S.lists.nw.length && c.dataset.m === mode));
+    $('modeNote').textContent = S.lists.nw.length ? MODES[mode].what : '成果物（PDF）を入れると、入れたファイルの組み合わせでチェックの仕方が決まります';
     if (S.running) return;
     let msg = !PC.libsReady ? '準備中…' : S.doneMsg;
     if (!msg) {
@@ -330,7 +333,9 @@
   function renderSummary() {
     const res = S.res, F = res.findings.filter(enabled), ruleNote = res.rules.length ? '／全体の直し：' + res.rules.map(r => `「${r.frm}」→「${r.to}」`).join('、') : '';
     const nOff = res.findings.length - F.length;
-    $('sumNote').textContent = `${res.pages.length}ページ・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '') + (optOff.size ? `／詳細設定で外した項目に当たる${nOff}件は出していません` : '');
+    //   ページ数: 結果のページ(原稿のページごと)。成果物だけのチェックで項目がないときは、チェックした成果物のページ数
+    const nNew = (res.newParts || []).reduce((n, x) => n + x.pages, 0);
+    $('sumNote').textContent = `${res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`}・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '') + (optOff.size ? `／詳細設定で外した項目に当たる${nOff}件は出していません` : '');
     $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : MODES[S.runMode].note || MODES.new.note;
     const card = g => {
       const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && isLight(f)).length;
@@ -339,10 +344,12 @@
     const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nNeed = F.filter(f => groupOf(f).need).length;
     // 件数のある種類だけをカードにする(どの種類もなければ「ありません」)
     const cards = gs => { const xs = gs.filter(g => F.some(f => groupOf(f) === g)); return xs.length ? xs.map(card).join('') : '<div class="hint">ありません</div>'; };
-    const nAuto = F.filter(f => groupOf(f).auto).length;
-    $('summary').innerHTML = `<div class="sumgrp need"><div class="sumhd">直す必要がありそう <b>${nNeed}件</b></div><div class="sumcards">${cards(need)}</div></div>` +
-      `<div class="sumgrp"><div class="sumhd">確認だけ <b>${F.filter(f => look.includes(groupOf(f))).length}件</b></div><div class="sumcards">${cards(look)}</div>` +
-      (nAuto ? `<div class="hint" style="margin-top:6px">ほかに、指示どおりと自動で確認できたもの ${nAuto}件（一覧には出していません。「参考も表示」で見られます）</div>` : '') + '</div>';
+    const nAuto = F.filter(f => groupOf(f).auto).length, nLook = F.filter(f => look.includes(groupOf(f))).length;
+    //   直す必要がありそうなものがなければ、そのことをはっきり示す(確認だけの項目があれば、それも添える)
+    $('summary').innerHTML = (nNeed ? `<div class="sumgrp need"><div class="sumhd">直す必要がありそう <b>${nNeed}件</b></div><div class="sumcards">${cards(need)}</div><div class="hint sumtip">カードを押すと、その種類を一覧から外せます（もう一度押すと戻ります）</div></div>`
+      : `<div class="sumgrp clear"><div class="sumhd">直す必要がありそう <b>0件</b></div><div class="clearmsg"><i>✓</i>直す必要がありそうな所は見つかりませんでした</div>${nLook ? `<div class="hint sumtip">確認だけの項目が ${nLook}件あります。一覧で確かめてください</div>` : ''}</div>`) +
+      `<div class="sumgrp"><div class="sumhd">確認だけ <b>${nLook}件</b></div><div class="sumcards">${cards(look)}</div>` +
+      (nAuto ? `<div class="hint sumtip">ほかに、指示どおりと自動で確認できたもの ${nAuto}件（一覧には出していません。「参考も表示」で見られます）</div>` : '') + '</div>';
     $('summary').querySelectorAll('.sum').forEach(el => el.onclick = () => { const k = el.dataset.g; S.off.has(k) ? S.off.delete(k) : S.off.add(k); el.classList.toggle('off'); renderList(); drawPage(); });
     $('legend').innerHTML = GROUPS.filter(g => !g.minor && F.some(f => groupOf(f) === g)).map(g => `<span style="--c: var(--c-${g.c})"><i></i>${esc(g.label.replace(/（.*/, ''))}</span>`).join('');
   }
@@ -484,14 +491,16 @@
     if (!ready(S.page)) { ensure(S.page).then(() => drawPage(scrollToSel)); return; }
     $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.page));
     $('pinfo').textContent = pageLabel(S.page + 1);
-    const im = S.imgs[S.page], gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = (cw - gap) / 2;
-    const sR = im.R ? half / im.rw : 1, sL = im.L ? half / im.lw : sR, ox = half + gap, H = Math.max(im.L ? im.lh * sL : 60, im.R ? im.rh * sR : 0);
+    //   原稿の画像がないページ(成果物だけ・旧版との比べ合わせ)は、成果物を幅いっぱいに出す
+    const im = S.imgs[S.page], one = !im.L && !!im.R, gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = one ? cw : (cw - gap) / 2;
+    $('vcap').classList.toggle('one', one); $('vcap').innerHTML = one ? '<div>成果物</div>' : '<div>原稿</div><div>成果物</div>';
+    const sR = im.R ? half / im.rw : 1, sL = im.L ? half / im.lw : sR, ox = one ? 0 : half + gap, H = Math.max(im.L ? im.lh * sL : 60, im.R ? im.rh * sR : 0);
     const c = $('vcanvas'), ctx = c.getContext('2d');
     c.style.width = cw + 'px'; c.style.height = Math.round(H) + 'px'; c.width = Math.round(cw * dpr); c.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#e9ecf1'; ctx.fillRect(0, 0, cw, H);
+    ctx.fillStyle = '#eef1f6'; ctx.fillRect(0, 0, cw, H);
     if (im.L) ctx.drawImage(im.L, 0, 0, im.lw * sL, im.lh * sL);
-    else { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原稿なし（成果物だけを確認）', half / 2, 40); ctx.textAlign = 'start'; }
+    else if (!one) { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原稿なし（成果物だけを確認）', half / 2, 40); ctx.textAlign = 'start'; }
     if (im.R) ctx.drawImage(im.R, ox, 0, im.rw * sR, im.rh * sR);
     else { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('対応する成果物のページなし', ox + half / 2, 40); ctx.textAlign = 'start'; }
     const css = getComputedStyle(document.documentElement), boxes = [];
