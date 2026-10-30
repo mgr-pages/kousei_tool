@@ -123,6 +123,17 @@
     return { w, h, d: id.data };
   };
 
+  // ページの一部(box: pt)だけを描く(OCR 用に高い解像度で描くとき、ページ全体では大きすぎるため)
+  PC.renderRegion = async (doc, pno, box, dpi) => {
+    const page = await doc.getPage(pno + 1), k = dpi / 72, vp = page.getViewport({ scale: k, offsetX: -box[0] * k, offsetY: -box[1] * k });
+    const w = Math.max(1, Math.ceil((box[2] - box[0]) * k)), h = Math.max(1, Math.ceil((box[3] - box[1]) * k));
+    const cv_ = document.createElement('canvas'); cv_.width = w; cv_.height = h;
+    const ctx = cv_.getContext('2d', { willReadFrequently: true });
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+    await page.render({ canvasContext: ctx, viewport: vp, background: 'rgb(255,255,255)', annotationMode: pdfjsLib.AnnotationMode.DISABLE }).promise;
+    return cv_;
+  };
+
   // 文字データ: 1字ずつ [文字, 枠(200dpiの画素)]。pdf.jsは文字のまとまり単位で位置を返すため、まとまりの幅を字数で割る
   PC.textChars = async (doc, pno, dpi = PC.DPI) => {
     const page = await doc.getPage(pno + 1), vp = page.getViewport({ scale: dpi / 72 }), tc = await page.getTextContent();
@@ -192,10 +203,15 @@
       page: p => items[p],
       label: p => (items[p].virt ? items[p].virt.label : null),   // データファイルのページの名前(シート名・スライド番号など)
       // スキャンとして読む画像。PDFは注釈も含めて300dpiで描画、画像はそのまま(大きすぎるものは縮める)
+      //   スキャンでないPDF(ページを覆う画像がない、文字や線で描いたPDF。赤字を書き込んで書き出したものなど)は、成果物と同じ
+      //   解像度で描き、digital の印を付ける(字の形を、スキャン用のぼかしをかけずに比べる)
       image: async p => {
         const it = items[p];
         if (it.virt) return { img: it.virt.render(300), dpi: 300 };
-        if (it.doc) return { img: await PC.renderPage(it.doc, it.i, 300, true), dpi: 300 };
+        if (it.doc) {
+          if (await PC.isDigitalPage(it.doc, it.i)) return { img: await PC.renderPage(it.doc, it.i, PC.DPI, true), dpi: PC.DPI, digital: true };
+          return { img: await PC.renderPage(it.doc, it.i, 300, true), dpi: 300 };
+        }
         let bmp;
         try { bmp = await createImageBitmap(it.file); } catch (e) { throw new Error(`「${it.name}」を画像として開けません`); }
         const k = Math.min(1, 3600 / bmp.width), c = document.createElement('canvas');
@@ -204,6 +220,12 @@
         return { img: { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data }, dpi: 0 };
       },
     };
+  };
+
+  // スキャンでないPDFのページか: ページの7割以上を覆う画像(スキャンした紙の画像)がない
+  PC.isDigitalPage = async (doc, i) => {
+    const page = await doc.getPage(i + 1), vp = page.getViewport({ scale: 1 }), A = vp.width * vp.height;
+    return !(await PC.imageBoxes(doc, i)).some(b => (b[2] - b[0]) * (b[3] - b[1]) >= 0.7 * A);
   };
 
   // 画像をcanvasに(表示・切り抜き用)

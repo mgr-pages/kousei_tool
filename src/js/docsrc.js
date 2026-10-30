@@ -137,7 +137,7 @@
       let gx = M; for (const w of [0, ...colW]) { gx += w; pg.line(gx, y, gx, bottom); }
       pg.line(M, y, W - M, y); pg.line(M, bottom, W - M, bottom);
       if (r.rn) pg.title(String(r.rn), 4, y + pad, 7);
-      if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'row', heads.has(r) ? 'head' : '', r.rn ? `${r.rn}行目` : '']);
+      if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'row', heads.has(r) ? 'head' : '', r.rn ? `${r.rn}行目` : '', !!r.chart]);
       for (const n of r.notes || []) pg.notes.push({ type: 'Comment', box: [M, y, W - M, bottom], text: n, quads: [] });
       y = bottom;
     }
@@ -152,13 +152,13 @@
     const start = () => { if (pg) pg.h = Math.max(H, y + M); pg = new VPage(`${label}${pages.length ? `（${pages.length + 1}）` : ''}`, W); pg.title(label, M, 14, 9); y = M; pages.push(pg); };
     for (const b of flow) {
       if (!pg) start();
-      if (b.kind === 'para') {
+      if (b.kind === 'para' || b.kind === 'chart') {
         if (!b.text.trim()) { y += size * 0.8; continue; }
         const need = Math.ceil([...b.text].reduce((t, ch) => t + adv(ch, size), 0) / width) * size * 1.5;
         if (y + Math.min(need, H / 2) > H - M && y > M + 1) start();
         const s0 = pg.chars.length;
         y = pg.put(b.text, M, y, width, size) + size * 0.4;
-        if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, 'para']);
+        if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, b.kind]);
         const pb = pg.chars.length > s0 ? PC.union(pg.chars.slice(s0).map(c => c.box)) : [M, y - size * 2, W - M, y];
         for (const n of b.notes || []) pg.notes.push({ type: 'Comment', box: pb, text: n, quads: [pb] });   // コメントの付いた段落(書式の指示の確認に使う)
       } else {
@@ -316,6 +316,60 @@
     return (neg && !toks.some(t => t.d) && /[1-9]/.test(s) ? '-' : '') + s;
   };
 
+  // ---- グラフ(Excel・PowerPoint・Word 共通の DrawingML のグラフ): 成果物に文字として載る所を取り出す ----
+  //   表題、軸の表題、凡例(系列名。円グラフは項目名)、項目名(項目の軸が表示されているとき)、データラベル(表示されているとき：値・項目名・系列名)
+  //   値は、グラフに保存されている値(キャッシュ)を表示形式どおりの文字にする。軸の目盛りの数字(自動で決まる)は読まない
+  //   skipRef(式): その所の値がほかで原稿として読まれる(Excel の表示されているシートのセル)なら true。重ねて出さない
+  //   返り値: [{ kind: 'title' | 'axis' | 'legend' | 'cat' | 'val', texts: [文字列…] }]
+  function chartTexts(xml, skipRef = () => false) {
+    const cs = parse(xml), chart = all(cs, 'chart').find(e => kid(e, 'plotArea'));
+    if (!chart) return [];
+    const out = [], on = (el, n) => /^(1|true)$/.test(at(kid(el, n), 'val') || '');
+    const rich = el => all(el, 'p').map(p => all(p, 't').map(t => t.textContent).join('')).join('\n').trim();
+    // 値の一覧(strRef・numRef のキャッシュ、strLit・numLit)。数は表示形式を当てる
+    const vals = el => {
+      if (!el) return [];
+      const c = kid(el, 'strCache') || kid(el, 'numCache') || (/Lit$/.test(el.localName) ? el : null);
+      if (!c) return [];
+      const num = /num/.test(c.localName), code = (kid(c, 'formatCode') || {}).textContent || 'General';
+      return kids(c, 'pt').sort((a, b) => +at(a, 'idx') - +at(b, 'idx')).map(pt => { const v = (kid(pt, 'v') || {}).textContent || ''; return num && v.trim() !== '' && !isNaN(+v) ? PC.excelFormat(+v, at(pt, 'formatCode') || code) : v; });
+    };
+    // 系列名・項目名・値のもと: { list: [文字列…], ref: 式 }
+    const src = el => {
+      if (!el) return null;
+      const r = kid(el, 'strRef') || kid(el, 'numRef') || kid(el, 'multiLvlStrRef'), f = r ? ((kid(r, 'f') || {}).textContent || '') : '';
+      if (r && r.localName === 'multiLvlStrRef') { const c = kid(r, 'multiLvlStrCache'); return { list: kids(c, 'lvl').flatMap(l => kids(l, 'pt').map(pt => (kid(pt, 'v') || {}).textContent || '')), ref: f }; }
+      if (r) return { list: vals(r), ref: f };
+      const lit = kid(el, 'strLit') || kid(el, 'numLit'); if (lit) return { list: vals(lit), ref: '' };
+      const v = kid(el, 'v'); return v ? { list: [v.textContent], ref: '' } : null;
+    };
+    const txOf = tx => { if (!tx) return null; const r = kid(tx, 'rich'); if (r) return { list: [rich(r)], ref: '' }; return src(tx); };
+    //   項目名・値は、もとのセルがほかで読まれていても出す(グラフの中では、表とは違う並びで1つずつ載るため)
+    const add = (kind, s) => { if (!s || (s.ref && kind !== 'cat' && kind !== 'val' && skipRef(s.ref))) return; const texts = s.list.map(x => String(x).trim()).filter(Boolean); if (texts.length) out.push({ kind, texts }); };
+    const deleted = el => on(el, 'delete');
+    const title = kid(chart, 'title');
+    if (title && !on(chart, 'autoTitleDeleted')) add('title', txOf(kid(title, 'tx')));
+    const plot = kid(chart, 'plotArea'), axes = [...plot.children].filter(e => /Ax$/.test(e.localName));
+    for (const ax of axes) if (!deleted(ax) && kid(ax, 'title')) add('axis', txOf(kid(kid(ax, 'title'), 'tx')));
+    const catShown = axes.some(ax => /^(catAx|dateAx)$/.test(ax.localName) && !deleted(ax)), legend = !!kid(chart, 'legend');
+    const seenCat = new Set();
+    for (const ty of [...plot.children].filter(e => /Chart$/.test(e.localName))) {
+      const pie = /^(pie|pie3D|doughnut|ofPie)Chart$/.test(ty.localName), dl0 = kid(ty, 'dLbls');
+      for (const ser of kids(ty, 'ser')) {
+        const dl = kid(ser, 'dLbls') || dl0, name = txOf(kid(ser, 'tx')), cat = src(kid(ser, 'cat') || kid(ser, 'xVal')), val = src(kid(ser, 'val') || kid(ser, 'yVal'));
+        if ((legend && !pie) || on(dl, 'showSerName')) add('legend', name);
+        //   項目名は系列ごとに同じことが多いので1回だけ
+        const ck = cat ? cat.ref + '\u0001' + cat.list.join('\u0001') : '';
+        if (cat && !seenCat.has(ck) && ((catShown && !pie) || (pie && legend) || on(dl, 'showCatName'))) { seenCat.add(ck); add('cat', cat); }
+        if (on(dl, 'showVal')) add('val', val);
+      }
+    }
+    return out;
+  }
+  // グラフの文字を、原稿の流れにする: 表題・軸の表題・凡例は段落、項目名・値は1つずつのまとまり(kind 'chart'。グラフでは棒の下・上などに散らばるため)
+  const chartFlow = parts => parts.flatMap(p => (p.kind === 'cat' || p.kind === 'val' ? p.texts.map(t => ({ kind: 'chart', text: t })) : [{ kind: 'para', text: p.texts.join('　') }]));
+  PC.chartTexts = chartTexts;
+
   // ---- Excel(.xlsx): 表示されているシートごとに、表示されている行・列のセルを表示形式どおりの文字にする ----
   const colNum = s => { let n = 0; for (const ch of s) n = n * 26 + ch.charCodeAt(0) - 64; return n; };
   const colName = n => { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; };
@@ -336,14 +390,56 @@
       for (const xf of kids(all(sx, 'cellXfs')[0], 'xf')) { const id = +(at(xf, 'numFmtId') || 0); fmts.push(custom.has(id) ? custom.get(id) : BUILTIN[id] ?? 'General'); }
     }
     const pages = [];
+    // グラフ: 表示されているシート(とグラフシート)に置かれたもの。値のもとが表示されているシートのセルなら、そのセルとして読むので重ねない
+    const shown = new Set(all(wb, 'sheet').filter(sh => (at(sh, 'state') || 'visible') === 'visible').map(sh => at(sh, 'name') || ''));
+    const sheetOf = f => { const m = /^\(?'?((?:[^'!]|'')+)'?!/.exec(String(f || '').trim()); return m ? m[1].replace(/''/g, "'") : null; };
+    const skipRef = f => { const s = sheetOf(f); return s !== null && shown.has(s); };
+    //   返り値: グラフごとの流れ(段落・表の行)の一覧。src: グラフの値のもとになっているセルの行(シート名 → 行番号の集合)
+    const src = new Map();
+    const srcRows = xml => {
+      for (const m of xml.matchAll(/<(?:\w+:)?f>([^<]*)<\/(?:\w+:)?f>/g)) for (const area of m[1].replace(/^\(|\)$/g, '').split(',')) {
+        const sh = sheetOf(area), r = /!\$?[A-Z]+\$?(\d+)(?::\$?[A-Z]+\$?(\d+))?$/.exec(area.trim());
+        if (sh === null || !r) continue;
+        if (!src.has(sh)) src.set(sh, new Set());
+        for (let k = +r[1]; k <= +(r[2] || r[1]) && k - +r[1] < 100000; k++) src.get(sh).add(k);
+      }
+    };
+    const chartsOf = async path => {
+      const sr = await rels(z, path), out = [];
+      for (const d of [...sr.values()].filter(x => x.type.endsWith('/drawing'))) {
+        const dx = await z.text(d.target); if (!dx) continue;
+        const dr = await rels(z, d.target);
+        for (const c of all(parse(dx), 'chart')) {
+          const t = dr.get(rid(c)); if (!t) continue;
+          const xml = await z.text(t.target); if (!xml) continue;
+          srcRows(xml);
+          const flow = chartFlow(chartTexts(xml, skipRef));
+          if (flow.length) out.push(flow);
+        }
+      }
+      return out;
+    };
+    //   シートのグラフは、そのシートの表の最後のページの下に置く(表と同じ成果物のページに載ることが多く、表の字がページを探す手がかりになる)
+    const appendCharts = (pg, charts) => {
+      const M = 30, size = 10, W = Math.max(pg.w, 360);
+      let y = Math.max(pg.h - M, M) + 12;
+      charts.forEach((flow, n) => {
+        pg.title(`グラフ${n + 1}`, M, y, 9); y += 16;
+        for (const f of flow) { const s0 = pg.chars.length; y = pg.put(f.text, M, y, W - 2 * M, size) + 2; if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, f.kind]); }
+        y += 8;
+      });
+      pg.w = W; pg.h = y + M;
+    };
     for (const sh of all(wb, 'sheet')) {
       if ((at(sh, 'state') || 'visible') !== 'visible') continue;
       const r = wr.get(rid(sh)); if (!r) continue;
+      if (r.type.endsWith('/chartsheet')) { (await chartsOf(r.target)).forEach((flow, n) => pages.push(...flowPages(`${name}　シート「${at(sh, 'name') || ''}」　グラフ${n + 1}`, flow))); continue; }
       const doc = parse(await z.text(r.target)), sname = at(sh, 'name') || '';
       const hidCol = new Set();
       for (const c of all(doc, 'col')) if (/^(1|true)$/i.test(at(c, 'hidden') || '')) for (let k = +at(c, 'min'); k <= +at(c, 'max'); k++) hidCol.add(k);
       const notes = new Map(), srels = await rels(z, r.target), cm = [...srels.values()].find(x => x.type.endsWith('/comments'));
       if (cm) for (const c of all(parse(await z.text(cm.target)), 'comment')) { const t = all(c, 't').map(x => x.textContent).join('').trim(); if (t) notes.set(at(c, 'ref'), t); }
+      const charts = await chartsOf(r.target);
       const rows = new Map();
       for (const row of all(doc, 'row')) {
         if (/^(1|true)$/i.test(at(row, 'hidden') || '')) continue;
@@ -363,11 +459,15 @@
           rows.get(rc[0]).set(rc[1], { s, note });
         }
       }
-      if (!rows.size) continue;
+      if (!rows.size) { charts.forEach((flow, n) => pages.push(...flowPages(`${name}　シート「${sname}」　グラフ${n + 1}`, flow))); continue; }
       const cols = [...new Set([...rows.values()].flatMap(m => [...m.keys()]))].sort((a, b) => a - b);
       const list = [...rows.keys()].sort((a, b) => a - b).map(k => { const m = rows.get(k); return { rn: k, cells: cols.map(c => (m.get(c) || {}).s || ''), notes: cols.map(c => (m.get(c) || {}).note).filter(Boolean) }; });
       const sheet = { name: `${name}　シート「${sname}」`, cols: cols.map(colName), rows: list.map(r => ({ rn: r.rn, cells: r.cells })) };   // 商品ごと(行ごと)の照合に使う表
-      for (const pg of tablePages(sheet.name, list, { cols: sheet.cols })) { pg.sheet = sheet; pages.push(pg); }
+      //   グラフの値のもとになっている行(成果物にはグラフとして載り、表としては載らないことがある)
+      const gs = src.get(sname); if (gs) for (const r of list) if (gs.has(r.rn)) r.chart = true;
+      const tps = tablePages(sheet.name, list, { cols: sheet.cols });
+      for (const pg of tps) { pg.sheet = sheet; pages.push(pg); }
+      if (charts.length && tps.length) appendCharts(tps[tps.length - 1], charts);
     }
     return pages;
   }
@@ -399,10 +499,14 @@
     };
     const flow = [];
     const body = all(doc, 'body')[0];
+    //   段落の中のグラフ(インラインの図): その段落のあとに、グラフの文字を置く
+    const charts = async p => { const out = []; for (const c of all(p, 'chart')) { const t = dr.get(rid(c)); const xml = t && await z.text(t.target); if (xml) out.push(...chartFlow(chartTexts(xml))); } return out; };
+    const chartAt = new Map();
+    for (const p of all(doc, 'p')) if (all(p, 'chart').length) chartAt.set(p, await charts(p));
     const walk = el => {
       for (const c of el.children) {
         const n = c.localName;
-        if (n === 'p') flow.push({ kind: 'para', ...para(c) });
+        if (n === 'p') { flow.push({ kind: 'para', ...para(c) }); if (chartAt.has(c)) flow.push(...chartAt.get(c)); }
         else if (n === 'tbl') {
           const ws = kids(kid(c, 'tblGrid'), 'gridCol').map(g => +(at(g, 'w') || 0));
           for (const tr of kids(c, 'tr')) {
@@ -427,6 +531,8 @@
       no++;
       const sl = parse(await z.text(r.target));
       if (at(all(sl, 'sld')[0], 'show') === '0') continue;   // 非表示のスライド
+      const slr = await rels(z, r.target), charts = new Map();
+      for (const c of all(sl, 'chart')) { const t = slr.get(rid(c)); const xml = t && await z.text(t.target); if (xml) charts.set(c, chartFlow(chartTexts(xml))); }
       const pg = new VPage(`${name}　スライド${no}`, SW); pg.h = SH; pg.title(`スライド${no}`, 6, 4, 8);
       let free = 20;   // 位置の分からない図形を置く位置
       const paras = txBody => kids(txBody, 'p').map(p => {
@@ -459,6 +565,14 @@
             if (b[1] === free) free = y + 6;
             pg.h = Math.max(pg.h, y + 10);
           } else if (n === 'graphicFrame') {
+            const ch = all(c, 'chart')[0];
+            if (ch && charts.has(ch)) {   // グラフ: 置かれた枠の中に、グラフの文字を上から順に置く
+              let b = place(kid(c, 'xfrm'), off) || [20, free, SW - 40, 40], y = b[1];
+              for (const f of charts.get(ch)) { const s0 = pg.chars.length; y = pg.put(f.text, b[0] + 4, y + 2, Math.max(40, b[2] - 8), 12); if (pg.chars.length > s0) pg.blocks.push([s0, pg.chars.length, f.kind]); }
+              if (b[1] === free) free = y + 6;
+              pg.h = Math.max(pg.h, y + 10);
+              continue;
+            }
             const tbl = all(c, 'tbl')[0]; if (!tbl) continue;
             let b = place(kid(c, 'xfrm'), off) || [20, free, SW - 40, 40];
             const ws = kids(kid(tbl, 'tblGrid'), 'gridCol').map(g => +at(g, 'w') * off.sx / EMU);

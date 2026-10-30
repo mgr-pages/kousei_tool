@@ -24,10 +24,12 @@
     return cs.slice(Math.max(0, Math.min(...idx) - pad), Math.min(cs.length, Math.max(...idx) + pad + 1)).map(c => c[0]).join('').replace(/\s/g, '');
   }
   // 字形(トークン)に対応する文字: 中心が字形に入る文字 → 字形の中心を含む文字 → 近くの文字
+  //   OCR で読んだ字(3つ目が 'ocr')は位置が正確でないため、字の中心が字形の中にあるときだけ使う(近くの字を当てて、別の字と示さないように)
   function tokText(cs, box) {
     const [x0, y0, x1, y1] = box, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     const inside = cs.filter(([, b]) => x0 - 2 <= (b[0] + b[2]) / 2 && (b[0] + b[2]) / 2 <= x1 + 2 && y0 - 2 <= (b[1] + b[3]) / 2 && (b[1] + b[3]) / 2 <= y1 + 2);
     if (inside.length) return inside.map(c => c[0]).join('');
+    cs = cs.filter(c => c[2] !== 'ocr');
     const cont = cs.filter(([, b]) => b[0] - 1 <= cx && cx <= b[2] + 1 && b[1] - 1 <= cy && cy <= b[3] + 1);
     if (cont.length) return cont.reduce((p, q) => ((q[1][2] - q[1][0]) * (q[1][3] - q[1][1]) < (p[1][2] - p[1][0]) * (p[1][3] - p[1][1]) ? q : p))[0];
     let best = null, bd = Infinity;
@@ -215,7 +217,7 @@
   // 注釈を入れたPDFのページ: 注釈を消した描画が修正前、注釈ありとの描画の差が赤字
   async function annotPage(src, p, nw, nc, cb, step) {
     const { doc, i } = src.page(p);
-    const old = await PC.renderPage(doc, i, PC.DPI, false), oc = await PC.textChars(doc, i);
+    const old = await PC.renderPage(doc, i, PC.DPI, false), oc = await PC.textCharsSnapped(doc, i, old);
     step('文字のまとまりを解析', 0.1); await PC.tick();
     const oink = PC.textInk(old), nink = PC.textInk(nw);
     const ob = PC.blocks(old, oink), nb = PC.blocks(nw, nink);
@@ -237,6 +239,7 @@
         q.obox = union([q.obox, c.obox].filter(Boolean)); q.nbox = union([q.nbox, c.nbox].filter(Boolean));
       } else merged.push(c);
     }
+    mergeNumbers(merged, ot, oc, nt, nc);
     describe(merged, ot, ol, nt, nl, oc, nc);
     merged.push(...layoutChanges(ot, ol, nt, nl, pairs));
     const im = PC.imageChanges(old, nw, ob, nb); im.forEach(imageShow);
@@ -270,6 +273,27 @@
     return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, w: old.w };
   }
 
+  // 数字のまとまり(桁区切り・小数点・時刻・日付の区切り)の中の違いを1件にまとめる(字形で比べるページ)
+  //   同じ行で、間の字が数字と区切りだけ(6字まで)、両方の違いに数字があるもの(「4,730」→「5,060」を「4→5」「730→060」の2件にしない)
+  function mergeNumbers(ch, ot, oc, nt, nc) {
+    const lab = (cs, T, a, b) => { let s = ''; for (let k = Math.max(0, a); k < Math.min(T.length, b); k++) s += tokText(cs, T[k].box); return s; };
+    const num = s => [...s].every(c => PC.NUMC.test(c)), dig = s => PC.DIGC.test(s);
+    const out = [];
+    for (const c of ch.slice().sort((p, q) => p.oi[0] - q.oi[0] || p.nj[0] - q.nj[0])) {
+      const q = out[out.length - 1];
+      if (q && c.oi[0] >= q.oi[1] && c.nj[0] >= q.nj[1] && c.oi[0] - q.oi[1] <= 6 && c.nj[0] - q.nj[1] <= 6 && q.oi[1] > 0 && ot[c.oi[0]] && ot[q.oi[1] - 1] && ot[c.oi[0]].line === ot[q.oi[1] - 1].line) {
+        const mo = lab(oc, ot, q.oi[1], c.oi[0]), mn = lab(nc, nt, q.nj[1], c.nj[0]);
+        if (num(mo) && num(mn) && dig(lab(oc, ot, ...q.oi) + lab(nc, nt, ...q.nj)) && dig(lab(oc, ot, ...c.oi) + lab(nc, nt, ...c.nj))) {
+          q.oi = [q.oi[0], c.oi[1]]; q.nj = [q.nj[0], c.nj[1]]; q.tag = 'replace'; q.pj = null;
+          const ob = [q.obox, c.obox].filter(Boolean), nb = [q.nbox, c.nbox].filter(Boolean);
+          q.obox = ob.length ? union(ob) : undefined; q.nbox = nb.length ? union(nb) : undefined;
+          continue;
+        }
+      }
+      out.push(c);
+    }
+    ch.splice(0, ch.length, ...out);
+  }
   // スキャンの字形の文字(推定): 見た目で対応づいた修正後の字の文字。対応しない字形は、見た目がいちばん近い修正後の字の文字
   // (十分近いときだけ)、なければ「□」
   function synthChars(sp, nc) {
@@ -287,12 +311,34 @@
   // 紙の赤字原稿(スキャン)のページ: スキャンを修正後に重ねて字形を比べる。修正前の文字は、修正後の文字から推定する
   async function scanPage(src, p, nw, nc, step) {
     step('スキャンを読み込み', 0.02); await PC.tick();
-    const { img, dpi } = await src.image(p);
+    const { img, dpi, digital } = await src.image(p);
     step('位置を合わせています', 0.05); await PC.tick();
-    const { W, matched } = PC.registerScan(img, nw, dpi);
-    const sp = await new PC.ScanPage(W, nw).init((s, f) => step(s, 0.08 + 0.77 * f));
-    const pairs = sp.pairs(), oc = synthChars(sp, nc), ch = sp.changes();
+    const { W, matched, A, s } = PC.registerScan(img, nw, dpi);
+    const sp = await new PC.ScanPage(W, nw, { digital: !!digital }).init((s, f) => step(s, 0.08 + 0.77 * f));
+    const pairs = sp.pairs(), ch = sp.changes();
+    // 原稿の字: スキャンは修正後の字から推定する。スキャンでないPDFは原稿の文字データ(位置は重ね合わせと同じに移す)を使い、
+    //   文字データのない字形(アウトラインなど)だけを推定で補う
+    let oc = synthChars(sp, nc);
+    if (digital) {
+      const { doc, i } = src.page(p), mp = (x, y) => [A[0] * x * s + A[1] * y * s + A[2], A[3] * x * s + A[4] * y * s + A[5]];
+      //   字の位置は、全角・半角の幅を考えて割り振り、描画した字の形に合わせる(PC.textCharsSnapped。原稿は PC.DPI で描いてある)
+      const own = (await PC.textCharsSnapped(doc, i, img)).map(([c, b]) => { const p0 = mp(b[0], b[1]), p1 = mp(b[2], b[3]); return [c, [Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]), Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])]]; });
+      //   どの字形にも当たらない字(半角の字の位置の割り振りがずれたもの)は、同じ行のいちばん近い字形の中に置く(字を落とさない)
+      const inTok = (o, t) => { const x = (o[0] + o[2]) / 2, y = (o[1] + o[3]) / 2; return x >= t[0] - 2 && x <= t[2] + 2 && y >= t[1] - 2 && y <= t[3] + 2; };
+      for (const ch of own) {
+        if (sp.ot.some(t => inTok(ch[1], t.box))) continue;
+        const o = ch[1], y = (o[1] + o[3]) / 2, x = (o[0] + o[2]) / 2, h = o[3] - o[1];
+        let best = null, bd = Infinity;
+        for (const t of sp.ot) { const b = t.box; if (y < b[1] || y > b[3]) continue; const d = Math.max(b[0] - x, 0, x - b[2]); if (d < bd) { bd = d; best = b; } }
+        if (best && bd < 1.5 * h) { const cx = Math.min(Math.max(x, best[0] + 1), best[2] - 1), cy = (best[1] + best[3]) / 2; ch[1] = [cx - 0.5, cy - 0.5, cx + 0.5, cy + 0.5]; }
+      }
+      //   推定の字は、その字形に原稿の文字データの字が重なるとき(字の中心が字形の中、または字形の中心が字の枠の中)は使わない
+      const covered = b => { const x = (b[0] + b[2]) / 2, y = (b[1] + b[3]) / 2; return own.some(([, o]) => { const cx = (o[0] + o[2]) / 2, cy = (o[1] + o[3]) / 2; return (cx >= b[0] - 2 && cx <= b[2] + 2 && cy >= b[1] - 2 && cy <= b[3] + 2) || (x >= o[0] && x <= o[2] && y >= o[1] && y <= o[3]); }); };
+      oc = [...own, ...oc.filter(([, b]) => !covered(b))];
+    }
+    mergeNumbers(ch, sp.ot, oc, sp.nt, nc);
     describe(ch, sp.ot, sp.ol, sp.nt, sp.nl, oc, nc);
+    if (window.__pcDebug && typeof window.__pcDebug === 'object') window.__pcDebug.scan = { ot: sp.ot.map(t => t.box), nt: sp.nt.map(t => t.box), oc, nc, ch: ch.map(c => ({ oi: c.oi, nj: c.nj, show: c.show })) };
     ch.push(...layoutChanges(sp.ot, sp.ol, sp.nt, sp.nl, pairs));
     step('写真・図版を比べています', 0.86); await PC.tick();
     const im = sp.imageChanges(); im.forEach(imageShow);
@@ -379,6 +425,20 @@
   }
   const coreOf = (frm, to) => { const c = splitCore(frm, to); return [c.b, c.a]; };
 
+  // OCR で字を足した成果物のページは、字ごとの印(使った字)の入れ物を、足した字の分まで広げる
+  const grow = (u, n) => { if (u.length >= n) return u; const v = new Uint8Array(n); v.set(u); return v; };
+  const growUsed = nq => { nq.used = grow(nq.used, nq.B.chars.length); nq.usedFree = grow(nq.usedFree, nq.B.chars.length); };
+  // 原稿(または旧版)の字が見当たらない所: [{ box(成果物での見込みの位置 pt。T がなければ null), text }]
+  const missAreas = (A, blocks, T) => {
+    const out = [];
+    for (const b of blocks) {
+      if (b.instr) continue;
+      let run = [];
+      for (const o of [...b.ops, ['|']]) { if (o[0] === '-') run.push(A.chars[b.s + o[1]]); else if (run.length) { out.push({ box: T ? PC.mapBox(T, PC.union(run.map(c => c.box))) : null, text: run.map(c => c.c).join('') }); run = []; } }
+    }
+    return out;
+  };
+
   // ---- レイアウトが違うページ(内容で照合する): 原稿の文字データを、成果物の文字データと並べ替えに強いやり方で対応づける ----
   //   sub: データファイルのページのとき、このページ(成果物)で照合するまとまり・コメントと、原稿の描画
   async function contentPage(src, p, pr, nq, step, sub) {
@@ -396,7 +456,18 @@
     // 成果物の文字データがほとんどない(文字がアウトライン化・画像化されている)ページは、文字では比べない(すべて「ない」と出てしまうため)
     const nA = A.blocks ? A.blocks.reduce((t, [s, e]) => t + e - s, 0) : A.chars.length, noText = nq.B.chars.length < Math.max(10, 0.2 * nA);
     //   データファイルは、PDFの原稿とは別に成果物の字に印を付ける(ラフとExcelの表のように、同じ所の原稿が2つあってもよいように)
-    const blocks = noText ? [] : PC.collatePage(A, nq.B, pr, pr.free ? nq.usedFree : nq.used, nq.notes);
+    const snap = (pr.free ? nq.usedFree : nq.used).slice();
+    let blocks = noText ? [] : PC.collatePage(A, nq.B, pr, pr.free ? nq.usedFree : nq.used, nq.notes);
+    // 原稿の字が成果物に見当たらない所の近くに、文字データのない文字らしい所(アウトライン化・画像の文字)があれば、そこだけ OCR で
+    //   読んだ字を足して照合し直す(位置の手がかりのない原稿は、ページの候補のうちインクの多いものから)
+    if (!noText && PC.ocrAvailable && PC.ocrAvailable()) {
+      const added = await PC.ocrAugment(nq.doc, nq.q, nq.B, null, missAreas(A, blocks, pr.free ? null : pr.Tt || pr.T), s => step(s, 0.5));
+      if (added) {
+        growUsed(nq);
+        const u = grow(snap, nq.B.chars.length); if (pr.free) nq.usedFree = u; else nq.used = u;
+        blocks = PC.collatePage(A, nq.B, pr, u, nq.notes);
+      }
+    }
     if (pr.free) {   // 成果物での範囲: 対応づいた字を囲む範囲
       const js = blocks.flatMap(b => (b.instr ? [] : b.ops.filter(o => o.length === 3).map(o => o[2])));
       if (js.length) { const u = PC.union(js.map(j => nq.B.chars[j].box)), m = 0.02 * Math.hypot(nq.B.w, nq.B.h); pr.region = [Math.max(0, u[0] - m), Math.max(0, u[1] - m), Math.min(nq.B.w, u[2] + m), Math.min(nq.B.h, u[3] + m)]; }
@@ -440,23 +511,25 @@
         return best;
       };
       // 字のまとまり(item)ごとに、使われなかった字をまとめる。近いまとまりどうしはつなげる
+      //   仕上がり(トンボ)の外の字と内側の字は、別の件にする(ページ情報などを、外の項目として隠せるように)
+      const tr = PC.trimOf(B), side = b => !!tr && PC.outside(tr, b);
       const groups = [];
       B.items.forEach((it, idx) => {
-        const js = []; B.chars.forEach((c, j) => { if (c.it === idx && !used[j] && !usedFree[j]) js.push(j); });
+        const js = []; B.chars.forEach((c, j) => { if (c.it === idx && !used[j] && !usedFree[j] && !c.ocr) js.push(j); });   // OCR の字は、原稿に当たらなければ出さない(図や飾りの読み違いのことがある)
         const isNote = notes.has(idx);
         if (!js.length || (!isNote && !js.some(j => /[\p{L}\p{N}]/u.test(B.chars[j].c)))) return;
         const box = PC.union(js.map(j => B.chars[j].box)), g = groups[groups.length - 1];
         // 同じ行なら全角の空白をはさむくらいまで(2.5字)、別の行なら行の間くらいまで(1.2字)離れていても1件にまとめる
         const size = g ? Math.max(it.size, g.size) : it.size, sameLine = g && Math.min(box[3], g.box[3]) - Math.max(box[1], g.box[1]) > 0.5 * Math.min(box[3] - box[1], g.box[3] - g.box[1]);
-        const close = g && g.note === isNote && PC.gap(box, g.box) < (sameLine ? 2.5 : 1.2) * size;
+        const close = g && g.note === isNote && g.out === side(box) && PC.gap(box, g.box) < (sameLine ? 2.5 : 1.2) * size;
         if (close) { g.js.push(...js); g.box = PC.union([g.box, box]); g.size = Math.max(g.size, it.size); }
-        else groups.push({ js, box, note: isNote, size: it.size });
+        else groups.push({ js, box, note: isNote, size: it.size, out: side(box) });
       });
       // データファイルの範囲では、同じ行に並ぶまとまり(表の1行のセルなど)は、間に対応づいた字がなければ1件にまとめる
       const taken = j => used[j] || usedFree[j];
       for (let k = groups.length - 1; k > 0; k--) {
         const a = groups[k - 1], b = groups[k];
-        if (a.note || b.note) continue;
+        if (a.note || b.note || a.out !== b.out) continue;
         const da = owner(PC.center(a.box)), db = owner(PC.center(b.box));
         if (da !== db || !da.pr.free) continue;
         const lo = Math.max(a.box[1], b.box[1]), hi = Math.min(a.box[3], b.box[3]);
@@ -469,20 +542,32 @@
       B.chars.forEach(c => owner(PC.center(B.items[c.it].box)).nc.push([c.c, c.box.map(v => v * k)]));
       const far = 0.08 * Math.hypot(B.w, B.h);   // どの原稿の範囲からもこれより離れた所は「原稿が見つからない部分」
       const os = OLD && OLD.get(q);
+      // 原稿のない部分の数字のまとまりの中(と直後)で消えた旧版の数字・区切り(「14:23」→「9:11」の消えた字)は、その数字の件に入れる
+      //   (旧版から消えた字だけの件を別に出さない)。返り値: 成果物の字の番号 → その前で消えた字。入れたものは旧版の比べ合わせ(oldChanges)で出さない
+      const goneIn = js => {
+        const m = new Map(), set = new Set(js);
+        for (const x of os.gone) {
+          if (x.taken || x.at < 0 || !x.cs.every(c => PC.NUMC.test(c.c))) continue;
+          if (set.has(x.at) ? !PC.NUMC.test(B.chars[x.at].c) : !(set.has(x.at - 1) && PC.DIGC.test(B.chars[x.at - 1].c))) continue;
+          x.taken = true; m.set(x.at, (m.get(x.at) || '') + x.cs.map(c => c.c).join(''));
+        }
+        return m;
+      };
       for (const g of groups) {
-        const d = owner(PC.center(g.box)), text = g.js.map(j => B.chars[j].c).join(''), old = os ? (g.js.every(j => os.st[j] === 1) ? 'same' : 'changed') : null;
-        const back = backOf(d, g.box), R = d.pr.region, M = 0.04 * Math.hypot(R[2] - R[0], R[3] - R[1]);
+        const d = owner(PC.center(g.box)), text = g.js.map(j => B.chars[j].c).join('');
+        const back = backOf(d, g.box), R = d.pr.region, M = 0.04 * Math.hypot(R[2] - R[0], R[3] - R[1]), isFar = dist(PC.center(g.box), R) > far;
+        const gin = os && isFar && !g.note ? goneIn(g.js) : new Map(), old = os ? (!gin.size && g.js.every(j => os.st[j] === 1) ? 'same' : 'changed') : null;
         if (g.note) { d.extra.push({ cat: 'W', nbox: g.box, box: back, show: text }); continue; }
-        if (old === 'same' && dist(PC.center(g.box), R) > far) {   // 原稿のない部分で、旧版と同じ(前回のまま)ものは1件にまとめる
-          const prev = d.extra.find(e => e.old === 'same');
+        if (old === 'same' && isFar) {   // 原稿のない部分で、旧版と同じ(前回のまま)ものは1件にまとめる
+          const prev = d.extra.find(e => e.old === 'same' && e.out === g.out);
           if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.nbox = PC.union([prev.nbox, g.box]); prev.box = backOf(d, prev.nbox); }
-          else d.extra.push({ cat: 'I', noSrc: true, old, nbox: g.box, nboxes: [g.box], box: back, texts: [text] });
+          else d.extra.push({ cat: 'I', noSrc: true, old, nbox: g.box, nboxes: [g.box], box: back, texts: [text], out: g.out });
           continue;
         }
-        if (dist(PC.center(g.box), R) > far) {   // 原稿のない部分は1件にまとめる(成果物のその部分の原稿を渡していないとき)
-          const prev = d.extra.find(e => e.cat === 'I' && e.noSrc && !e.old && e.vsOld === old);
-          if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.jss.push(g.js); prev.nbox = PC.union([prev.nbox, g.box]); prev.box = backOf(d, prev.nbox); }
-          else d.extra.push({ cat: 'I', noSrc: true, nbox: g.box, nboxes: [g.box], box: back, texts: [text], jss: [g.js], vsOld: old, os });
+        if (isFar) {   // 原稿のない部分は1件にまとめる(成果物のその部分の原稿を渡していないとき)
+          const prev = d.extra.find(e => e.cat === 'I' && e.noSrc && !e.old && e.vsOld === old && e.out === g.out);
+          if (prev) { prev.nboxes.push(g.box); prev.texts.push(text); prev.jss.push(g.js); prev.nbox = PC.union([prev.nbox, g.box]); prev.box = backOf(d, prev.nbox); for (const [j, t] of gin) prev.gin.set(j, t); }
+          else d.extra.push({ cat: 'I', noSrc: true, nbox: g.box, nboxes: [g.box], box: back, texts: [text], jss: [g.js], vsOld: old, os, out: g.out, gin });
           continue;
         }
         const img = d.imgs.findIndex(b => { const c = PC.center(back); return c[0] >= b[0] - M && c[0] <= b[2] + M && c[1] >= b[1] - M && c[1] <= b[3] + M; });
@@ -567,24 +652,58 @@
   // ---- 旧版(前回の成果物)との比べ合わせ ----
   //   旧版の各ページが成果物のどのページ・範囲に当たるかを求め、字の並びで対応づける
   //   返り値: 成果物のページ → { B, st: 字ごとに 0=旧版にない・1=旧版と同じ・2=旧版の別の字から変わった, gone: 旧版から消えた字の続き, maps }
-  async function oldDiff(oldDoc, newDoc, NQ, prog) {
+  async function oldDiff(oldDoc, newDoc, NQ, prog, JP) {
     const src = { numPages: oldDoc.numPages, page: p => ({ doc: oldDoc, i: p }), label: () => null, image: async p => ({ img: await PC.renderPage(oldDoc, p, 300, false), dpi: 300 }) };
     const pairs = await PC.pairPages(src, newDoc, (s, f) => prog('旧版：' + s, 0.94 + 0.03 * f)), out = new Map();
     for (let p = 0; p < pairs.length; p++) {
       const pr = pairs[p];
       if (pr.q < 0) continue;
-      if (!out.has(pr.q)) { const B = NQ.has(pr.q) ? NQ.get(pr.q).B : await PC.pageText(newDoc, pr.q); out.set(pr.q, { B, st: new Uint8Array(B.chars.length), oc: [], used: new Uint8Array(B.chars.length), gone: [], maps: [] }); }
+      if (!out.has(pr.q)) { const B = NQ.has(pr.q) ? NQ.get(pr.q).B : JP && JP[pr.q] ? JP[pr.q].B : await PC.pageText(newDoc, pr.q); out.set(pr.q, { B, st: new Uint8Array(B.chars.length), oc: [], used: new Uint8Array(B.chars.length), gone: [], maps: [] }); }
       const o = out.get(pr.q), A = await PC.pageText(oldDoc, p);
       if (!A.chars.length) continue;
-      const blocks = PC.collatePage(A, o.B, { ...pr, noInstr: true, strict: true }, o.used, new Set());
+      const snap = o.used.slice(), opt = { ...pr, noInstr: true, strict: true };
+      let blocks = PC.collatePage(A, o.B, opt, o.used, new Set());
+      // 片方にだけ文字データがある所(どちらかで文字をアウトライン化・画像化した所)は、もう片方のその辺りを OCR で読んで比べ直す
+      //   旧版の字が成果物に見当たらない所 → 成果物のその辺り。成果物の字(この旧版のページの範囲)が旧版に当たらない所 → 旧版のその辺り
+      if (PC.ocrAvailable && PC.ocrAvailable() && pr.T) {
+        const toNew = missAreas(A, blocks, pr.T), hit = new Set(blocks.flatMap(b => b.ops.filter(x => x.length === 3).map(x => x[2]))), R = pr.region, inv = PC.invT(pr.T);
+        //   成果物の字のうち、この旧版のページの範囲にあって旧版に当たらない字の続き(まとまりごと)
+        const inR = c => { const [x, y] = PC.center(c.box); return R && x >= R[0] && x <= R[2] && y >= R[1] && y <= R[3]; }, toOld = [];
+        let run = [];
+        const flush = () => { if (run.length) toOld.push({ box: PC.mapBox(inv, PC.union(run.map(c => c.box))), text: run.map(c => c.c).join('') }); run = []; };
+        o.B.chars.forEach((c, j) => { if (!c.ocr && !hit.has(j) && !snap[j] && inR(c)) { if (run.length && run[run.length - 1].it !== c.it) flush(); run.push(c); } else flush(); });
+        flush();
+        const addN = toNew.length ? await PC.ocrAugment(newDoc, pr.q, o.B, null, toNew, s => prog(`成果物 ${pr.q + 1}ページ目：${s}`)) : 0;
+        const addO = toOld.length ? await PC.ocrAugment(oldDoc, p, A, null, toOld, s => prog(`旧版 ${p + 1}ページ目：${s}`)) : 0;
+        if (addN || addO) {
+          if (NQ.has(pr.q)) growUsed(NQ.get(pr.q));
+          o.used = grow(snap, o.B.chars.length); o.st = grow(o.st, o.B.chars.length);
+          blocks = PC.collatePage(A, o.B, opt, o.used, new Set());
+        }
+      }
       for (const b of blocks) {
         let run = [];
         for (const op of [...b.ops, ['|']]) {
           if (op.length === 3) { o.st[op[2]] = op[0] === '=' || op[0] === '~' ? 1 : 2; if (op[0] === 'x') o.oc[op[2]] = A.chars[b.s + op[1]].c; }   // oc: 置き換わる前の旧版の字
           if (op[0] === '-') { run.push(b.s + op[1]); continue; }
-          if (run.length) o.gone.push({ p, cs: run.map(i => A.chars[i]), T: pr.T, near: op.length === 3 ? o.B.chars[op[2]].box : null });
+          //   at: 消えた字の直後の成果物の字(旧版にない字が続くときはその字。数字のまとまりの中で消えた字を、同じ件に入れるため)
+          if (run.length) o.gone.push({ p, cs: run.map(i => A.chars[i]), T: pr.T, near: op.length === 3 ? o.B.chars[op[2]].box : null, at: op.length === 3 ? op[2] : op[0] === '+' ? op[1] : -1 });
           run = [];
         }
+      }
+      // 区間の終わりで消えた数字(続く成果物の字がなく at がない。「29」→「30」の「29」)は、写した位置に重なる成果物の旧版にない数字を at にする
+      //   (数字のまとまりの中の違いとして、同じ件に入れるため)
+      if (pr.T) for (const g of o.gone) {
+        if (g.p !== p || g.at >= 0 || !g.cs.every(c => PC.NUMC.test(c.c))) continue;
+        const mb = PC.mapBox(pr.T, PC.union(g.cs.map(c => c.box))), h = Math.max(1, Math.min(mb[3] - mb[1], mb[2] - mb[0]));
+        let bd = Infinity;
+        o.B.chars.forEach((c, j) => {
+          if (o.st[j] === 1 || !PC.DIGC.test(c.c)) return;
+          const oy = Math.min(c.box[3], mb[3]) - Math.max(c.box[1], mb[1]), ox = Math.min(c.box[2], mb[2]) - Math.max(c.box[0], mb[0]);
+          if (oy < 0.5 * Math.min(mb[3] - mb[1], c.box[3] - c.box[1]) && ox < 0.5 * Math.min(mb[2] - mb[0], c.box[2] - c.box[0])) return;   // 同じ行(縦組みは同じ列)の字だけ
+          const d = PC.gap(c.box, mb);
+          if (d <= h && d < bd) { bd = d; g.at = j; }
+        });
       }
       o.maps.push({ p, T: pr.T });
       await PC.tick();
@@ -612,6 +731,18 @@
       s = Math.max(s, e + best - 1);
     }
   }
+  // 数字のまとまり(桁区切り・小数点・時刻・日付の区切りを含む): 字の番号の範囲 [a, b) の一覧。区切りは数字にはさまれたものだけ
+  //   続きは、同じまとまりの字か、すき間が字の高さの1.5倍までの字
+  function numberSpans(C) {
+    const out = [], N = C.length, near = (i, j) => C[i].it === C[j].it || PC.gap(C[i].box, C[j].box) <= 1.5 * Math.max(1, C[j].box[3] - C[j].box[1]);
+    for (let i = 0; i < N; i++) {
+      if (!PC.DIGC.test(C[i].c)) continue;
+      let e = i + 1;
+      while (e < N && near(e - 1, e) && (PC.DIGC.test(C[e].c) || (PC.NUMC.test(C[e].c) && e + 1 < N && PC.DIGC.test(C[e + 1].c) && near(e, e + 1)))) e++;
+      out.push([i, e]); i = e - 1;
+    }
+    return out;
+  }
   // 旧版から変わった所のうち、どの原稿も当たらない部分のもの(指示にない変更)を、結果のページに付ける
   //   成果物に字がある変化(旧版にない字)は、原稿のあるページでは「原稿にない文字」として出ているので、ここでは
   //   旧版から消えた字と、原稿がまったく当たらないページの旧版にない字を出す
@@ -620,31 +751,50 @@
     for (const [q, o] of OLD.byQ) {
       const ds = P.filter(d => d.q === q && d.kind !== 'none' && d.kind !== 'newonly');
       const covered = b => { const [x, y] = PC.center(b); return ds.some(d => { const R = d.kind === 'content' ? d.pr.region : d.kind === 'records' ? d.cov : d.crop || [0, 0, 1e9, 1e9]; return R && x >= R[0] && x <= R[2] && y >= R[1] && y <= R[3]; }); };
-      const items = [];
+      const items = [], noContent = !ds.some(d => d.kind === 'content');
+      // 数字のまとまりの中の違いは、まとまり全体を1件にする(「4,730」→「5,060」を「4→5」「730→060」の2件にしない)。
+      //   数字のまとまりの中(と直後)で消えた旧版の数字・区切りも、同じ件に入れる(goneIn: 成果物の字の番号 → その前で消えた字)
+      const C = o.B.chars, spans = noContent ? numberSpans(C) : [], spanOf = new Int32Array(C.length).fill(-1), goneIn = new Map();
+      spans.forEach(([a, b], s) => { for (let j = a; j < b; j++) spanOf[j] = s; });
+      const spanAt = j => (j >= 0 && j < C.length && spanOf[j] >= 0 ? spanOf[j] : j > 0 && spanOf[j - 1] >= 0 ? spanOf[j - 1] : -1);
       for (const g of o.gone) {
+        if (g.taken) continue;   // 原稿のない部分の数字の件に入れたもの(leftovers)
         const ob = PC.union(g.cs.map(c => c.box)), text = g.cs.map(c => c.c).join('');
         if (!/[\p{L}\p{N}]/u.test(text)) continue;
+        if (noContent && g.at >= 0 && [...text].every(c => PC.NUMC.test(c)) && spanAt(g.at) >= 0) { goneIn.set(g.at, (goneIn.get(g.at) || '') + text); continue; }
         const nb = g.near ? [g.near[0] - 1, g.near[1], g.near[0] + 1, g.near[3]] : PC.mapBox(g.T, ob);
         if (covered(nb)) continue;
-        items.push({ kind: 'del', text, segs: [['-', text]], nbox: nb, old: { p: g.p, box: px(ob) } });
+        items.push({ kind: 'del', text, segs: [['-', text]], nbox: nb, old: { p: g.p, box: px(ob) }, ocr: g.cs.some(c => c.ocr) });
       }
-      if (!ds.some(d => d.kind === 'content')) {   // 原稿がまったく当たらないページ(または同じレイアウトの原稿の外): 旧版にない字の続き
+      if (noContent) {   // 原稿がまったく当たらないページ(または同じレイアウトの原稿の外): 旧版にない字の続き
+        // 違いのある数字のまとまりは、まとまり全体を続きに入れる
+        const hot = new Set();
+        spans.forEach(([a, b], s) => { for (let j = a; j < b; j++) if (o.st[j] !== 1) hot.add(s); for (let j = a; j <= b; j++) if (goneIn.has(j)) hot.add(s); });
+        const inRun = j => o.st[j] !== 1 || (spanOf[j] >= 0 && hot.has(spanOf[j]));
         let run = [];
+        const push = (segs, t, s) => { const g = segs[segs.length - 1]; if (g && g[0] === t) g[1] += s; else segs.push([t, s]); };
         const flush = () => {
-          if (run.length && run.some(j => /[\p{L}\p{N}]/u.test(o.B.chars[j].c))) {
-            const nb = PC.union(run.map(j => o.B.chars[j].box)), m = o.maps[0];
+          if (run.length && run.some(j => o.st[j] !== 1 && /[\p{L}\p{N}]/u.test(C[j].c)) || run.some(j => goneIn.has(j)) || (run.length && goneIn.has(run[run.length - 1] + 1))) {
+            const nb = PC.union(run.map(j => C[j].box)), m = o.maps[0];
             // 前後の同じ字(同じまとまりの6字まで)を添え、置き換わった字は旧版の字→成果物の字で示す
-            const C = o.B.chars, it = C[run[0]].it, segs = [];
+            const it = C[run[0]].it, segs = [];
             const pre = []; for (let j = run[0] - 1; j >= 0 && pre.length < 6 && C[j].it === it && o.st[j] === 1; j--) pre.unshift(C[j].c);
-            const post = []; for (let j = run[run.length - 1] + 1; j < C.length && post.length < 6 && C[j].it === it && o.st[j] === 1; j++) post.push(C[j].c);
+            const last = run[run.length - 1], post = []; for (let j = last + 1; j < C.length && post.length < 6 && C[j].it === it && o.st[j] === 1; j++) post.push(C[j].c);
             if (pre.length) segs.push(['=', pre.join('')]);
-            for (const j of run) { const g = segs[segs.length - 1]; if (o.st[j] === 2 && o.oc[j]) { if (g && g[0] === '-') g[1] += o.oc[j]; else segs.push(['-', o.oc[j]]); } const h = segs[segs.length - 1]; if (h && h[0] === '+') h[1] += C[j].c; else segs.push(['+', C[j].c]); }
-            if (post.length) segs.push(['=', post.join('')]);
-            if (!covered(nb)) items.push({ kind: 'add', text: run.map(j => C[j].c).join(''), segs, nbox: nb, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), nb)) } : null });
+            for (const j of run) {
+              if (j !== run[0] && (C[j].sp || C[j].it !== C[j - 1].it) && PC.DIGC.test(C[j].c) && PC.DIGC.test(C[j - 1].c)) push(segs, '=', ' ');   // 空白・まとまりの切れ目をはさむ数字どうし(日付と時刻など)は、空白で分けて示す
+              if (goneIn.has(j)) push(segs, '-', goneIn.get(j));
+              if (o.st[j] === 1) push(segs, '=', C[j].c);
+              else { if (o.st[j] === 2 && o.oc[j]) push(segs, '-', o.oc[j]); push(segs, '+', C[j].c); }
+            }
+            if (goneIn.has(last + 1) && spanAt(last + 1) >= 0 && spanOf[last + 1] !== spanOf[last]) push(segs, '-', goneIn.get(last + 1));
+            if (post.length) push(segs, '=', post.join(''));
+            const kind = segs.some(g => g[0] === '+') ? 'add' : 'del';
+            if (!covered(nb)) items.push({ kind, text: run.map(j => C[j].c).join(''), segs, nbox: nb, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), nb)) } : null, ocr: run.some(j => C[j].ocr) });
           }
           run = [];
         };
-        o.B.chars.forEach((c, j) => { if (o.st[j] !== 1) { if (run.length && o.B.chars[run[run.length - 1]].it !== c.it && PC.gap(o.B.chars[run[run.length - 1]].box, c.box) > 2 * (c.box[3] - c.box[1])) flush(); run.push(j); } else flush(); });
+        C.forEach((c, j) => { if (inRun(j)) { if (run.length && (C[run[run.length - 1]].it !== c.it && PC.gap(C[run[run.length - 1]].box, c.box) > 2 * (c.box[3] - c.box[1]) || run[run.length - 1] !== j - 1)) flush(); run.push(j); } else flush(); });
         flush();
       }
       for (const x of items) {
@@ -750,7 +900,7 @@
       ok = kind === 'big' ? rB >= rA * 1.1 : rB <= rA * 0.9;
     } else if (kind === 'bold' || kind === 'thin') {
       const fonts = bj.map(j => B.items[B.chars[j].it].font || ''), byName = fonts.filter(f => BOLD.test(f)).length >= 0.5 * fonts.length;
-      const ink = med(bj.map(j => (B.chars[j].sty || {}).ink || 0)), page = med(B.chars.map(c => (c.sty || {}).ink || 0));
+      const ink = med(bj.map(j => (B.chars[j].sty || {}).ink || 0)), page = med(B.chars.filter(c => !c.ocr).map(c => (c.sty || {}).ink || 0));
       if (!page || !ink) return null;
       const bold = byName || ink >= page * 1.25;
       ok = kind === 'bold' ? bold : !bold && ink <= page * 0.95;
@@ -789,14 +939,19 @@
         if (refOf.get(b.s)) f.ref = refOf.get(b.s);
         continue;
       }
+      //   グラフの値のもとの行で、成果物に表として見当たらないもの: グラフの項目名・値で確かめるので出さない
+      if (b.chartsrc && b.ops.length && b.ops.every(o => o[0] === '-')) continue;
       const vs = [];
-      for (const h of PC.hunksOf(b.ops)) {
+      for (const h of PC.hunksOf(b.ops, cs, B)) {
         const r = hunkView(b.ops, h, cs, B);
         // 旧版があるとき: 違う字の所が旧版と同じ(前回のまま=直っていない)か、旧版からも変わったか
         const hj = b.ops.slice(h.s, h.e).map(o => (o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1)).filter(j => j >= 0);
         r.vsOld = d.oldSt && hj.length ? (hj.every(j => d.oldSt[j] === 1) ? 'same' : 'changed') : null;
         if (h.variant || (d.pr.free && unitOnly(b.ops, h, cs, B))) { vs.push(r); continue; }
-        pend.push({ cat: 'T', box: px(r.box || box), nbox: px(r.nbox || toNew(r.box || box)), segs: r.segs, pboxes: r.box ? [px(r.box)] : [], pnboxes: r.nbox ? [px(r.nbox)] : [], approx: !r.nbox, ref: refOf.get(b.s), gone: d.A.order && b.ops.length > 0 && b.ops.every(o => o[0] === '-') ? d.A.order.get(b.s) : -1, vsOld: r.vsOld });
+        //   OCR で読んだ字がかかわる違い(違う所か、そのすぐ前後の字が OCR の字)
+        const near = [h.s - 1, h.e].map(k => b.ops[k]).filter(o => o && o.length === 3).map(o => o[2]);
+        const ocr = [...hj, ...near].some(j => B[j] && B[j].ocr);
+        pend.push({ cat: 'T', box: px(r.box || box), nbox: px(r.nbox || toNew(r.box || box)), segs: r.segs, pboxes: r.box ? [px(r.box)] : [], pnboxes: r.nbox ? [px(r.nbox)] : [], approx: !r.nbox, ref: refOf.get(b.s), gone: d.A.order && b.ops.length > 0 && b.ops.every(o => o[0] === '-') ? d.A.order.get(b.s) : -1, vsOld: r.vsOld, ocr });
       }
       if (vs.length) {   // 書き方だけの違いは、まとまりごとに1件
         const segs = []; vs.forEach((r, i) => { if (i) segs.push(['=', '…']); segs.push(...r.segs); });
@@ -835,6 +990,7 @@
         Object.assign(f, { segs: x.segs, same: false, pboxes: x.pboxes, pnboxes: x.pnboxes });
         if (x.approx) f.approx = true;
         if (x.ref) f.ref = x.ref;
+        if (x.ocr || rest.some(y => y.ocr)) f.ocr = true;
         if (x.vsOld && !rest.length) f.vsOld = x.vsOld;
         if (x.goneN) Object.assign(f, { goneN: x.goneN, refs: x.refs, moreBoxes: x.moreBoxes, moreNboxes: [] });
         if (rest.length) Object.assign(f, { more: rest.length + 1, moreBoxes: rest.flatMap(y => y.pboxes.length ? y.pboxes : [y.box]), moreNboxes: rest.flatMap(y => y.pnboxes.length ? y.pnboxes : [y.nbox]), refs: [x, ...rest].map(y => y.ref).filter(Boolean) });
@@ -858,7 +1014,9 @@
         if (e.noSrc && e.vsOld === 'changed') {
           // 旧版から変わった字だけに色を付ける(置き換わった字は旧版の字→成果物の字、旧版にない字は足した字)
           const segs = [], B = d.nq.B.chars, push = (t, c) => { const g = segs[segs.length - 1]; if (g && g[0] === t) g[1] += c; else segs.push([t, c]); };
-          e.jss.forEach((js, n) => { if (n) push('=', ' ／ '); for (const j of js) { const st = e.os.st[j]; if (st === 1) push('=', B[j].c); else { if (st === 2 && e.os.oc[j]) push('-', e.os.oc[j]); push('+', B[j].c); } } });
+          //   数字のまとまりの中で消えた旧版の字(gin)は、その位置に「旧版の字」として入れる
+          const done = new Set(), gone = j => { if (e.gin.has(j) && !done.has(j)) { done.add(j); push('-', e.gin.get(j)); } };
+          e.jss.forEach((js, n) => { if (n) push('=', ' ／ '); js.forEach((j, i) => { const pj = js[i - 1]; if (i && (B[j].sp || B[j].it !== B[pj].it) && PC.DIGC.test(B[j].c) && PC.DIGC.test(B[pj].c)) push('=', ' '); gone(j); const st = e.os.st[j]; if (st === 1) push('=', B[j].c); else { if (st === 2 && e.os.oc[j]) push('-', e.os.oc[j]); push('+', B[j].c); } }); gone(js[js.length - 1] + 1); });
           const m = e.os.maps[0];
           Object.assign(f, { cat: 'C2', label: PC.CAT.C2, how: '旧版から変わった所（原稿のない部分）', fromOld: 'add', newOnly: true, segs, same: false, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), e.nbox)) } : null });
         }
@@ -901,7 +1059,7 @@
       const img = await PC.renderPage(newDoc, q, PC.DPI, false), B = await PC.pageText(newDoc, q);
       PC.snapChars(B, img, PC.S);
       for (const c of B.chars) c.sty = styleOf(img, c.box.map(x => x * PC.S));   // 字の見た目(書式の指示の確認用)
-      const v = { B, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), usedFree: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
+      const v = { B, doc: newDoc, q, notes: PC.designerNotes(B, img, PC.S), used: new Uint8Array(B.chars.length), usedFree: new Uint8Array(B.chars.length), thumb: await toThumb(img) };
       NQ.set(q, v);
       return v;
     };
@@ -940,7 +1098,7 @@
         put(d); continue;
       }
       const kind = await src.kind(p);
-      let nw = await PC.renderPage(newDoc, pr.q, PC.DPI, false), nc = await PC.textChars(newDoc, pr.q);
+      let nw = await PC.renderPage(newDoc, pr.q, PC.DPI, false), nc = await PC.textCharsSnapped(newDoc, pr.q, nw);
       if (pr.crop) {   // 原稿のページが成果物のページの一部(見開きの片側など)に当たる: その部分だけを切り出して比べる
         const [x0, y0, x1, y1] = pr.crop.map(v => Math.round(v * PC.S));
         nw = PC.crop(nw, x0, y0, x1, y1);
@@ -959,7 +1117,7 @@
     prog('表の商品ごとの照合', 0.93); await PC.tick();
     await recordPages(P, src, JP, newDoc, NQ);
     // 旧版(任意)があれば、成果物の字が旧版から変わったかを求める(原稿のない部分の変化・前回のままの見分けに使う)
-    const OLD = opts.oldDoc ? await oldDiff(opts.oldDoc, newDoc, NQ, prog) : null;
+    const OLD = opts.oldDoc ? await oldDiff(opts.oldDoc, newDoc, NQ, prog, JP) : null;
     if (OLD) for (const d of P) if (d.kind === 'content' && OLD.byQ.has(d.q)) d.oldSt = OLD.byQ.get(d.q).st;
     leftovers(P, NQ, OLD && OLD.byQ);
     if (OLD) await oldChanges(P, OLD, newDoc);
@@ -1113,6 +1271,7 @@
       for (const x of d.olds || []) {   // 旧版から変わった所(原稿のない部分): 指示にない変更
         const f = add(p + 1, 'C2', x.nbox, x.text, '旧版から変わった所（原稿のない部分）', '', '', x.nbox);
         Object.assign(f, { onNew: true, newOnly: true, fromOld: x.kind, segs: x.segs, same: false, pnboxes: [x.nbox], old: x.old });
+        if (x.ocr) f.ocr = true;
       }
       for (const x of d.jf || []) {   // 成果物だけで見た問題
         const f = add(p + 1, 'J', x.nbox, x.show, '', '', '', x.nbox);
@@ -1213,6 +1372,19 @@
     // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
     const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
     const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null }));
+    // 仕上がり(トンボ)の外にある項目に印を付ける(詳細設定で、ページ情報などを結果から外せるように)
+    //   仕上がりは成果物のPDFに書かれた TrimBox(ページの外枠と同じなら外はない)。項目の成果物での位置の中心で見る
+    //   違う字の枠(pnboxes)があれば、そのすべてが外のものだけ(内側の字を含む項目は、外の項目として隠さない)
+    const trims = new Map();
+    for (const f of F) {
+      const pg = pages[f.page - 1];
+      if (!pg || pg.q < 0 || !f.nbox) continue;
+      if (!trims.has(pg.q)) trims.set(pg.q, PC.trimOf(JP[pg.q] ? JP[pg.q].B : await PC.pageText(newDoc, pg.q)));   // JP: 成果物の全ページの文字データ
+      const t = trims.get(pg.q), o0 = pg.crop ? [pg.crop[0], pg.crop[1]] : [0, 0];
+      if (!t) continue;
+      const bs = f.pnboxes && f.pnboxes.length ? f.pnboxes : [f.nbox];
+      if (bs.every(b => b && PC.outside(t, [b[0] / PC.S + o0[0], b[1] / PC.S + o0[1], b[2] / PC.S + o0[0], b[3] / PC.S + o0[1]]))) f.outTrim = true;
+    }
     // 旧版のページの表示用の画像(旧版から変わった所の項目で使うものだけ)
     const oldPages = [];
     if (opts.oldDoc) for (const p of new Set(F.filter(f => f.old).map(f => f.old.p))) oldPages[p] = await toThumb(await PC.renderPage(opts.oldDoc, p, PC.DPI, false));

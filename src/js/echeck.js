@@ -15,7 +15,7 @@
       let p = null;
       for (let i = a; i < e; i++) {
         const c = B.chars[i];
-        if (skip.has(c.it)) continue;
+        if (skip.has(c.it) || c.ocr) continue;
         if (p) {
           // 同じ文字列のまとまりの中は元の空白だけで切る(字の枠は描画に合わせて縮めてあり、字の間のすきまは語の切れ目にならない)。
           //   まとまりの間は、行が変わるか、字の大きさの2割より広いすきまで切る

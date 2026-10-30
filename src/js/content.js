@@ -17,6 +17,9 @@
   PC.iou = iou;
   PC.center = b => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
   PC.gap = (a, b) => Math.hypot(Math.max(0, a[0] - b[2], b[0] - a[2]), Math.max(0, a[1] - b[3], b[1] - a[3]));   // 枠どうしのすき間
+  // 仕上がりの範囲(TrimBox。ページの外枠と同じなら外はないので null)と、枠の中心が仕上がりの外か
+  PC.trimOf = B => { const t = B && B.trim; return t && (t[0] > 1 || t[1] > 1 || t[2] < B.w - 1 || t[3] < B.h - 1) ? t : null; };
+  PC.outside = (t, b) => { const [x, y] = PC.center(b); return x < t[0] || x > t[2] || y < t[1] || y > t[3]; };
 
   // ---- ページの文字データ: 1字ずつ { c: 字, k: 照合用の字, box, it: まとまりの番号 } ----
   //   同じ位置に同じ文字列が重ねて描かれたもの(縁取りの文字など)は1つにする
@@ -108,6 +111,16 @@
         if (cl >= 0) c.box = [(cl + x0) / k, (rt + y0) / k, (cr + 1 + x0) / k, (rb + 1 + y0) / k];
       }
     }
+  };
+
+  // ---- 字形で比べるページの字と位置(画素): 全角・半角の幅を考えて割り振り(PC.pageText)、描画した字の形に合わせる ----
+  //   img: そのページを PC.DPI で描画したもの。返り値 [[字, 枠], ...](枠は PC.DPI の画素)
+  //   ocr: 文字データのない所を OCR で読んだ字も加える(字形で比べたあとの、違う字の表示に使う)
+  PC.textCharsSnapped = async (doc, pno, img, ocr = false) => {
+    const T = await PC.pageText(doc, pno), k = PC.DPI / 72;
+    PC.snapChars(T, img, k);
+    if (ocr && PC.ocrAugment) await PC.ocrAugment(doc, pno, T, img);
+    return T.chars.map(c => (c.ocr ? [c.c, c.box.map(v => v * k), 'ocr'] : [c.c, c.box.map(v => v * k)]));
   };
 
   // ---- まとまり(段落・テキストボックス): 字の並び(描かれた順)を、続きでない所で切る ----
@@ -253,12 +266,14 @@
     if (!m) return A.map((_, i) => ['-', i]);
     const D = new Float32Array((n + 1) * W), op = new Uint8Array((n + 1) * W), from = new Int32Array(n + 1);
     const xi = new Float32Array(m); for (let j = 1; j < m; j++) if (B[j].it !== B[j - 1].it) xi[j] = XI;
+    //   OCR で読んだ字(alt: 読み違えやすい字の候補)は、候補の字とも同じとみなす
+    const alt = B.some(c => c.alt) || A.some(c => c.alt), same = (a, b) => a.k === b.k || (alt && ((b.alt && b.alt.has(a.k)) || (a.alt && a.alt.has(b.k))));
     for (let j = 0; j <= m; j++) { D[j] = J + (near && j < m ? near(0, j) : 0); op[j] = 3; }
     from[0] = -1;
     for (let i = 0; i < n; i++) {
       const r0 = i * W, r1 = r0 + W, ak = A[i].k;
       for (let j = 0; j <= m; j++) { D[r1 + j] = D[r0 + j] + 1; op[r1 + j] = 1; }
-      for (let j = 0; j < m; j++) { const v = D[r0 + j] + (ak === B[j].k && !(used && used[j]) ? 0 : 1) + (op[r0 + j] === 3 ? 0 : xi[j]); if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 0; } }
+      for (let j = 0; j < m; j++) { const v = D[r0 + j] + ((ak === B[j].k || (alt && same(A[i], B[j]))) && !(used && used[j]) ? 0 : 1) + (op[r0 + j] === 3 ? 0 : xi[j]); if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 0; } }
       for (let j = 0; j < m; j++) { const v = D[r1 + j] + 1 + (op[r1 + j] === 3 ? 0 : xi[j]); if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 2; } }
       let best = Infinity, bj = 0;
       for (let j = 0; j <= m; j++) if (D[r1 + j] < best) { best = D[r1 + j]; bj = j; }
@@ -272,12 +287,18 @@
     const ops = [];
     while (i > 0) {
       const o = op[i * W + j];
-      if (o === 0) { i--; j--; ops.push([A[i].c === B[j].c ? '=' : A[i].k === B[j].k ? '~' : 'x', i, j]); }
+      if (o === 0) { i--; j--; ops.push([A[i].c === B[j].c || (A[i].k !== B[j].k && alt && same(A[i], B[j])) ? '=' : A[i].k === B[j].k ? '~' : 'x', i, j]); }
       else if (o === 1) { i--; ops.push(['-', i]); }
       else if (o === 2) { j--; ops.push(['+', j]); }
       else { ops.push(['|']); j = from[i]; }
     }
     ops.reverse();
+    // strict: 最初の字も、消してすぐ後ろから当てるのと手間が同じなら、すぐ前の成果物の字(同じまとまり・未使用)との置き換えとみなす
+    //   (「秋の新商品」→「冬の新商品」を、「秋」を消して「冬」が余る、としない)
+    if (strict && ops.length > 1 && ops[0][0] === '-' && ops[0][1] === 0 && ops[1].length === 3 && ops[1][1] === 1) {
+      const j1 = ops[1][2];
+      if (j1 > 0 && B[j1 - 1].it === B[j1].it && !(used && used[j1 - 1])) ops[0] = [A[0].c === B[j1 - 1].c ? '=' : A[0].k === B[j1 - 1].k ? '~' : 'x', 0, j1 - 1];
+    }
     // strict: 1つのまとまりの中で、同じ成果物の字を2度使わない(抜けた文が、前の文の字に当たり直さないように)。一致の多い区間を残す
     if (strict) {
       const segOf = [], hitsOf = []; let sg = 0;
@@ -397,7 +418,36 @@
   PC.UNIT = /^[¥￥円$＄]$/;
   // ---- opsを、違いのまとまり(hunk)に分ける: [開始, 終了) は ops の番号 ----
   //   区間の切れ目('|')は違いではない(配置が違うだけ)。同じ字が2字以上続く所、区間の切れ目で分ける
-  PC.hunksOf = ops => {
+  //   A・B(字の並び)を渡すと、数字のまとまり(桁区切り・小数点・時刻・日付の区切りを含む)の中の違いは1つにまとめる
+  //   (「1,234,567」→「1,334,568」を2件にしない。間が数字と区切りだけ(6字まで)で、両方の違いに数字があるもの)
+  PC.NUMC = /[0-9０-９,，.．:：\/／\-－]/; PC.DIGC = /[0-9０-９]/;
+  // 違い(segs)が数字のまとまりにかかるときは、数字全体を「旧→新」の1か所で示す(「4,[73→06]0」でなく「4,730→5,060」)
+  //   違いの字が入っている旧・新の数字のまとまり(数字と、数字にはさまれた区切り)の字を、すべて違いに入れる。数字の外の違い・同じ字はそのまま
+  //   (「10:00〜18:00」→「11:30〜19:00」は「10:00→11:30」と「18:00→19:00」の2か所。「〜」は同じ字のまま)
+  PC.numberSegs = segs => {
+    if (!segs || !segs.some(g => g[0] !== '=')) return segs;
+    // 字ごとの列: [種類, 字, 旧の字の番号, 新の字の番号]
+    const cols = [], O = [], N = [];
+    for (const [t, s] of segs) for (const c of s) { cols.push([t, c, t !== '+' ? O.length : -1, t !== '-' ? N.length : -1]); if (t !== '+') O.push(c); if (t !== '-') N.push(c); }
+    const tokens = C => { const id = new Int32Array(C.length).fill(-1); let n = 0; for (let i = 0; i < C.length; i++) { if (!PC.DIGC.test(C[i])) continue; let e = i + 1; while (e < C.length && (PC.DIGC.test(C[e]) || (PC.NUMC.test(C[e]) && PC.DIGC.test(C[e + 1] || '')))) e++; id.fill(n++, i, e); i = e - 1; } return id; };
+    const tO = tokens(O), tN = tokens(N), hot = cols.map(c => c[0] !== '='), hO = new Set(), hN = new Set();
+    for (let grew = true; grew;) {
+      grew = false;
+      cols.forEach((c, k) => { if (!hot[k]) return; if (c[2] >= 0 && tO[c[2]] >= 0) hO.add(tO[c[2]]); if (c[3] >= 0 && tN[c[3]] >= 0) hN.add(tN[c[3]]); });
+      cols.forEach((c, k) => { if (!hot[k] && ((c[2] >= 0 && hO.has(tO[c[2]])) || (c[3] >= 0 && hN.has(tN[c[3]])))) { hot[k] = true; grew = true; } });
+    }
+    if (cols.every((c, k) => hot[k] === (c[0] !== '='))) return segs;
+    const out = [], push = (t, s) => { if (!s) return; const g = out[out.length - 1]; if (g && g[0] === t) g[1] += s; else out.push([t, s]); };
+    for (let k = 0; k < cols.length;) {
+      if (!hot[k]) { push('=', cols[k][1]); k++; continue; }
+      let e = k; while (e < cols.length && hot[e]) e++;
+      const run = cols.slice(k, e);
+      push('-', run.filter(c => c[2] >= 0).map(c => c[1]).join('')); push('+', run.filter(c => c[3] >= 0).map(c => c[1]).join(''));
+      k = e;
+    }
+    return out;
+  };
+  PC.hunksOf = (ops, A, B) => {
     const out = []; let s = -1, e = -1;
     for (let k = 0; k < ops.length; k++) {
       const t = ops[k][0];
@@ -409,6 +459,13 @@
       e = k + 1;
     }
     if (s >= 0) out.push([s, e]);
+    if (A && B) {
+      const digs = ([s, e]) => ops.slice(s, e).some(o => (o[0] === '+' ? PC.DIGC.test(B[o[1]].c) : PC.DIGC.test(A[o[1]].c) || (o.length === 3 && PC.DIGC.test(B[o[2]].c))));
+      for (let i = out.length - 2; i >= 0; i--) {
+        const mid = ops.slice(out[i][1], out[i + 1][0]);
+        if (mid.length <= 6 && mid.every(o => o[0] === '=' && PC.NUMC.test(A[o[1]].c)) && digs(out[i]) && digs(out[i + 1])) out.splice(i, 2, [out[i][0], out[i + 1][1]]);
+      }
+    }
     return out.map(([s, e]) => ({ s, e, variant: ops.slice(s, e).every(o => o[0] === '~' || o[0] === '=') }));
   };
 
@@ -466,7 +523,9 @@
   //   返り値: who(まとまりごとに、cands の何番目か)・also(表の見出しの行が、そのまま載っているほかのページ)
   PC.splitFree = (A, blocks, cands) => {
     const ks = cands.map(c => PC.keyStr(c.B.chars, true).s);
-    const who = blocks.map(([s, e]) => {
+    //   グラフの項目名・値(kind 'chart')は短いため、ほかのページにも同じ字があることが多い。自分の字では決めず、前後のまとまり(表題など)と同じページにする
+    const who = blocks.map(([s, e, kind]) => {
+      if (kind === 'chart') return -1;
       const byIt = new Map();
       for (let i = s; i < e; i++) { const c = A.chars[i]; if (!byIt.has(c.it)) byIt.set(c.it, []); byIt.get(c.it).push(c); }
       const sc = cands.map(() => 0); let n = 0;
@@ -512,10 +571,10 @@
     const src = pr.src, inSrc = c => { const [x, y] = PC.center(c.box); return x >= src[0] && x <= src[2] && y >= src[1] && y <= src[3]; };
     const cov = new Uint8Array(A.chars.length);
     if (!free) for (const x of PC.textAnchors(A.chars, Bk, 6)) cov.fill(1, x.i, x.i + x.n);
-    const blocks = (A.blocks || PC.blocksOf(A.chars, A.items).map(([s, e]) => [s, e, 'para'])).map(([s, e, kind]) => {
+    const blocks = (A.blocks || PC.blocksOf(A.chars, A.items).map(([s, e]) => [s, e, 'para'])).map(([s, e, kind, , , chartsrc]) => {
       const cs = A.chars.slice(s, e), text = cs.map(c => c.c).join('');
       let inside = 0, hit = 0; for (let k = s; k < e; k++) { if (inSrc(A.chars[k])) inside++; if (cov[k]) hit++; }
-      return { s, e, cs, text, kind, margin: !free && !pr.noInstr && inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
+      return { s, e, cs, text, kind, chartsrc: !!chartsrc, margin: !free && !pr.noInstr && inside < 0.5 * cs.length && hit < 0.5 * cs.length, instr: false, ops: [] };
     });
     // 桁区切りの「,」を除いた並びで対応づけ、字の番号を元に戻す(A.loose のとき)
     const comma = (X, j) => (X[j].k === ',' || X[j].k === '，') && j > 0 && j + 1 < X.length && /\d/.test(X[j - 1].k) && /\d/.test(X[j + 1].k);
@@ -582,7 +641,10 @@
     //   位置の手がかりがない原稿は、まず全部を(印を付けずに)当ててみて、よく一致したまとまりから決める
     //   (成果物に載っていない表の行が、似た別の行の字を先に取ってしまわないように)
     let order = byLen(blocks.filter(b => !b.margin));
-    if (free) {
+    //   グラフの項目名・値(kind 'chart')があるページは、表の行を最後に当てる(ほかは長い順)
+    //   (表の行(「4月 120」)が、グラフの棒の下の「4月」と隣の棒の上の「180」に当たってしまわないように)
+    if (order.some(b => b.kind === 'chart')) { const rank = b => (b.kind === 'row' ? 1 : 0); order = order.slice().sort((x, y) => rank(x) - rank(y) || (y.e - y.s) - (x.e - x.s) || x.s - y.s); }
+    else if (free) {
       const rate = new Map();
       for (const b of order) rate.set(b, hits(rowColl(b, coll(b.cs, null))) / b.cs.length);
       order = order.slice().sort((x, y) => rate.get(y) - rate.get(x) || (y.e - y.s) - (x.e - x.s) || x.s - y.s);
@@ -605,6 +667,6 @@
       b.found = hits(b.ops) / b.cs.length;
       if (b.found >= 0.8) mark(b.ops);
     }
-    return blocks.map(({ s, e, ops, instr, found, text, kind }) => ({ s, e, ops, instr, found, text, kind }));
+    return blocks.map(({ s, e, ops, instr, found, text, kind, chartsrc }) => ({ s, e, ops, instr, found, text, kind, chartsrc }));
   };
 })();

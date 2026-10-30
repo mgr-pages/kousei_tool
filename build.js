@@ -33,7 +33,17 @@ const workerSrc = (() => {
   if (src.split(at).length !== 2) throw new Error('pdf.worker の差し込み場所が見つかりません(pdf.js の版が変わった?)');
   return workerHook + src.replace(at, '{const __pcM=globalThis.__pcCidToUnicode&&globalThis.__pcCidToUnicode(e);if(__pcM)return new ToUnicodeMap(__pcM)}' + at);
 })();
-const order = ['util', 'myers', 'docsrc', 'pdfio', 'vision', 'marks', 'scan', 'content', 'jcheck', 'echeck', 'records', 'pairing', 'analyze', 'ui'];
+const order = ['util', 'myers', 'docsrc', 'pdfio', 'vision', 'marks', 'scan', 'content', 'ocr', 'jcheck', 'echeck', 'records', 'pairing', 'analyze', 'ui'];
+// OCR(Tesseract.js 7.0.0・本体 tesseract.js-core 7.0.0・日本語の学習データ 4.0.0_best_int)。文字データのない所を読むのに使う
+//   作業者(Worker)は、本体(SIMD・LSTMだけの版。WebAssembly を埋め込んだもの)を先に読み込んでおき、外から本体を読みに行かないようにする
+//   Tesseract.js 7.0.0 は、学習データを直接渡すと言語の名前の代わりにデータをつなげてしまうため、名前(code)を使うよう1か所直す
+const tessWorker = (() => {
+  const w = fs.readFileSync(nm('tesseract.js/dist/worker.min.js'), 'utf8'), at = 't:t.data})).join("+"),c="initializing api"';
+  if (w.split(at).length !== 2) throw new Error('Tesseract.js の作業者の差し込み場所が見つかりません(版が変わった?)');
+  // 学習データを読むときに出る「Parameter not found」(古い設定項目の知らせ。動作には関係ない)は、コンソールに出さない
+  const quiet = `(() => { const ok = m => !/^Warning: Parameter not found/.test(String(m)); for (const k of ['log', 'warn', 'error']) { const f = console[k].bind(console); console[k] = (...a) => { if (ok(a[0])) f(...a); }; } })();\n`;
+  return quiet + fs.readFileSync(nm('tesseract.js-core/tesseract-core-simd-lstm.wasm.js'), 'utf8') + '\n' + w.replace(at, 't:t.code})).join("+"),c="initializing api"');
+})();
 // 英語の辞書: SCOWL 由来の Hunspell 辞書(en_US)を、nspell で活用形まで広げた語の一覧にする(使うときは一覧を引くだけ)
 const enWords = Object.keys(require('nspell')({ aff: fs.readFileSync(nm('dictionary-en/index.aff')), dic: fs.readFileSync(nm('dictionary-en/index.dic')) }).data).sort();
 const app = order.map(n => `// ---- ${n}.js ----\n` + fs.readFileSync(path.join(__dirname, 'src/js', n + '.js'), 'utf8')).join('\n');
@@ -53,8 +63,16 @@ ${safe(fs.readFileSync(nm('kuromoji/build/kuromoji.js'), 'utf8'))}
 </script>
 ${fs.readdirSync(nm('kuromoji/dict')).filter(f => f.endsWith('.dat.gz')).map(f => `<script id="ipadic-${f}" type="text/plain">${b64(nm('kuromoji/dict/' + f))}</script>`).join('\n')}
 <script id="en-words" type="text/plain">${enWords.join('\n')}</script>
+<script>${safe(fs.readFileSync(nm('tesseract.js/dist/tesseract.min.js'), 'utf8'))}</script>
+<script id="tess-worker" type="text/plain">${Buffer.from(tessWorker, 'utf8').toString('base64')}</script>
+<script id="tess-jpn" type="text/plain">${b64(nm('@tesseract.js-data/jpn/4.0.0_best_int/jpn.traineddata.gz'))}</script>
+<script id="tess-jpn_vert" type="text/plain">${b64(nm('@tesseract.js-data/jpn_vert/4.0.0_best_int/jpn_vert.traineddata.gz'))}</script>
 <script id="third-party-notices" type="text/plain">
-${['pdfjs-dist/LICENSE', '@techstark/opencv-js/LICENSE', 'kuromoji/LICENSE-2.0.txt', 'kuromoji/NOTICE.md', 'nspell/license', 'dictionary-en/license'].filter(f => fs.existsSync(nm(f))).map(f => `==== ${f} ====\n` + safe(fs.readFileSync(nm(f), 'utf8'))).join('\n\n')}
+${['pdfjs-dist/LICENSE', '@techstark/opencv-js/LICENSE', 'kuromoji/LICENSE-2.0.txt', 'kuromoji/NOTICE.md', 'nspell/license', 'dictionary-en/license', 'tesseract.js/LICENSE.md', 'tesseract.js/LICENSE', 'tesseract.js-core/LICENSE'].filter(f => fs.existsSync(nm(f))).map(f => `==== ${f} ====\n` + safe(fs.readFileSync(nm(f), 'utf8'))).join('\n\n')}
+
+==== @tesseract.js-data/jpn・jpn_vert 1.0.0(4.0.0_best_int) ====
+Japanese traineddata for Tesseract (https://github.com/naptha/tessdata, package license: MIT).
+The data is derived from the Tesseract OCR trained data (https://github.com/tesseract-ocr/tessdata_best, Apache License 2.0).
 
 ==== Noto Sans CJK JP (src/data/noto_cjk_LICENSE.txt) ====
 ${safe(fs.readFileSync(path.join(__dirname, 'src/data/noto_cjk_LICENSE.txt'), 'utf8'))}

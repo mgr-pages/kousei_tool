@@ -126,7 +126,7 @@
     cv.warpAffine(s2, out, M, new cv.Size(ref.w, ref.h), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255, 255, 255, 255));
     const W = fromMatRGBA(out);
     [M, s2, out].forEach(o => o.delete());
-    return { W, matched: ok };
+    return { W, matched: ok, A, s };   // A: 縮めたスキャン(s 倍)の位置 → 修正後の位置
   };
 
   // ---- 赤字の除去 ----
@@ -201,7 +201,15 @@
     for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) f[i * 3 + c] = Math.min(255, Math.max(0, coef[c][0] * N.d[i * 4 + c] + coef[c][1]));
     return f;
   }
+  // RGBA の画像を、ガウスぼかしした RGBA の画素にする
+  function blurRGBA(img, sg) {
+    const m = toMatRGBA(img), o = new cv.Mat();
+    cv.GaussianBlur(m, o, new cv.Size(0, 0), sg, sg, cv.BORDER_DEFAULT);
+    const r = new Uint8ClampedArray(o.data); m.delete(); o.delete();
+    return r;
+  }
   function blurF3(f, w, h, sg) {
+    if (!(sg > 0)) return new Float32Array(f);   // ぼかさない(デジタルのPDFの原稿)
     const m = new cv.Mat(h, w, cv.CV_32FC3), o = new cv.Mat();
     m.data32F.set(f);
     cv.GaussianBlur(m, o, new cv.Size(0, 0), sg, sg, cv.BORDER_DEFAULT);
@@ -396,9 +404,13 @@
 
   // ---- 1ページの照合 ----
   //   W: 修正後に重ねたスキャン(RGBA)、N: 修正後の描画(RGBA)。どちらも200dpi・同じ大きさ
+  //   opt.digital: 原稿がスキャンでないPDF(成果物と同じように描いたもの)。スキャンのぼけに寄せる代わりに、原稿と修正後の両方に
+  //   同じ弱いぼかし(DSG)をかけて比べる(文字を線にした所(アウトライン)の描き方のわずかな違いで、同じ字を違うとしないように)
+  PC.DIGITAL_SG = 0.7;
   PC.ScanPage = class {
     constructor(W, N, opt = {}) {
       Object.assign(this, { tolS: 40, tolL: 45, tolM: 80 }, opt);
+      if (this.digital) W = { w: W.w, h: W.h, d: blurRGBA(W, PC.DIGITAL_SG) };
       Object.assign(this, { W, N, w: N.w, h: N.h, Wi: { w: N.w, h: N.h, d: W.d, ch: 4 } });
     }
     // step(説明, 0〜1): 進み具合の表示
@@ -433,7 +445,7 @@
         if (a.kind === 'tokens') a.toks.forEach(k => this.instructed.add(k));
         else if (a.kind === 'insert') [a.at - 1, a.at].forEach(k => { if (k >= 0 && k < this.ot.length) this.instructed.add(k); });
       }
-      this.sg = 1.0; this.gm = 1.0;
+      this.sg = this.digital ? PC.DIGITAL_SG : 1.0; this.gm = 1.0;
       await this.run(true, step, 0.1, 0.55);
       // 2回目: 1回目で対応した字の組で、ぼけと太さを合わせ直す
       step('ぼけ・太さを合わせています', 0.55); await PC.tick();
@@ -442,7 +454,7 @@
       pairs.sort((p, q) => this.cmp(p[0], p[1]) - this.cmp(q[0], q[1]));
       const P = pairs.slice(0, 80);
       let best = null;
-      for (const sg of [0.7, 0.85, 1.0, 1.2, 1.4, 1.7]) for (const gm of [1.0, 0.85, 0.7]) {
+      for (const sg of this.digital ? [PC.DIGITAL_SG] : [0.7, 0.85, 1.0, 1.2, 1.4, 1.7]) for (const gm of [1.0, 0.85, 0.7]) {
         let s = 0;
         for (const [i, j] of P) s += PC.maskedDiff(this.of[i].norm, feats(this.Nt, this.nt[j].box, this.nl[this.nt[j].line], this.pN, null, sg, gm).norm, null);
         s = P.length ? s / P.length : 0;

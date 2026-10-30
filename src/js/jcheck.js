@@ -17,7 +17,7 @@
     for (const [a, e] of PC.blocksOf(B.chars, B.items)) {
       let n0 = s.length, p = null;
       for (let i = a; i < e; i++) {
-        if (skip.has(B.chars[i].it)) continue;
+        if (skip.has(B.chars[i].it) || B.chars[i].ocr) continue;   // OCR で読んだ字(読み違いがあり得る)は、成果物だけのチェックでは読まない
         const c = B.chars[i].c;
         if (s.length === n0 || (p.it !== B.chars[i].it && B.chars[i].box[1] > p.box[3] - 0.3 * (p.box[3] - p.box[1]))) ls.add(s.length);
         p = B.chars[i];
@@ -43,6 +43,7 @@
   const EDGE = { cut: 'ページの端で文字が切れています（データの切れ端が残っていないか確認してください）', out: '仕上がりの外に文字があります（断裁で落ちます。データの切れ端が残っていないか確認してください）', trim: '仕上がり線にかかって、文字が断裁で切れます' };
   function edges(pages) {
     const cls = pages.map(({ B }) => B.items.map(it => {
+      if (it.ocr) return null;   // OCR で読んで足した字(文字データのない所)は見ない
       const b = it.box, m = 0.25 * Math.max(1, Math.min(b[2] - b[0], b[3] - b[1])), pg = [0, 0, B.w, B.h];
       if (apart(b, pg)) return 'away';   // ページの外(見えない)
       if (!inside(b, pg, m)) return 'cut';
@@ -51,9 +52,12 @@
       return inside(b, B.trim, m) ? null : 'trim';
     }));
     const key = it => it.s.replace(/\s/g, '').replace(/\d+/g, '9'), cy = b => (b[1] + b[3]) / 2;
+    //   決まった形の印刷用の情報と同じ行に並ぶ字(「ファイル名.indd   3   日付   時刻」のページ番号など)も、印刷用の情報とする
+    const fixed = pages.map(({ B }, n) => B.items.map((it, k) => cls[n][k] === 'out' && SLUG.test(it.s)));
+    const sameLine = (a, b) => { const h = Math.max(a[3] - a[1], b[3] - b[1], 1); return Math.abs(cy(a) - cy(b)) < 0.5 * h && PC.gap(a, b) < 8 * h; };
     const slug = (n, k) => {
       const it = pages[n].B.items[k];
-      if (SLUG.test(it.s)) return true;
+      if (fixed[n][k] || pages[n].B.items.some((o, j) => fixed[n][j] && sameLine(o.box, it.box))) return true;
       return pages.some(({ B }, m) => m !== n && B.items.some((o, j) => cls[m][j] === 'out' && key(o) === key(it) && Math.abs(cy(o.box) - cy(it.box)) < 3));
     };
     const found = [], skip = pages.map(() => new Set());

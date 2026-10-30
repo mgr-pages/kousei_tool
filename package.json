@@ -8,9 +8,12 @@
   },
   "dependencies": {
     "@techstark/opencv-js": "4.10.0-release.1",
+    "@tesseract.js-data/jpn": "1.0.0",
+    "@tesseract.js-data/jpn_vert": "1.0.0",
     "dictionary-en": "4.0.0",
     "kuromoji": "0.1.2",
     "nspell": "2.1.5",
-    "pdfjs-dist": "4.10.38"
+    "pdfjs-dist": "4.10.38",
+    "tesseract.js": "7.0.0"
   }
 }

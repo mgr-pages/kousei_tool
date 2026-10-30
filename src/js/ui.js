@@ -11,8 +11,13 @@
     { key: 'NG', label: '指示どおりになっていない', test: f => f.auto === 'ng', c: 'B', need: true },
     { key: 'OK', label: '自動で確認済み（指示どおり）', test: f => f.auto === 'ok', c: 'A', minor: true, auto: true },
     { key: 'OLD', label: '前回のまま（原稿のない部分）', test: f => f.oldSame, c: 'I', minor: true },
+    // 原稿がなく旧版と比べたとき: 前回の成果物から変わった所(指示がないので、意図した変更かを確かめるもの)
+    { key: 'P', label: '前回から変わった所', test: f => !!f.fromOld && S.runMode === 'old', c: 'C' },
     { key: 'B', label: '直っていない', test: f => f.cat === 'B', c: 'B', need: true },
+    // 文字データのない所(アウトライン・画像の文字)を OCR で読んだ字がかかわる違い(読み違いのこともあるので分けて示す)
+    { key: 'CO', label: '旧版と違う？（OCRで読んだ字）', test: f => f.cat === 'C2' && f.ocr, c: 'C', need: true },
     { key: 'C', label: '指示にない変更', test: f => f.cat === 'C2' || f.cat === 'C3', c: 'C', need: true },
+    { key: 'TO', label: '原稿と違う？（OCRで読んだ字）', test: f => (f.cat === 'T' || f.cat === 'N') && f.ocr, c: 'T', need: true },
     { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', c: 'T', need: true },
     { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, c: 'D', need: true },
     { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', c: 'E', need: true },
@@ -32,6 +37,9 @@
   //   項目は、上から順に最初に当てはまったものとする(表の商品ごとの照合・旧版から変わった所は、文字の違いより先に見る)
   const jk = (...ks) => f => f.cat === 'J' && ks.includes(f.j.kind);
   const OPTS = [
+    ['範囲', [
+      ['slug', '仕上がり（トンボ）の外の文字（ページ情報など）', f => !!f.outTrim],
+    ]],
     ['原稿と照合する', [
       ['instr', '赤字が直っているか（直っていない・ママ／イキ）', f => ['B', 'B2', 'M'].includes(f.cat)],
       ['changed', '赤字どおり変わった所（中身・自動での確認）', f => f.cat === 'A' || f.cat === 'A_IMG'],
@@ -44,6 +52,7 @@
       ['note', '原稿の指示・コメント、成果物の書き込み（アタリなど）', f => f.cat === 'K' || f.cat === 'W'],
       ['unread', '読み取れない赤字・注記', f => ['F', 'F2', 'G', 'H'].includes(f.cat)],
       ['image', '原稿が画像の部分・原稿のない部分', f => f.cat === 'I'],
+      ['ocr', '文字データのない所（OCRで読んだ字）の違い', f => !!f.ocr],
     ]],
     ['旧版と比べる', [
       ['old', '旧版から変わった所・前回のまま（原稿のない部分）', f => !!f.fromOld || !!f.oldSame],
@@ -69,7 +78,8 @@
       ['article', '英語の冠詞（a・an）', jk('article')],
     ]],
   ];
-  const OPT_ALL = OPTS.flatMap(([, xs]) => xs), OPT_ORDER = ['rec', 'old', ...OPT_ALL.map(o => o[0]).filter(k => k !== 'rec' && k !== 'old')].map(k => OPT_ALL.find(o => o[0] === k));
+  //   仕上がりの外の項目は、どの種類でも「範囲」の設定で外せるよう、いちばん先に見る
+  const OPT_ALL = OPTS.flatMap(([, xs]) => xs), FIRST = ['slug', 'ocr', 'rec', 'old'], OPT_ORDER = [...FIRST, ...OPT_ALL.map(o => o[0]).filter(k => !FIRST.includes(k))].map(k => OPT_ALL.find(o => o[0] === k));
   const OPT_KEY = 'pc:opts';
   const optOff = (() => { try { const v = JSON.parse(localStorage.getItem(OPT_KEY) || '[]'); return new Set(Array.isArray(v) ? v : []); } catch (e) { return new Set(); } })();
   const optOf = f => OPT_ORDER.find(o => o[2](f));
@@ -78,6 +88,18 @@
   const colorOf = f => { const g = groupOf(f); return g.minor && !g.auto ? COLOR[f.cat] : g.c; };
   // 一言の結論と、何をすればよいか
   const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', spell: 'つづり？', article: '冠詞（a・an）？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ' };
+  // ---- 入れたファイルの組み合わせ(成果物は必ず入れる)ごとのチェックの仕方 ----
+  //   new: 成果物だけ → 成果物の文字・表記のチェック
+  //   marks: 原稿＋成果物 → 原稿との照合＋成果物のチェック
+  //   old: 旧版＋成果物 → 前回の成果物から変わった所(文字データのない所は OCR で読む)＋成果物のチェック
+  //   all: 3つすべて → 原稿との照合＋原稿のない部分の前回からの変化＋成果物のチェック
+  const MODES = {
+    new: { run: '成果物だけチェック', what: '成果物の文字・表記（日付・かっこ・誤字・表記ゆれ・ページの端の切れ端など）をチェックします', note: '原稿なし：成果物だけでチェックしました' },
+    marks: { run: '原稿と照合', what: '原稿どおりになっているかを照合し、成果物の文字・表記もチェックします', note: '' },
+    old: { run: '前回と比べる', what: '前回の成果物（旧版）から変わった所を一覧にし、成果物の文字・表記もチェックします', note: '原稿なし：前回の成果物（旧版）から変わった所と、成果物の文字・表記をチェックしました' },
+    all: { run: '原稿と照合・前回と比べる', what: '原稿どおりになっているかを照合し、原稿のない部分は前回の成果物（旧版）から変わった所を出します。成果物の文字・表記もチェックします', note: '' },
+  };
+  const modeOf = () => (S.lists.marks.length ? (S.lists.old.length ? 'all' : 'marks') : S.lists.old.length ? 'old' : 'new');
   function verdictOf(f) {
     if (f.rec) {   // 表(商品マスタなど)の商品ごとの照合
       const r = f.rec;
@@ -87,6 +109,8 @@
       if (r.kind === 'missing') return ['成果物に見当たらない', `原稿の表の${r.field}${r.n > 1 ? `（${r.n}件）` : ''}が成果物に見当たりません。載せない商品なら OK にしてください`];
     }
     if (f.oldSame) return ['前回のまま', '原稿のない部分ですが、旧版と同じです'];
+    if (f.ocr) return [f.fromOld ? (S.runMode === 'old' ? '前回から変わった？（OCR）' : '旧版と違う？（OCR）') : '原稿と違う？（OCR）', '文字データのない所（アウトライン化・画像の文字）をOCRで読んで比べました。読み違いのこともあるので、切り抜きで確かめてください'];
+    if (f.fromOld && S.runMode === 'old') return ['前回から変わった', f.fromOld === 'del' ? '前回の成果物にあった文字がなくなっています。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '前回の成果物から変わっています。意図した変更か確認' : '前回の成果物にない文字があります。意図した追加か確認'];
     if (f.fromOld) return ['指示にない変更（旧版から）', f.fromOld === 'del' ? '旧版にあった文字がなくなっています（原稿のない部分）。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '旧版から変わっています（原稿のない部分）。意図した変更か確認' : '旧版にない文字があります（原稿のない部分）。意図した変更か確認'];
     if (f.cat === 'J') return [JT[f.j.kind] || '成果物の確認', f.j.msg];
     if (f.auto === 'ok') return f.byInstr ? ['指示どおりの違い', `原稿の指示「${f.byInstr.replace(/\s+/g, ' ')}」のとおりに変わっています（自動で確認済み）`] : ['指示どおり', (f.check || '').includes('削除') ? '指示どおり消えています（自動で確認済み）' : '指示の文字が成果物にあります（自動で確認済み）'];
@@ -134,7 +158,7 @@
     return G;
   }
   function diffRows(segs, from = '原稿') {
-    const G = groupsOf(segs), nx = G.filter(g => g.t === 'x').length;
+    const G = groupsOf(PC.numberSegs(segs)), nx = G.filter(g => g.t === 'x').length;
     let o = '', n = '', shown = 0;
     for (let i = 0; i < G.length; i++) {
       const g = G[i];
@@ -170,7 +194,7 @@
   function diffText(f) {
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
     if (f.cat === 'J') return `${f.j.ctx[0]}【${f.show}】${f.j.ctx[1]}：${f.j.msg}${f.j.want ? `（候補「${f.j.want}」）` : ''}`;
-    if (f.segs && !f.same) return groupsOf(f.segs).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
+    if (f.segs && !f.same) return groupsOf(PC.numberSegs(f.segs)).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
     if (f.same) return '見た目だけの違い';
     if (f.cat === 'D') return `${f.frm}→${f.to}`;
     if (f.ins) return `${f.ins[0]}｜${f.ins[1]}の間に挿入`;
@@ -245,14 +269,16 @@
     const bad = all.some(e => e.err), busy = all.some(e => e.pages == null && !e.err);
     const ready = PC.libsReady && S.lists.nw.length && !bad && !busy;   // 原稿はなくてもよい(成果物だけをチェックする)
     $('run').disabled = !ready;
-    $('run').textContent = S.lists.marks.length ? '照合' : '成果物だけチェック';
+    const mode = modeOf();
+    $('run').textContent = MODES[mode].run;
+    $('modeNote').textContent = S.lists.nw.length ? 'チェックの内容：' + MODES[mode].what : '';
     if (S.running) return;
     let msg = !PC.libsReady ? '準備中…' : S.doneMsg;
     if (!msg) {
       if (bad) msg = '読めないファイルがあります。リストから外すか、選び直してください';
       else if (busy) msg = 'ファイルを読み込んでいます…';
-      else if (!ready) msg = '原稿と成果物を選んでください';
-      else msg = `原稿 ${total('marks')}ページ・成果物 ${total('nw')}ページ${S.lists.old.length ? `・旧版 ${total('old')}ページ` : ''}を照合します（対応するページは自動で探します）`;
+      else if (!ready) msg = '成果物（PDF）を選んでください。原稿・旧版は、あれば入れてください';
+      else msg = { new: `成果物 ${total('nw')}ページをチェックします`, marks: `原稿 ${total('marks')}ページと成果物 ${total('nw')}ページを照合します（対応するページは自動で探します）`, old: `成果物 ${total('nw')}ページを、旧版 ${total('old')}ページと比べます（対応するページは自動で探します）`, all: `原稿 ${total('marks')}ページ・成果物 ${total('nw')}ページ・旧版 ${total('old')}ページで照合します（対応するページは自動で探します）` }[modeOf()];
       if (S.addMsg) msg += '　' + S.addMsg;
     }
     $('pmsg').textContent = msg;
@@ -270,11 +296,12 @@
   const progress = (msg, frac) => { $('pmsg').textContent = msg; $('pbar').style.width = Math.round(frac * 100) + '%'; };
   async function run(f) {
     S.running = true; $('run').disabled = true; $('err').textContent = ''; progress('ファイルを開いています', 0);
+    const mode = f.marks && f.marks.length ? (f.old && f.old.length ? 'all' : 'marks') : f.old && f.old.length ? 'old' : 'new';
     const t0 = performance.now();
     try {
       const marks = await PC.markSource(f.marks), newDoc = await PC.openPdfs(f.nw), oldDoc = f.old && f.old.length ? await PC.openPdfs(f.old) : null;
       const res = await PC.analyze({ marks, newDoc, oldDoc, progress });
-      res.seconds = (performance.now() - t0) / 1000; res.markParts = marks.parts; res.newParts = newDoc.parts; res.oldParts = oldDoc ? oldDoc.parts : null;
+      res.seconds = (performance.now() - t0) / 1000; res.markParts = marks.parts; res.newParts = newDoc.parts; res.oldParts = oldDoc ? oldDoc.parts : null; res.mode = mode;
       S.key = 'pc:' + [...f.marks, ...f.nw, ...(f.old || [])].map(x => x.name + ':' + x.size).join('|');
       try { S.verdict = JSON.parse(localStorage.getItem(S.key) || '{}'); } catch (e) { S.verdict = {}; }
       await show(res);
@@ -289,10 +316,10 @@
 
   // ---- 結果の表示 ----
   async function show(res) {
-    S.res = res; S.sel = null; S.page = 0;
+    S.res = res; S.sel = null; S.page = 0; S.runMode = res.mode || 'marks';
     S.imgs = res.pages.map(p => ({ L: null, R: null, Lurl: p.left ? p.left.url : null, Rurl: p.right ? p.right.url : null, lw: p.left ? p.left.w : 0, lh: p.left ? p.left.h : 0, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
     S.cache = new Map();
-    await ensure(0);
+    if (S.imgs.length) await ensure(0);   // 成果物だけのチェックで項目がないときは、表示するページがない
     $('results').classList.remove('hidden');
     $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
     $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; drawPage(); });
@@ -304,7 +331,7 @@
     const res = S.res, F = res.findings.filter(enabled), ruleNote = res.rules.length ? '／全体の直し：' + res.rules.map(r => `「${r.frm}」→「${r.to}」`).join('、') : '';
     const nOff = res.findings.length - F.length;
     $('sumNote').textContent = `${res.pages.length}ページ・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '') + (optOff.size ? `／詳細設定で外した項目に当たる${nOff}件は出していません` : '');
-    $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : '原稿なし：成果物だけでチェックしました';
+    $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : MODES[S.runMode].note || MODES.new.note;
     const card = g => {
       const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && isLight(f)).length;
       return `<div class="sum ${S.off.has(g.key) ? 'off' : ''} ${n ? '' : 'zero'}" data-g="${g.key}" style="--c: var(--c-${g.c})"><div class="n">${n}</div><div class="l">${esc(g.label)}${light ? `<br>（うち念のため ${light}）` : ''}</div></div>`;
@@ -383,7 +410,12 @@
       observer.observe(el);
       const id = +el.dataset.id;
       el.onclick = ev => { if (ev.target.closest('.judge')) return; select(id, false); };
-      el.querySelectorAll('.judge button').forEach(b => b.onclick = () => { const v = S.verdict[id] || {}; v.v = v.v === b.dataset.v ? '' : b.dataset.v; S.verdict[id] = v; save(); el.querySelectorAll('.judge button').forEach(x => x.classList.toggle('on', x.dataset.v === v.v)); });
+      el.querySelectorAll('.judge button').forEach(b => b.onclick = () => {
+        const v = S.verdict[id] || {}; v.v = v.v === b.dataset.v ? '' : b.dataset.v; S.verdict[id] = v; save();
+        el.querySelectorAll('.judge button').forEach(x => x.classList.toggle('on', x.dataset.v === v.v));
+        // 「確認済み（OK）を隠す」がオンなら、OKにした項目をすぐ一覧から外す(ほかの項目の位置はそのまま)
+        if (v.v === 'ok' && $('hideDone').checked) { if (observer) observer.unobserve(el); el.remove(); if (S.sel === id) S.sel = null; if (!$('list').querySelector('.item')) $('list').innerHTML = '<div class="empty">表示する項目はありません</div>'; drawPage(); }
+      });
       el.querySelector('.judge input').oninput = e => { const v = S.verdict[id] || {}; v.memo = e.target.value; S.verdict[id] = v; save(); };
     });
   }
@@ -448,6 +480,7 @@
   let geo = null;
   function drawPage(scrollToSel) {
     if (!S.res) return;
+    if (!S.imgs.length) { $('pinfo').textContent = '表示するページはありません'; const c = $('vcanvas'); c.width = c.height = 0; c.style.height = '0px'; geo = null; return; }
     if (!ready(S.page)) { ensure(S.page).then(() => drawPage(scrollToSel)); return; }
     $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.page));
     $('pinfo').textContent = pageLabel(S.page + 1);
