@@ -589,7 +589,28 @@
       o.maps.push({ p, T: pr.T });
       await PC.tick();
     }
+    for (const o of out.values()) slideNew(o.B.chars, o.st);
     return { pairs, byQ: out };
+  }
+  // 旧版にない字の続き(st が 0)を、前後の同じ字(st が 1)の上で滑らせ、かっこ・空白・字の種類・まとまりの切れ目にそろえる
+  //   (「[QX-12AB]」→「[QX-12AB][QX-12AB2]」で、旧版にない字を「][QX-12AB2」でなく「[QX-12AB2]」とする。
+  //   旧版の字の並びが別の所へ飛んで対応づくと、照合の中で(PC.shiftEdits)は滑らせられないため、ここでそろえる)
+  //   続きは、同じまとまりの字か、すき間が字の高さの2倍までの字(同じ行に並んだ別のまとまり)
+  function slideNew(C, st) {
+    const N = C.length;
+    const near = j => j > 0 && j < N && (C[j - 1].it === C[j].it || PC.gap(C[j - 1].box, C[j].box) <= 2 * Math.max(C[j].box[3] - C[j].box[1], C[j - 1].box[3] - C[j - 1].box[1]));
+    //   切れ目のよさ: 離れた字の間(別の行・別の所)はいちばんよい。隣り合う字は、字の種類で比べる(かっこ1字ずつが別のまとまりのこともある)
+    const cut = j => (j <= 0 || j >= N || !near(j) ? 4 : Math.max(C[j].sp ? 3 : 0, PC.cutScore(C[j - 1].c, C[j].c)));
+    for (let s = 0; s < N; s++) {
+      if (st[s] !== 0 || (s > 0 && st[s - 1] === 0 && near(s))) continue;
+      let e = s + 1; while (e < N && st[e] === 0 && near(e)) e++;
+      const score = t => cut(s + t) + cut(e + t);
+      let best = 0, bv = score(0);
+      for (let t = 1; e + t - 1 < N && st[e + t - 1] === 1 && near(e + t - 1) && C[e + t - 1].c === C[s + t - 1].c; t++) if (score(t) > bv) { bv = score(t); best = t; }
+      for (let t = -1; s + t >= 0 && st[s + t] === 1 && near(s + t + 1) && C[s + t].c === C[e + t].c; t--) if (score(t) > bv) { bv = score(t); best = t; }
+      if (best) { for (let j = s; j < e; j++) st[j] = 1; for (let j = s + best; j < e + best; j++) st[j] = 0; }
+      s = Math.max(s, e + best - 1);
+    }
   }
   // 旧版から変わった所のうち、どの原稿も当たらない部分のもの(指示にない変更)を、結果のページに付ける
   //   成果物に字がある変化(旧版にない字)は、原稿のあるページでは「原稿にない文字」として出ているので、ここでは

@@ -27,6 +27,53 @@
     { key: 'minor', label: '参考', test: () => true, c: 'F', minor: true },
   ];
   const groupOf = f => GROUPS.find(g => g.test(f));
+  // ---- 詳細設定: チェックする項目(校正の観点ごと。既定はすべて選ぶ) ----
+  //   外した項目は、結果の概要・一覧・ページの枠・CSVに出さない(照合はすべて行い、表示だけを絞る。照合のあとでも切り替えられる)
+  //   項目は、上から順に最初に当てはまったものとする(表の商品ごとの照合・旧版から変わった所は、文字の違いより先に見る)
+  const jk = (...ks) => f => f.cat === 'J' && ks.includes(f.j.kind);
+  const OPTS = [
+    ['原稿と照合する', [
+      ['instr', '赤字が直っているか（直っていない・ママ／イキ）', f => ['B', 'B2', 'M'].includes(f.cat)],
+      ['changed', '赤字どおり変わった所（中身・自動での確認）', f => f.cat === 'A' || f.cat === 'A_IMG'],
+      ['extra', '指示にない変更（赤字のない所の変化）', f => f.cat === 'C2' || f.cat === 'C3'],
+      ['rule', '全体指示・以下同様の直し忘れ', f => f.cat === 'D' || f.cat === 'C1'],
+      ['text', '原稿（ラフ・データ）と違う文字', f => f.cat === 'T' || f.cat === 'N'],
+      ['rec', '表（商品マスタ）と商品ごとの照合', f => !!f.rec],
+      ['width', '全角・半角などの書き方の違い', f => f.cat === 'V'],
+      ['look', '見た目が同じで文字データが違う字', f => f.cat === 'E'],
+      ['note', '原稿の指示・コメント、成果物の書き込み（アタリなど）', f => f.cat === 'K' || f.cat === 'W'],
+      ['unread', '読み取れない赤字・注記', f => ['F', 'F2', 'G', 'H'].includes(f.cat)],
+      ['image', '原稿が画像の部分・原稿のない部分', f => f.cat === 'I'],
+    ]],
+    ['旧版と比べる', [
+      ['old', '旧版から変わった所・前回のまま（原稿のない部分）', f => !!f.fromOld || !!f.oldSame],
+    ]],
+    ['成果物だけでチェックする', [
+      ['edge', 'ページの端・断裁で切れる文字', jk('edge')],
+      ['date', '日付と曜日・存在しない日付', jk('date')],
+      ['paren', 'かっこの閉じ忘れ', jk('paren')],
+      ['dup', '言葉・助詞・句読点の重なり', jk('dup')],
+      ['misuse', '誤用・誤字（決まった言い方）', jk('misuse')],
+      ['okuri', '送りがなの誤り', jk('okuri')],
+      ['particle', '助詞の続き方', jk('particle')],
+      ['phone', '電話番号・郵便番号の形', jk('phone', 'zip')],
+      ['yure', '表記ゆれ', jk('yure')],
+      ['typo', 'カタカナ語の1字違い', jk('typo')],
+      ['ranuki', 'ら抜き言葉・れ足す言葉', jk('ranuki')],
+      ['saire', 'さ入れ言葉', jk('saire')],
+      ['tari', '「〜たり」の並べ方', jk('tari')],
+      ['keigo', '敬語', jk('keigo')],
+      ['redund', '重複表現', jk('redund')],
+      ['hankana', '半角カナ', jk('hankana')],
+      ['spell', '英語のつづり', jk('spell')],
+      ['article', '英語の冠詞（a・an）', jk('article')],
+    ]],
+  ];
+  const OPT_ALL = OPTS.flatMap(([, xs]) => xs), OPT_ORDER = ['rec', 'old', ...OPT_ALL.map(o => o[0]).filter(k => k !== 'rec' && k !== 'old')].map(k => OPT_ALL.find(o => o[0] === k));
+  const OPT_KEY = 'pc:opts';
+  const optOff = (() => { try { const v = JSON.parse(localStorage.getItem(OPT_KEY) || '[]'); return new Set(Array.isArray(v) ? v : []); } catch (e) { return new Set(); } })();
+  const optOf = f => OPT_ORDER.find(o => o[2](f));
+  const enabled = f => { const o = optOf(f); return !o || !optOff.has(o[0]); };
   // 項目の色: 分類(結果の概要のカード)の色にそろえる(参考の項目は、もとの種類の色)
   const colorOf = f => { const g = groupOf(f); return g.minor && !g.auto ? COLOR[f.cat] : g.c; };
   // 一言の結論と、何をすればよいか
@@ -247,8 +294,16 @@
     S.cache = new Map();
     await ensure(0);
     $('results').classList.remove('hidden');
-    const F = res.findings, ruleNote = res.rules.length ? '／全体の直し：' + res.rules.map(r => `「${r.frm}」→「${r.to}」`).join('、') : '';
-    $('sumNote').textContent = `${res.pages.length}ページ・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '');
+    $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
+    $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; drawPage(); });
+    renderAll();
+  }
+  const renderAll = () => { renderSummary(); renderList(); drawPage(); };
+  // 結果の概要(詳細設定で外した項目は数えない)
+  function renderSummary() {
+    const res = S.res, F = res.findings.filter(enabled), ruleNote = res.rules.length ? '／全体の直し：' + res.rules.map(r => `「${r.frm}」→「${r.to}」`).join('、') : '';
+    const nOff = res.findings.length - F.length;
+    $('sumNote').textContent = `${res.pages.length}ページ・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '') + (optOff.size ? `／詳細設定で外した項目に当たる${nOff}件は出していません` : '');
     $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : '原稿なし：成果物だけでチェックしました';
     const card = g => {
       const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && isLight(f)).length;
@@ -262,10 +317,7 @@
       `<div class="sumgrp"><div class="sumhd">確認だけ <b>${F.filter(f => look.includes(groupOf(f))).length}件</b></div><div class="sumcards">${cards(look)}</div>` +
       (nAuto ? `<div class="hint" style="margin-top:6px">ほかに、指示どおりと自動で確認できたもの ${nAuto}件（一覧には出していません。「参考も表示」で見られます）</div>` : '') + '</div>';
     $('summary').querySelectorAll('.sum').forEach(el => el.onclick = () => { const k = el.dataset.g; S.off.has(k) ? S.off.delete(k) : S.off.add(k); el.classList.toggle('off'); renderList(); drawPage(); });
-    $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
-    $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; drawPage(); });
     $('legend').innerHTML = GROUPS.filter(g => !g.minor && F.some(f => groupOf(f) === g)).map(g => `<span style="--c: var(--c-${g.c})"><i></i>${esc(g.label.replace(/（.*/, ''))}</span>`).join('');
-    renderList(); drawPage();
   }
 
   // ページの画像は、表示するときに読み込む(大きなページが多いときに、一度に展開してメモリが足りなくならないように)
@@ -302,6 +354,7 @@
     return out.map(x => typeof x === 'string' ? x : `${x.label} → ${x.to.length ? '成果物 ' + x.to.join('・') : 'なし'}`).join('、');
   };;
   const visible = f => {
+    if (!enabled(f)) return false;
     const g = groupOf(f);
     if (g.minor && !$('showMinor').checked) return false;
     if (S.off.has(g.key)) return false;
@@ -433,7 +486,7 @@
   $('csv').onclick = () => {
     const V = { ok: 'OK', fix: '要修正', hold: '保留' }, q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
     const rows = [['No.', 'ページ', '原稿のファイル', '原稿のページ', '成果物のファイル', '成果物のページ', '区分', '結論', 'すること', '違い（原稿→成果物）', '指示', '自動確認', '確認', 'メモ', '補足', '位置（原稿・200dpi）']];
-    S.res.findings.filter(f => f.cat !== 'F2').sort(cmp).forEach((f, i) => {
+    S.res.findings.filter(f => f.cat !== 'F2' && enabled(f)).sort(cmp).forEach((f, i) => {
       const v = S.verdict[f.id] || {}, pg = S.res.pages[f.page - 1], nq = pg.q, o = (srcOf(f.page) != null && PC.pageOf(S.res.markParts, srcOf(f.page))) || {}, n = (nq >= 0 && PC.pageOf(S.res.newParts, nq)) || {}, [title, todo] = verdictOf(f);
       rows.push([i + 1, f.page, o.name, [(pg.label && pg.label.replace(o.name, '').trim()) || o.page, f.refs ? f.refs.join('・') : f.ref].filter(Boolean).join(' '), n.name, n.page, groupOf(f).need ? '直す必要がありそう' : groupOf(f).auto ? '自動で確認済み' : groupOf(f).minor ? '参考' : '確認だけ', title, todo, diffText(f) + (f.more ? `（同じ違い 全${f.more}か所）` : '') + (f.goneN ? `（ほか${f.goneN - 1}つ続けて成果物にない）` : ''), f.note, f.check, V[v.v] || '', v.memo || '', [f.how, f.oldSame || f.vsOld === 'same' ? '旧版と同じ' : f.vsOld === 'changed' && !f.fromOld ? '旧版から変わった' : ''].filter(Boolean).join('／'), f.box.join(' ')]);
     });
@@ -441,6 +494,21 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '校正結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
   $('print').onclick = async () => { for (let i = 0; i < S.imgs.length; i++) await ensure(i); document.querySelectorAll('.item').forEach(drawCrops); window.print(); };
+
+  // ---- 詳細設定の画面 ----
+  function renderOpts() {
+    $('optList').innerHTML = OPTS.map(([sec, xs]) => `<div class="sec"><b>${esc(sec)}</b><div class="grid">${xs.map(([k, label]) => `<label><input type="checkbox" data-k="${k}" ${optOff.has(k) ? '' : 'checked'}>${esc(label)}</label>`).join('')}</div></div>`).join('');
+    $('optList').querySelectorAll('input').forEach(el => el.onchange = () => { el.checked ? optOff.delete(el.dataset.k) : optOff.add(el.dataset.k); optChanged(); });
+    $('optNote').textContent = optOff.size ? `${optOff.size}項目を外しています` : '';
+  }
+  function optChanged() {
+    try { localStorage.setItem(OPT_KEY, JSON.stringify([...optOff])); } catch (e) { /* 保存できない環境でも、この画面の間は使える */ }
+    renderOpts();
+    if (S.res) renderAll();
+  }
+  $('optAll').onclick = () => { optOff.clear(); optChanged(); };
+  $('optNone').onclick = () => { OPT_ALL.forEach(o => optOff.add(o[0])); optChanged(); };
+  renderOpts();
 
   // ---- 起動 ----
   PC.ready = async () => {

@@ -34,9 +34,16 @@
       // 文字データにはまとまりの幅しかないため、全角1・半角0.55・空白0.3の割合で字に割り振る(半角の字が混じっても位置がずれないように)
       const wt = chs.map(ch => (!ch.trim() ? 0.3 : /^[\u0020-\u007e\uff61-\uff9f]$/.test(ch) ? 0.55 : 1)), tot = wt.reduce((x, y) => x + y, 0) || 1;
       let acc = 0;
+      //   回転した文字(図の寸法の縦向きの注記など): 字の並ぶ向き(a, b)と上の向き(c, d)に沿って枠の四隅を求める
+      const rot = !vert && (Math.abs(b) > 1e-3 * size || Math.abs(c) > 1e-3 * size || a < 0), ua = Math.hypot(a, b) || 1, uc = Math.hypot(c, d) || 1;
       const rects = chs.map((_, i) => {
         const a0 = acc / tot; acc += wt[i]; const a1 = acc / tot;
         let r;
+        if (rot) {
+          const ps = [[a0 * it.width, -desc * size], [a1 * it.width, -desc * size], [a0 * it.width, asc * size], [a1 * it.width, asc * size]]
+            .map(([x, y]) => vp.convertToViewportPoint(e + x * a / ua + y * c / uc, f + x * b / ua + y * d / uc));
+          return [Math.min(...ps.map(p => p[0])), Math.min(...ps.map(p => p[1])), Math.max(...ps.map(p => p[0])), Math.max(...ps.map(p => p[1]))];
+        }
         if (vert) { const H = it.height || size * n; r = [e, f - a1 * H, e + (it.width || size), f - a0 * H]; }
         else { r = [e + a0 * it.width, f - desc * size, e + a1 * it.width, f + asc * size]; }
         const p = vp.convertToViewportRectangle(r);
@@ -236,19 +243,23 @@
   //   別の区間へ移るたびに jump の手間がかかる(段組み・配置の違い)。near[j] は、Bのj字目から始めるときの追加の手間(Aのまとまりが
   //   来るはずの範囲から遠いほど大きい。Aの字ごとに変えると、字を捨てて手間の小さい位置を選ぶ抜け道ができるため、まとまり単位で決める)
   //   used[j]: ほかのまとまりがすでに対応づけたBの字(同じ文が2か所にあるとき、同じ所に2度当てないよう、一致しない字と同じ扱いにする)
+  //   Bの字のまとまり(item)の境目をまたぐたびに、ごく小さな手間(XI)をかける: 手間が同じ並べ方のうち、まとまりをまたがない方を選ぶ
+  //   (左右のページ番号「11」「12」の「11」を、「11」の2字目と「12」の1字目に当てないように)
   //   返り値 ops: ['=', i, j] 同じ字 / ['~', i, j] 書き方だけ違う / ['x', i, j] 違う字 / ['-', i] Aにだけある / ['+', j] Bにだけある / ['|'] 別の区間へ
+  const XI = 0.01;
   PC.collate = (A, B, opt = {}) => {
     const n = A.length, m = B.length, J = opt.jump ?? 3, nr = opt.near || null, W = m + 1, near = nr ? (i, j) => nr[j] : null, used = opt.used || null, strict = !!opt.strict;
     if (!n) return [];
     if (!m) return A.map((_, i) => ['-', i]);
     const D = new Float32Array((n + 1) * W), op = new Uint8Array((n + 1) * W), from = new Int32Array(n + 1);
+    const xi = new Float32Array(m); for (let j = 1; j < m; j++) if (B[j].it !== B[j - 1].it) xi[j] = XI;
     for (let j = 0; j <= m; j++) { D[j] = J + (near && j < m ? near(0, j) : 0); op[j] = 3; }
     from[0] = -1;
     for (let i = 0; i < n; i++) {
       const r0 = i * W, r1 = r0 + W, ak = A[i].k;
       for (let j = 0; j <= m; j++) { D[r1 + j] = D[r0 + j] + 1; op[r1 + j] = 1; }
-      for (let j = 0; j < m; j++) { const v = D[r0 + j] + (ak === B[j].k && !(used && used[j]) ? 0 : 1); if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 0; } }
-      for (let j = 0; j < m; j++) { const v = D[r1 + j] + 1; if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 2; } }
+      for (let j = 0; j < m; j++) { const v = D[r0 + j] + (ak === B[j].k && !(used && used[j]) ? 0 : 1) + (op[r0 + j] === 3 ? 0 : xi[j]); if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 0; } }
+      for (let j = 0; j < m; j++) { const v = D[r1 + j] + 1 + (op[r1 + j] === 3 ? 0 : xi[j]); if (v < D[r1 + j + 1]) { D[r1 + j + 1] = v; op[r1 + j + 1] = 2; } }
       let best = Infinity, bj = 0;
       for (let j = 0; j <= m; j++) if (D[r1 + j] < best) { best = D[r1 + j]; bj = j; }
       from[i + 1] = bj;
@@ -301,7 +312,85 @@
       const atStart = a === 0 || out[a - 1][0] === '|', atEnd = b === out.length - 1 || out[b + 1][0] === '|';
       if ((atStart || atEnd) && !(opt.keepEdge && opt.keepEdge(out[k][1]))) keep[k] = false;
     }
-    return out.filter((_, k) => keep[k]);
+    return PC.shiftEdits(out.filter((_, k) => keep[k]), A, B);
+  };
+
+  // ---- 違いの位置を整える(手間が同じ並べ方のうち、まとまった・切れ目のよい方を選ぶ) ----
+  //   「[QX-12AB]」→「[QX-12AB][QX-12AB2]」を、「[QX-12AB]」を足して離れた所に「2」を足す、とせず、「[QX-12AB2]」を足す、とする
+  //   1) 足した字(+)・消した字(-)だけの続きを、前後の同じ字(=)の上で滑らせ、同じ種類の違いとつながる所があればつなげる
+  //   2) 滑らせられる範囲で、かっこ・空白・句読点・字の種類の切れ目にそろう位置に寄せる(同じなら元の位置のまま)
+  //   区間の切れ目(|)・置き換わり(x)・書き方の違い(~)はまたがない
+  const OPENB = /[（(「『【〔［[｛{〈《]/, CLOSEB = /[）)」』】〕］\]｝}〉》]/;
+  const charClass = c => (/\d|[０-９]/.test(c) ? 1 : /[A-Za-zＡ-Ｚａ-ｚ]/.test(c) ? 2 : /[\p{Script=Hiragana}]/u.test(c) ? 3 : /[\p{Script=Katakana}ー]/u.test(c) ? 4 : /\p{Script=Han}/u.test(c) ? 5 : 6);
+  const cutScore = (l, r) => {
+    if (l == null || r == null) return 4;
+    if (/[\s　]/.test(l) || /[\s　]/.test(r)) return 3;
+    if (OPENB.test(r) || CLOSEB.test(l)) return 3;
+    if (/[、。，．,.:;：；・\/／]/.test(l)) return 2;
+    return charClass(l) !== charClass(r) ? 1 : 0;
+  };
+  PC.cutScore = cutScore;
+  PC.shiftEdits = (ops, A, B) => {
+    const out = ops.slice();
+    // k から始まる同じ種類(+ か -)の続きの終わり
+    const runEnd = k => { let l = k; while (l < out.length && out[l][0] === out[k][0]) l++; return l; };
+    const idx = o => (o[0] === '+' ? o[1] : o[1]);   // + は B の字の番号、- は A の字の番号
+    const X = t => (t === '+' ? B : A);
+    // 1字右へ滑らせる: 続き [k, l) のすぐ後ろの = を前へ回す。できなければ false
+    const right = (k, l) => {
+      const t = out[k][0], e = out[l];
+      if (!e || e[0] !== '=') return false;
+      const s0 = idx(out[k]), s1 = idx(out[l - 1]) + 1, nxt = t === '+' ? e[2] : e[1];
+      if (s1 - s0 !== l - k || nxt !== s1 || X(t)[s0].c !== X(t)[s1].c) return false;
+      const eq = t === '+' ? ['=', e[1], s0] : ['=', s0, e[2]];
+      const run = []; for (let q = s0 + 1; q <= s1; q++) run.push([t, q]);
+      out.splice(k, l - k + 1, eq, ...run);
+      return true;
+    };
+    // 1字左へ滑らせる: 続きのすぐ前の = を後ろへ回す
+    const left = (k, l) => {
+      const t = out[k][0], e = out[k - 1];
+      if (!e || e[0] !== '=') return false;
+      const s0 = idx(out[k]), s1 = idx(out[l - 1]) + 1, prv = t === '+' ? e[2] : e[1];
+      if (s1 - s0 !== l - k || prv !== s0 - 1 || X(t)[s0 - 1].c !== X(t)[s1 - 1].c) return false;
+      const eq = t === '+' ? ['=', e[1], s1 - 1] : ['=', s1 - 1, e[2]];
+      const run = []; for (let q = s0 - 1; q <= s1 - 2; q++) run.push([t, q]);
+      out.splice(k - 1, l - k + 1, ...run, eq);
+      return true;
+    };
+    const pure = k => out[k] && (out[k][0] === '+' || out[k][0] === '-');
+    // 1) つなげる: 右(または左)へ滑らせて、同じ種類の違いのすぐ隣まで行けるなら行く
+    for (let pass = 0; pass < 3; pass++) {
+      let changed = false;
+      for (let k = 0; k < out.length; k++) {
+        if (!pure(k) || (k > 0 && out[k - 1][0] === out[k][0])) continue;
+        const t = out[k][0], snap = out.slice();
+        let kk = k, ll = runEnd(k), moved = 0, ok = false;
+        while (right(kk, ll)) { kk++; ll++; moved++; if (out[ll] && out[ll][0] === t) { ok = true; break; } }
+        if (!ok) {
+          out.splice(0, out.length, ...snap); kk = k; ll = runEnd(k);
+          while (left(kk, ll)) { kk--; ll--; if (kk > 0 && out[kk - 1][0] === t) { ok = true; break; } }
+          if (!ok) out.splice(0, out.length, ...snap);
+        }
+        if (ok) changed = true;
+      }
+      if (!changed) break;
+    }
+    // 2) 切れ目のよい位置に寄せる
+    for (let k = 0; k < out.length; k++) {
+      if (!pure(k) || (k > 0 && out[k - 1][0] === out[k][0])) continue;
+      const t = out[k][0], x = X(t), l0 = runEnd(k), len = l0 - k;
+      const score = (k1) => { const s0 = idx(out[k1]), s1 = s0 + len; return cutScore(x[s0 - 1] && x[s0 - 1].c, x[s0].c) + cutScore(x[s1 - 1].c, x[s1] && x[s1].c); };
+      const snap = out.slice(); let best = score(k), bestAt = 0, at = 0, kk = k, ll = l0;
+      while (right(kk, ll)) { kk++; ll++; at++; const v = score(kk); if (v > best) { best = v; bestAt = at; } }
+      out.splice(0, out.length, ...snap); kk = k; ll = l0; at = 0;
+      while (left(kk, ll)) { kk--; ll--; at--; const v = score(kk); if (v > best) { best = v; bestAt = at; } }
+      out.splice(0, out.length, ...snap); kk = k; ll = l0;
+      if (bestAt > 0) for (let q = 0; q < bestAt; q++) { right(kk, ll); kk++; ll++; }
+      if (bestAt < 0) for (let q = 0; q > bestAt; q--) { left(kk, ll); kk--; ll--; }
+      k = kk + len - 1;
+    }
+    return out;
   };
 
   // 通貨の記号(数字のすぐ前後にあれば、あるなし・前後の違いを書き方の違いとみなす: 「¥1,280」と「1,280円」)
