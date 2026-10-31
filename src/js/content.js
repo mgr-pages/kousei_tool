@@ -175,7 +175,13 @@
   };
 
   // ---- 長く一致する文字列(対応づけの手がかり): {i, j, n} = A[i..i+n) と B[j..j+n) が同じ ----
-  //   位置の手がかりにも使うため、どちらかで文字のまとまり(行など)が変わる所で区切って返す
+  //   位置の手がかりにも使うため、どちらかで行(縦組みは列)が変わる所・離れた所で区切って返す
+  //   (区切りは字の位置で見る。PDFの文字のまとまり(item)は、書体が替わるたびに1字ずつに分かれることがあるので使わない)
+  const cont = (p, c) => {   // 同じ行(列)で続く字か: 高さ(縦組みは幅)が半分以上重なり、すき間が字の大きさの1.5倍まで
+    const hp = p.box[3] - p.box[1], hc = c.box[3] - c.box[1], wp = p.box[2] - p.box[0], wc = c.box[2] - c.box[0], s = Math.max(hp, hc, wp, wc, 1);
+    const oy = Math.min(p.box[3], c.box[3]) - Math.max(p.box[1], c.box[1]), ox = Math.min(p.box[2], c.box[2]) - Math.max(p.box[0], c.box[0]);
+    return PC.gap(p.box, c.box) <= 1.5 * s && (oy >= 0.5 * Math.min(hp, hc) || ox >= 0.5 * Math.min(wp, wc));
+  };
   PC.textAnchors = (A, B, K = 6) => {
     const out = [], idx = new Map(), key = (X, i) => { let s = ''; for (let t = 0; t < K; t++) s += X[i + t].k + '\u0001'; return s; };
     if (A.length < K || B.length < K) return out;
@@ -187,7 +193,7 @@
         if (i > 0 && j > 0 && A[i - 1].k === B[j - 1].k) continue;   // 左へ延ばせるものは、その位置から始まる一致に含まれる
         let n = K; while (i + n < A.length && j + n < B.length && A[i + n].k === B[j + n].k) n++;
         let t0 = 0;
-        for (let t = 1; t <= n; t++) if (t === n || A[i + t].it !== A[i + t - 1].it || B[j + t].it !== B[j + t - 1].it) { out.push({ i: i + t0, j: j + t0, n: t - t0 }); t0 = t; }
+        for (let t = 1; t <= n; t++) if (t === n || !cont(A[i + t - 1], A[i + t]) || !cont(B[j + t - 1], B[j + t])) { out.push({ i: i + t0, j: j + t0, n: t - t0 }); t0 = t; }
       }
     }
     return out;
@@ -265,7 +271,10 @@
     if (!n) return [];
     if (!m) return A.map((_, i) => ['-', i]);
     const D = new Float32Array((n + 1) * W), op = new Uint8Array((n + 1) * W), from = new Int32Array(n + 1);
-    const xi = new Float32Array(m); for (let j = 1; j < m; j++) if (B[j].it !== B[j - 1].it) xi[j] = XI;
+    //   opt.bseg(成果物の字ごとの段落の番号): 段落をまたいで続けるときは、別の区間へ移るのと同じ手間をかける
+    //   (成果物の字の並びの順番で隣でも、紙面では離れた段落(注記のあとに表の見出しが並ぶなど)に続けて当てないように)
+    const bseg = opt.bseg || null, xi = new Float32Array(m);
+    for (let j = 1; j < m; j++) { if (B[j].it !== B[j - 1].it) xi[j] = XI; if (bseg && bseg[j] !== bseg[j - 1]) xi[j] = J; }
     //   OCR で読んだ字(alt: 読み違えやすい字の候補)は、候補の字とも同じとみなす
     const alt = B.some(c => c.alt) || A.some(c => c.alt), same = (a, b) => a.k === b.k || (alt && ((b.alt && b.alt.has(a.k)) || (a.alt && a.alt.has(b.k))));
     for (let j = 0; j <= m; j++) { D[j] = J + (near && j < m ? near(0, j) : 0); op[j] = 3; }
@@ -278,7 +287,9 @@
       let best = Infinity, bj = 0;
       for (let j = 0; j <= m; j++) if (D[r1 + j] < best) { best = D[r1 + j]; bj = j; }
       from[i + 1] = bj;
-      if (i + 1 < n) for (let j = 0; j < m; j++) { const v = best + J + (near ? near(i + 1, j) : 0); if (v < D[r1 + j]) { D[r1 + j] = v; op[r1 + j] = 3; } }
+      //   strict: 前へ戻る飛び越し(すでに当てた成果物の字に当て直すことになる)は、手間を倍にする
+      //   (消えた文の字を後ろの文の字との置き換えとし、後ろの文に戻って当て直す並べ方が、文をそのまま消す並べ方と同じ手間にならないように)
+      if (i + 1 < n) for (let j = 0; j < m; j++) { const v = best + J + (strict && j < bj ? J : 0) + (near ? near(i + 1, j) : 0); if (v < D[r1 + j]) { D[r1 + j] = v; op[r1 + j] = 3; } }
     }
     let i = n, j = 0, best = Infinity;
     for (let q = 0; q <= m; q++) if (D[n * W + q] < best) { best = D[n * W + q]; j = q; }
@@ -324,6 +335,22 @@
     };
     for (const o of ops) { if (o[0] === '|') { flush(); out.push(o); } else seg.push(o); }
     flush();
+    // strict: 区間の端の置き換え(x)の続きで、成果物の字がその区間の一致した字と同じ行で続いていないものは、消えた字とする
+    //   (まとまりの最後の文が消えたとき、その字が、すぐ後ろの別の行の字(表の見出しなど)との置き換えとして食い込まないように)
+    if (strict && B[0] && B[0].box) {
+      const near2 = (p, c) => { const s = Math.max(p.box[3] - p.box[1], c.box[3] - c.box[1], p.box[2] - p.box[0], c.box[2] - c.box[0], 1); return PC.gap(p.box, c.box) <= 1.5 * s; };
+      let k0 = 0;
+      for (let k = 0; k <= out.length; k++) {
+        if (k < out.length && out[k][0] !== '|') continue;
+        const seg = out.slice(k0, k), eq = seg.map((o, t) => (o[0] === '=' || o[0] === '~' ? t : -1)).filter(t => t >= 0);
+        if (eq.length) {
+          const first = eq[0], last = eq[eq.length - 1];
+          for (let t = last + 1, pj = seg[last][2]; t < seg.length; t++) { const o = seg[t]; if (o[0] !== 'x') continue; if (near2(B[pj], B[o[2]])) { pj = o[2]; continue; } for (let u = t; u < seg.length; u++) if (seg[u][0] === 'x') out[k0 + u] = ['-', seg[u][1]]; break; }
+          for (let t = first - 1, pj = seg[first][2]; t >= 0; t--) { const o = seg[t]; if (o[0] !== 'x') continue; if (near2(B[pj], B[o[2]])) { pj = o[2]; continue; } for (let u = t; u >= 0; u--) if (seg[u][0] === 'x') out[k0 + u] = ['-', seg[u][1]]; break; }
+        }
+        k0 = k + 1;
+      }
+    }
     // 区間の先頭・末尾の「Bにだけある字」は、区間の始め方・終わり方の都合で入っただけなので除く
     const keep = out.map(() => true);
     for (let k = 0; k < out.length; k++) {
@@ -596,11 +623,14 @@
       });
       return out;
     };
+    //   旧版との比べ合わせ(同じレイアウト。位置の手がかりあり)では、成果物の段落をまたいで続けるときに手間をかける(PC.collate の bseg)
+    //   (データファイルの表の行は、成果物ではセルごとの段落に分かれるので使わない)
+    const bseg = T && pr.strict ? (() => { const id = new Int32Array(Bk.length).fill(-1); PC.blocksOf(B.chars, B.items).forEach(([s, e], k) => id.fill(k, s, e)); return id; })() : null;
     const coll = (cs, near, u = used) => units(collRaw(cs, near, u), u);
     const collRaw = (cs, near, u) => {
-      if (!bmap) return PC.collate(cs, Bk, { jump: 3, near, used: u, strict, keepEdge });
+      if (!bmap) return PC.collate(cs, Bk, { jump: 3, near, used: u, strict, keepEdge, bseg });
       const amap = cs.map((_, i) => i).filter(i => !comma(cs, i));
-      const ops = PC.collate(amap.map(i => cs[i]), Bf, { jump: 3, near: near ? Float32Array.from(bmap, j => near[j]) : null, used: Uint8Array.from(bmap, j => u[j]), strict, keepEdge: keepEdge && (j => keepEdge(bmap[j])) });
+      const ops = PC.collate(amap.map(i => cs[i]), Bf, { jump: 3, near: near ? Float32Array.from(bmap, j => near[j]) : null, used: Uint8Array.from(bmap, j => u[j]), strict, keepEdge: keepEdge && (j => keepEdge(bmap[j])), bseg: bseg && Int32Array.from(bmap, j => bseg[j]) });
       return ops.map(o => (o[0] === '|' ? o : o[0] === '-' ? ['-', amap[o[1]]] : o[0] === '+' ? ['+', bmap[o[1]]] : [o[0], amap[o[1]], bmap[o[2]]]));
     };
     // 表の行: いちばん長く一致した区間の成果物での行(上下に字の高さの1.6倍まで)から外れた所から始める手間を大きくする
@@ -661,7 +691,7 @@
         if (x.n < 6 || blockAt[x.i] < 0) continue;
         const a = PC.mapBox(T, PC.union(A.chars.slice(x.i, x.i + x.n).map(c => c.box))), bb = PC.union(Bk.slice(x.j, x.j + x.n).map(c => c.box));
         if (PC.gap(a, bb) > 0.3 * Math.max(4, bb[3] - bb[1])) continue;
-        for (let t = 0; t < x.n; t++) if (own[x.j + t] < 0) own[x.j + t] = blockAt[x.i];
+        for (let t = 0; t < x.n; t++) if (own[x.j + t] < 0 && blockAt[x.i + t] >= 0) own[x.j + t] = blockAt[x.i + t];   // 字ごとに、その字のまとまりのものとする
       }
     }
     const usedFor = b => { if (!own) return used; const bi = blocks.indexOf(b); return Uint8Array.from(used, (v, j) => (v || (own[j] >= 0 && own[j] !== bi) ? 1 : 0)); };

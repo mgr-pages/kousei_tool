@@ -24,7 +24,7 @@ for vd in sorted(glob.glob(os.path.join(root, 'v*'))):
         m = 0.5 * e['size'] * K
         fs = [k for k, f in enumerate(F) if qof(f) == e['page'] and any(ov(b, e['box'], m) for b in boxes(f))]
         old = ''.join(s[1] for k in fs for s in (F[k].get('segs') or []) if s[0] == '-'); new = ''.join(s[1] for k in fs for s in (F[k].get('segs') or []) if s[0] == '+')
-        if e['type'] == 'linedel':
+        if e['type'] in ('linedel', 'sentdel'):
             exact = sum(1 for c in e['before'] if c in old) >= 0.5 * len(e['before'])
             if not fs:   # 消えた行は、位置の分からない「成果物にない」として出ることがある: 消えた字で探す
                 fs = [k for k, f in enumerate(F) if qof(f) == e['page'] and sum(1 for c in e['before'] if c in ''.join(s[1] for s in (f.get('segs') or []) if s[0] == '-')) >= 0.5 * len(e['before'])]
@@ -34,7 +34,7 @@ for vd in sorted(glob.glob(os.path.join(root, 'v*'))):
         else:
             lint = ''.join(F[k]['lint']['c'] for k in fs if F[k].get('lint'))   # 見た目が同じで文字データが違う字(「一」→「ー」では？)
             exact = bool(fs) and ((e['before'] and all(c in old for c in e['before'])) or (e['after'] and all(c in new + lint for c in e['after'])))
-        st = stat[e['type']]; st[0] += 1; st[1] += bool(fs); st[2] += exact
+        st = stat[e['type']]; st[0] += 1; st[1] += bool(fs); st[2] += bool(exact)
         kd = kinds[e['kind']]; kd[0] += 1; kd[1] += bool(fs)
         hit.update(fs)
         if not fs: miss.append((os.path.basename(vd), e))
@@ -45,7 +45,7 @@ for vd in sorted(glob.glob(os.path.join(root, 'v*'))):
 found = sum(v[1] for v in stat.values()); exact = sum(v[2] for v in stat.values())
 print(f'{mode}: 直し {total}件中 見つけた {found}件（{100 * found / max(1, total):.1f}%）・中身も合う {exact}件 / 余分な検出 {len(fps)}件')
 NAMES = dict(kanji='漢字を別の漢字に', dakuten='濁点・半濁点', choon='長音→漢数字の一', delete='1字消す', insert='1字足す', digit='数字1桁', numlen='数字の桁を増やす',
-             symbol='記号', width='全角・半角', swap='2字の入れ替え', small='小さい字(6.5pt)', table='表の価格', linedel='1行消す', word='漢字2字')
+             symbol='記号', width='全角・半角', swap='2字の入れ替え', small='小さい字(6.5pt)', table='表の価格', linedel='1行消す', sentdel='1文消す', word='漢字2字')
 for t, (n, f, x) in stat.items(): print(f'   {NAMES.get(t, t):<12} {f}/{n}' + (f'（中身も合う {x}）' if x != f else ''))
 print('   字の所: ' + '　'.join(f'{k} {v[1]}/{v[0]}' for k, v in kinds.items()))
 if detail:

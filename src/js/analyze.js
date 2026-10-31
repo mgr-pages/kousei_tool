@@ -112,8 +112,13 @@
   function layoutChanges(ot, ol, nt, nl, pairs) {
     const out = [], fo = new Map(), fn = new Map();
     ol.forEach(l => { if (l.toks.length) fo.set(l.toks[0], l); }); nl.forEach(l => { if (l.toks.length) fn.set(l.toks[0], l); });
+    //   本当の追い込み・改行は、字がすぐ隣に続く所で起きる: 追い込みは成果物で、改行は原稿で、その字が前の字のすぐ後ろ(字1つ分まで)に続いているものだけを出す
+    //   (表のセルの文字の幅が変わって、セルの間が詰まって1行・離れて別の行とみなされただけのものを出さないように)
+    const tight = (ts, a, b) => a >= 0 && b < ts.length && PC.gap(ts[a].box, ts[b].box) <= Math.max(ts[b].box[3] - ts[b].box[1], ts[b].box[2] - ts[b].box[0]);
     for (const [k, m] of pairs) {
       const po = fo.has(k) && fo.get(k).para, pn = fn.has(m) && fn.get(m).para;
+      if (po && !pn && !tight(nt, m - 1, m)) continue;
+      if (!po && pn && !tight(ot, k - 1, k)) continue;
       if (po !== pn) out.push({ kind: 'text', tag: 'layout', oi: [k, k + 1], nj: [m, m + 1], obox: ot[k].box, nbox: nt[m].box, show: pn ? '（改行・段落の追加）' : '（追い込み・段落の解除）', before: '', after: '', nline: '' });
     }
     return out;
