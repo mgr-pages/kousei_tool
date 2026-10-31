@@ -12,7 +12,7 @@
     { key: 'OK', label: '自動で確認済み（指示どおり）', test: f => f.auto === 'ok', c: 'A', minor: true, auto: true },
     { key: 'OLD', label: '前回のまま（原稿のない部分）', test: f => f.oldSame, c: 'I', minor: true },
     // 原稿がなく旧版と比べたとき: 前回の成果物から変わった所(指示がないので、意図した変更かを確かめるもの)
-    { key: 'P', label: '前回から変わった所', test: f => !!f.fromOld && S.runMode === 'old', c: 'C' },
+    { key: 'P', label: '前回から変わった所', test: f => !!f.fromOld && S.runMode === 'old' && f.cat !== 'V', c: 'C' },
     { key: 'B', label: '直っていない', test: f => f.cat === 'B', c: 'B', need: true },
     // 文字データのない所(アウトライン・画像の文字)を OCR で読んだ字がかかわる違い(読み違いのこともあるので分けて示す)
     { key: 'CO', label: '旧版と違う？（OCRで読んだ字）', test: f => f.cat === 'C2' && f.ocr, c: 'C', need: true },
@@ -110,6 +110,7 @@
     }
     if (f.oldSame) return ['前回のまま', '原稿のない部分ですが、旧版と同じです'];
     if (f.ocr) return [f.fromOld ? (S.runMode === 'old' ? '前回から変わった？（OCR）' : '旧版と違う？（OCR）') : '原稿と違う？（OCR）', '文字データのない所（アウトライン化・画像の文字）をOCRで読んで比べました。読み違いのこともあるので、切り抜きで確かめてください'];
+    if (f.fromOld && f.cat === 'V') return ['書き方だけ変わった', `${S.runMode === 'old' ? '前回の成果物' : '旧版'}から、全角・半角などの書き方だけが変わっています。意図した変更か確認`];
     if (f.fromOld && S.runMode === 'old') return ['前回から変わった', f.fromOld === 'del' ? '前回の成果物にあった文字がなくなっています。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '前回の成果物から変わっています。意図した変更か確認' : '前回の成果物にない文字があります。意図した追加か確認'];
     if (f.fromOld) return ['指示にない変更（旧版から）', f.fromOld === 'del' ? '旧版にあった文字がなくなっています（原稿のない部分）。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '旧版から変わっています（原稿のない部分）。意図した変更か確認' : '旧版にない文字があります（原稿のない部分）。意図した変更か確認'];
     if (f.cat === 'J') return [JT[f.j.kind] || '成果物の確認', f.j.msg];

@@ -315,14 +315,18 @@
     step('位置を合わせています', 0.05); await PC.tick();
     const { W, matched, A, s } = PC.registerScan(img, nw, dpi);
     const sp = await new PC.ScanPage(W, nw, { digital: !!digital }).init((s, f) => step(s, 0.08 + 0.77 * f));
-    const pairs = sp.pairs(), ch = sp.changes();
-    // 原稿の字: スキャンは修正後の字から推定する。スキャンでないPDFは原稿の文字データ(位置は重ね合わせと同じに移す)を使い、
-    //   文字データのない字形(アウトラインなど)だけを推定で補う
-    let oc = synthChars(sp, nc);
+    //   スキャンでないPDFの原稿: 原稿の文字データの字(位置は重ね合わせと同じに移す)。字の位置は、全角・半角の幅を考えて割り振り、
+    //   描画した字の形に合わせる(PC.textCharsSnapped。原稿は PC.DPI で描いてある)
+    let own = null;
     if (digital) {
       const { doc, i } = src.page(p), mp = (x, y) => [A[0] * x * s + A[1] * y * s + A[2], A[3] * x * s + A[4] * y * s + A[5]];
-      //   字の位置は、全角・半角の幅を考えて割り振り、描画した字の形に合わせる(PC.textCharsSnapped。原稿は PC.DPI で描いてある)
-      const own = (await PC.textCharsSnapped(doc, i, img)).map(([c, b]) => { const p0 = mp(b[0], b[1]), p1 = mp(b[2], b[3]); return [c, [Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]), Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])]]; });
+      own = (await PC.textCharsSnapped(doc, i, img)).map(([c, b]) => { const p0 = mp(b[0], b[1]), p1 = mp(b[2], b[3]); return [c, [Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]), Math.max(p0[0], p1[0]), Math.max(p0[1], p1[1])]]; });
+      sp.textBoxes = own.map(([, b]) => b);   // 文字データの字がある所は、赤以外の書き込みとみなさない(成果物から消えた文などを見落とさないように)
+    }
+    const pairs = sp.pairs(), ch = sp.changes();
+    // 原稿の字: スキャンは修正後の字から推定する。スキャンでないPDFは原稿の文字データを使い、文字データのない字形(アウトラインなど)だけを推定で補う
+    let oc = synthChars(sp, nc);
+    if (digital) {
       //   どの字形にも当たらない字(半角の字の位置の割り振りがずれたもの)は、同じ行のいちばん近い字形の中に置く(字を落とさない)
       const inTok = (o, t) => { const x = (o[0] + o[2]) / 2, y = (o[1] + o[3]) / 2; return x >= t[0] - 2 && x <= t[2] + 2 && y >= t[1] - 2 && y <= t[3] + 2; };
       for (const ch of own) {
@@ -370,12 +374,16 @@
   const isKata = c => /^[ァ-ヺー]$/.test(c), isKan = c => /^\p{Script=Han}$/u.test(c);
   function lookalikeChars(cs) {
     const out = [], near = (a, b) => { const s = Math.max(a[2] - a[0], a[3] - a[1], b[2] - b[0], b[3] - b[1]); return Math.hypot((a[0] + a[2] - b[0] - b[2]) / 2, (a[1] + a[3] - b[1] - b[3]) / 2) < 1.6 * s; };
-    for (let i = 1; i + 1 < cs.length; i++) {
-      const [c, b] = cs[i], [a, pb] = cs[i - 1], [z, qb] = cs[i + 1];
+    //   長音の代わりの「一」・ダッシュは、カタカナの語の終わり(後ろがかな・記号・行の終わり)でも見る(「ヒータ一は」)。
+    //   後ろが漢字・数字のときは本当の漢数字のことがある(「ランキング一位」)ので見ない
+    const END = new Set(['一', '−', '‐', '－', '―', '─']);
+    for (let i = 1; i < cs.length; i++) {
+      const [c, b] = cs[i], [a, pb] = cs[i - 1], nx = cs[i + 1], z = nx && near(b, nx[1]) ? nx[0] : null;
+      if (!near(pb, b)) continue;
       let want = null;
-      if (TO_KATA[c] && isKata(a) && isKata(z)) want = TO_KATA[c];
-      else if (TO_KAN[c] && isKan(a) && isKan(z)) want = TO_KAN[c];
-      if (want && near(pb, b) && near(b, qb)) out.push({ c, want, box: b, ctx: [a, z] });
+      if (TO_KATA[c] && isKata(a) && ((z != null && isKata(z)) || (END.has(c) && (z == null || !(isKan(z) || /[0-9０-９]/.test(z)))))) want = TO_KATA[c];
+      else if (TO_KAN[c] && isKan(a) && z != null && isKan(z)) want = TO_KAN[c];
+      if (want) out.push({ c, want, box: b, ctx: [a, z || ''] });
     }
     return out;
   }
@@ -684,7 +692,8 @@
       for (const b of blocks) {
         let run = [];
         for (const op of [...b.ops, ['|']]) {
-          if (op.length === 3) { o.st[op[2]] = op[0] === '=' || op[0] === '~' ? 1 : 2; if (op[0] === 'x') o.oc[op[2]] = A.chars[b.s + op[1]].c; }   // oc: 置き換わる前の旧版の字
+          //   st 3: 書き方だけ違う字(全角・半角など。旧版から変わった所として、分けて出す)。oc: 置き換わる前の旧版の字
+          if (op.length === 3) { o.st[op[2]] = op[0] === '=' ? 1 : op[0] === '~' ? 3 : 2; if (op[0] !== '=') o.oc[op[2]] = A.chars[b.s + op[1]].c; }
           if (op[0] === '-') { run.push(b.s + op[1]); continue; }
           //   at: 消えた字の直後の成果物の字(旧版にない字が続くときはその字。数字のまとまりの中で消えた字を、同じ件に入れるため)
           if (run.length) o.gone.push({ p, cs: run.map(i => A.chars[i]), T: pr.T, near: op.length === 3 ? o.B.chars[op[2]].box : null, at: op.length === 3 ? op[2] : op[0] === '+' ? op[1] : -1 });
@@ -759,8 +768,7 @@
       const spanAt = j => (j >= 0 && j < C.length && spanOf[j] >= 0 ? spanOf[j] : j > 0 && spanOf[j - 1] >= 0 ? spanOf[j - 1] : -1);
       for (const g of o.gone) {
         if (g.taken) continue;   // 原稿のない部分の数字の件に入れたもの(leftovers)
-        const ob = PC.union(g.cs.map(c => c.box)), text = g.cs.map(c => c.c).join('');
-        if (!/[\p{L}\p{N}]/u.test(text)) continue;
+        const ob = PC.union(g.cs.map(c => c.box)), text = g.cs.map(c => c.c).join('');   // 記号だけが消えたもの(「※」など)も出す
         if (noContent && g.at >= 0 && [...text].every(c => PC.NUMC.test(c)) && spanAt(g.at) >= 0) { goneIn.set(g.at, (goneIn.get(g.at) || '') + text); continue; }
         const nb = g.near ? [g.near[0] - 1, g.near[1], g.near[0] + 1, g.near[3]] : PC.mapBox(g.T, ob);
         if (covered(nb)) continue;
@@ -774,7 +782,7 @@
         let run = [];
         const push = (segs, t, s) => { const g = segs[segs.length - 1]; if (g && g[0] === t) g[1] += s; else segs.push([t, s]); };
         const flush = () => {
-          if (run.length && run.some(j => o.st[j] !== 1 && /[\p{L}\p{N}]/u.test(C[j].c)) || run.some(j => goneIn.has(j)) || (run.length && goneIn.has(run[run.length - 1] + 1))) {
+          if (run.length && run.some(j => o.st[j] !== 1) || run.some(j => goneIn.has(j)) || (run.length && goneIn.has(run[run.length - 1] + 1))) {   // 記号だけの変化(「、」→「。」など)も出す
             const nb = PC.union(run.map(j => C[j].box)), m = o.maps[0];
             // 前後の同じ字(同じまとまりの6字まで)を添え、置き換わった字は旧版の字→成果物の字で示す
             const it = C[run[0]].it, segs = [];
@@ -785,12 +793,12 @@
               if (j !== run[0] && (C[j].sp || C[j].it !== C[j - 1].it) && PC.DIGC.test(C[j].c) && PC.DIGC.test(C[j - 1].c)) push(segs, '=', ' ');   // 空白・まとまりの切れ目をはさむ数字どうし(日付と時刻など)は、空白で分けて示す
               if (goneIn.has(j)) push(segs, '-', goneIn.get(j));
               if (o.st[j] === 1) push(segs, '=', C[j].c);
-              else { if (o.st[j] === 2 && o.oc[j]) push(segs, '-', o.oc[j]); push(segs, '+', C[j].c); }
+              else { if (o.st[j] >= 2 && o.oc[j]) push(segs, '-', o.oc[j]); push(segs, '+', C[j].c); }
             }
             if (goneIn.has(last + 1) && spanAt(last + 1) >= 0 && spanOf[last + 1] !== spanOf[last]) push(segs, '-', goneIn.get(last + 1));
             if (post.length) push(segs, '=', post.join(''));
-            const kind = segs.some(g => g[0] === '+') ? 'add' : 'del';
-            if (!covered(nb)) items.push({ kind, text: run.map(j => C[j].c).join(''), segs, nbox: nb, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), nb)) } : null, ocr: run.some(j => C[j].ocr) });
+            const kind = segs.some(g => g[0] === '+') ? 'add' : 'del', variant = run.every(j => o.st[j] === 1 || o.st[j] === 3) && !run.some(j => goneIn.has(j)) && !goneIn.has(last + 1);   // 書き方だけの変化
+            if (!covered(nb)) items.push({ kind, variant, text: run.map(j => C[j].c).join(''), segs, nbox: nb, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), nb)) } : null, ocr: run.some(j => C[j].ocr) });
           }
           run = [];
         };
@@ -1016,9 +1024,11 @@
           const segs = [], B = d.nq.B.chars, push = (t, c) => { const g = segs[segs.length - 1]; if (g && g[0] === t) g[1] += c; else segs.push([t, c]); };
           //   数字のまとまりの中で消えた旧版の字(gin)は、その位置に「旧版の字」として入れる
           const done = new Set(), gone = j => { if (e.gin.has(j) && !done.has(j)) { done.add(j); push('-', e.gin.get(j)); } };
-          e.jss.forEach((js, n) => { if (n) push('=', ' ／ '); js.forEach((j, i) => { const pj = js[i - 1]; if (i && (B[j].sp || B[j].it !== B[pj].it) && PC.DIGC.test(B[j].c) && PC.DIGC.test(B[pj].c)) push('=', ' '); gone(j); const st = e.os.st[j]; if (st === 1) push('=', B[j].c); else { if (st === 2 && e.os.oc[j]) push('-', e.os.oc[j]); push('+', B[j].c); } }); gone(js[js.length - 1] + 1); });
+          e.jss.forEach((js, n) => { if (n) push('=', ' ／ '); js.forEach((j, i) => { const pj = js[i - 1]; if (i && (B[j].sp || B[j].it !== B[pj].it) && PC.DIGC.test(B[j].c) && PC.DIGC.test(B[pj].c)) push('=', ' '); gone(j); const st = e.os.st[j]; if (st === 1) push('=', B[j].c); else { if (st >= 2 && e.os.oc[j]) push('-', e.os.oc[j]); push('+', B[j].c); } }); gone(js[js.length - 1] + 1); });
           const m = e.os.maps[0];
-          Object.assign(f, { cat: 'C2', label: PC.CAT.C2, how: '旧版から変わった所（原稿のない部分）', fromOld: 'add', newOnly: true, segs, same: false, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), e.nbox)) } : null });
+          //   書き方だけの変化(全角・半角など)だけなら「全角・半角などの違い」に分ける
+          const varOnly = !e.gin.size && e.jss.every(js => js.every(j => e.os.st[j] === 1 || e.os.st[j] === 3)), cat = varOnly ? 'V' : 'C2';
+          Object.assign(f, { cat, label: PC.CAT[cat], how: varOnly ? '旧版から書き方だけ変わった所（全角・半角など）' : '旧版から変わった所（原稿のない部分）', fromOld: 'add', newOnly: true, segs, same: false, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), e.nbox)) } : null });
         }
         if (e.old === 'same') f.oldSame = true;
         if (e.vsOld) f.vsOld = e.vsOld;
@@ -1269,7 +1279,7 @@
       if (d.kind === 'content') contentFindings(d, p, add);
       if (d.kind === 'records') recordFindings(d, p, add);
       for (const x of d.olds || []) {   // 旧版から変わった所(原稿のない部分): 指示にない変更
-        const f = add(p + 1, 'C2', x.nbox, x.text, '旧版から変わった所（原稿のない部分）', '', '', x.nbox);
+        const f = add(p + 1, x.variant ? 'V' : 'C2', x.nbox, x.text, x.variant ? '旧版から書き方だけ変わった所（全角・半角など）' : '旧版から変わった所（原稿のない部分）', '', '', x.nbox);
         Object.assign(f, { onNew: true, newOnly: true, fromOld: x.kind, segs: x.segs, same: false, pnboxes: [x.nbox], old: x.old });
         if (x.ocr) f.ocr = true;
       }

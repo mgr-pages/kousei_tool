@@ -522,15 +522,16 @@
   //   まとまりの字のかたまり(2字以上)がそのまま最も多く(半分以上)含まれるページ。どのページにもないまとまりは、前(なければ後ろ)のまとまりと同じページ
   //   返り値: who(まとまりごとに、cands の何番目か)・also(表の見出しの行が、そのまま載っているほかのページ)
   PC.splitFree = (A, blocks, cands) => {
-    const ks = cands.map(c => PC.keyStr(c.B.chars, true).s);
+    const ks = cands.map(c => PC.keyStr(c.B.chars, true).s), idxs = ks.map(K => PC.gramIndex(K));
     //   グラフの項目名・値(kind 'chart')は短いため、ほかのページにも同じ字があることが多い。自分の字では決めず、前後のまとまり(表題など)と同じページにする
     const who = blocks.map(([s, e, kind]) => {
       if (kind === 'chart') return -1;
       const byIt = new Map();
       for (let i = s; i < e; i++) { const c = A.chars[i]; if (!byIt.has(c.it)) byIt.set(c.it, []); byIt.get(c.it).push(c); }
       const sc = cands.map(() => 0); let n = 0;
-      for (const cs of byIt.values()) { const k = PC.keyStr(cs, true).s; if ([...k].length < 2) continue; n += k.length; ks.forEach((K, ci) => { if (K.includes(k)) sc[ci] += k.length; }); }
-      //   字の半分以上がそのまま含まれるページだけを数える(「1個」のような短い字が合っただけのページには振り分けない)
+      //   字は4字ずつの並びで数える(直しの入ったまとまりも、直しの前後の並びで振り分けられるように: PC.gramHit)
+      for (const cs of byIt.values()) { const k = PC.keyStr(cs, true).s; if ([...k].length < 2) continue; n += k.length; ks.forEach((K, ci) => { sc[ci] += PC.gramHit(k, K, idxs[ci]).n; }); }
+      //   字の半分以上が含まれるページだけを数える(「1個」のような短い字が合っただけのページには振り分けない)
       let best = -1; sc.forEach((v, ci) => { if (v >= 0.5 * n && v > 0 && (best < 0 || v > sc[best])) best = ci; });
       return best;
     });
@@ -570,7 +571,8 @@
     //   (段組みを組み替えたデザインでは、本文でも位置の対応から外れるため、長く一致する文字があれば本文とみなす)
     const src = pr.src, inSrc = c => { const [x, y] = PC.center(c.box); return x >= src[0] && x <= src[2] && y >= src[1] && y <= src[3]; };
     const cov = new Uint8Array(A.chars.length);
-    if (!free) for (const x of PC.textAnchors(A.chars, Bk, 6)) cov.fill(1, x.i, x.i + x.n);
+    const anchors = free ? [] : PC.textAnchors(A.chars, Bk, 6);
+    for (const x of anchors) cov.fill(1, x.i, x.i + x.n);
     const blocks = (A.blocks || PC.blocksOf(A.chars, A.items).map(([s, e]) => [s, e, 'para'])).map(([s, e, kind, , , chartsrc]) => {
       const cs = A.chars.slice(s, e), text = cs.map(c => c.c).join('');
       let inside = 0, hit = 0; for (let k = s; k < e; k++) { if (inSrc(A.chars[k])) inside++; if (cov[k]) hit++; }
@@ -612,7 +614,7 @@
     };
     const hits = ops => ops.filter(o => o[0] === '=' || o[0] === '~').length;
     //   行の範囲に絞ると一致が2割以上減るとき(表の行と列を入れ替えて組んだときなど)は、絞らない
-    const rowColl = (b, ops) => { if (b.kind !== 'row') return ops; const nb = band(ops); if (!nb) return ops; const o2 = coll(b.cs, nb); return hits(o2) >= 0.8 * hits(ops) ? o2 : ops; };
+    const rowColl = (b, ops, u = used) => { if (b.kind !== 'row') return ops; const nb = band(ops); if (!nb) return ops; const o2 = coll(b.cs, nb, u); return hits(o2) >= 0.8 * hits(ops) ? o2 : ops; };
     // 対応づいた成果物の字に印を付け、新しく印を付けた字を返す(指示として扱い直すときは、その字の印だけを外す)
     const mark = ops => { const js = []; for (const o of ops) { const j = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1; if (j >= 0 && !used[j]) { used[j] = 1; js.push(j); } } return js; };
     const byLen = xs => xs.slice().sort((x, y) => (y.e - y.s) - (x.e - x.s) || x.s - y.s);
@@ -649,9 +651,24 @@
       for (const b of order) rate.set(b, hits(rowColl(b, coll(b.cs, null))) / b.cs.length);
       order = order.slice().sort((x, y) => rate.get(y) - rate.get(x) || (y.e - y.s) - (x.e - x.s) || x.s - y.s);
     }
+    //   旧版との比べ合わせ(同じレイアウト。位置の手がかりあり): 写した位置のすぐ近くで6字以上そのまま一致する所は、そのまとまりのものとして押さえ、
+    //   ほかのまとまりには使わせない(消えた行の字が、離れた所の同じ字の並び(表の中の商品名など)を取ってしまわないように)
+    const own = T && pr.strict ? new Int32Array(Bk.length).fill(-1) : null;
+    if (own) {
+      const blockAt = new Int32Array(A.chars.length).fill(-1); blocks.forEach((b, bi) => blockAt.fill(bi, b.s, b.e));
+      //   押さえるのは、写した位置に重なる(ずれが字の高さの3割まで)ものだけ(隣の行の同じ並び(表の日付の列など)は押さえない)
+      for (const x of anchors) {
+        if (x.n < 6 || blockAt[x.i] < 0) continue;
+        const a = PC.mapBox(T, PC.union(A.chars.slice(x.i, x.i + x.n).map(c => c.box))), bb = PC.union(Bk.slice(x.j, x.j + x.n).map(c => c.box));
+        if (PC.gap(a, bb) > 0.3 * Math.max(4, bb[3] - bb[1])) continue;
+        for (let t = 0; t < x.n; t++) if (own[x.j + t] < 0) own[x.j + t] = blockAt[x.i];
+      }
+    }
+    const usedFor = b => { if (!own) return used; const bi = blocks.indexOf(b); return Uint8Array.from(used, (v, j) => (v || (own[j] >= 0 && own[j] !== bi) ? 1 : 0)); };
     for (const b of order) {
-      b.ops = coll(b.cs, nearFor(PC.union(b.cs.map(c => c.box))));
-      b.ops = rowColl(b, b.ops);
+      const u = usedFor(b);
+      b.ops = coll(b.cs, nearFor(PC.union(b.cs.map(c => c.box))), u);
+      b.ops = rowColl(b, b.ops, u);
       reanchor(b.ops, b.cs);
       const low = hits(b.ops) < 0.5 * b.cs.length;
       // 成果物に見当たらない短い書き込みで、指示の言い方のもの → 指示として扱い直す

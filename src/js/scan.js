@@ -601,7 +601,9 @@
         if (!per.has(b)) per.set(b, []);
         per.get(b).push(i);
       });
-      for (const ks of per.values()) if (ks.filter(i => this.obest[i][1] < 60).length < 0.3 * ks.length) ks.forEach(i => hw.add(i));
+      //   スキャンでないPDFの原稿で、原稿の文字データの字が入っているブロックは、書き込みでなく印刷された字(成果物から消えた文など)
+      const printed = i => !!this.textBoxes && this.textBoxes.some(b => { const x = (b[0] + b[2]) / 2, y = (b[1] + b[3]) / 2, t = this.ot[i].box; return x >= t[0] - 2 && x <= t[2] + 2 && y >= t[1] - 2 && y <= t[3] + 2; });
+      for (const ks of per.values()) if (ks.filter(i => this.obest[i][1] < 60).length < 0.3 * ks.length && !ks.some(printed)) ks.forEach(i => hw.add(i));
       return hw;
     }
     // ---- 1段目: 違いの候補をすべて挙げる ----

@@ -115,22 +115,35 @@
     return { s, at };
   };
   PC.keyStr = keyStr;
+  //   原稿のまとまり(行・段落)の字が、成果物の字の並び K にどれだけ含まれるか: 4字ずつの並び(4-gram)で数える
+  //   (一字一句そのままでなくてよい。直しの入ったまとまりも、直しの前後の並びで見つかる: 直しの多いページを対応から取りこぼさないため)
+  //   返り値: { n: 含まれていた字の数, at: [[K での位置, 字数]] }。4字より短いまとまりは、そのまま含まれるかで見る
+  const G = 4;
+  PC.gramIndex = K => { const m = new Map(); for (let i = 0; i + G <= K.length; i++) { const g = K.slice(i, i + G); if (!m.has(g)) m.set(g, i); } return m; };
+  PC.gramHit = (k, K, idx) => {
+    if (k.length < G) { const p = K.indexOf(k); return { n: p < 0 ? 0 : k.length, at: p < 0 ? [] : [[p, k.length]] }; }
+    const cov = new Uint8Array(k.length), at = [];
+    for (let i = 0; i + G <= k.length; i++) { const p = idx.get(k.slice(i, i + G)); if (p !== undefined) { cov.fill(1, i, i + G); at.push([p, G]); } }
+    let n = 0; for (const v of cov) n += v;
+    return { n, at };
+  };
   //   原稿の1ページ(表・文章)が成果物の何ページかに分かれて載ることや、支給された表の一部の行だけが載ることがあるため、
   //   まとまり(表の行・段落)の半分以上の字がそのまま含まれる所が2つ以上(まとまりが1つだけの原稿は1つ)あるページを候補にする
   //   (どのまとまりをどのページで照合するかは、照合のときに決める: PC.splitFree)
   function pairFree(a, b) {
     if (!b.text) return null;
-    const B = b.kfree || (b.kfree = keyStr(b.text.chars, true)), byIt = new Map();
+    const B = b.kfree || (b.kfree = keyStr(b.text.chars, true)), idx = b.kidx || (b.kidx = PC.gramIndex(B.s)), byIt = new Map();
     a.text.chars.forEach(c => { if (!byIt.has(c.it)) byIt.set(c.it, []); byIt.get(c.it).push(c); });
     let all = 0, hit = 0; const boxes = [], found = new Set(), kh = new Map();
     for (const [it, cs] of byIt) {
       const k = keyStr(cs, true).s;
       if ([...k].length < 2) continue;
       all += k.length;
-      const pos = B.s.indexOf(k);
-      if (pos < 0) continue;
-      hit += k.length; found.add(it); kh.set(it, k.length);
-      boxes.push(PC.union(B.at.slice(pos, pos + k.length).map(j => b.text.chars[j].box)));
+      const h = PC.gramHit(k, B.s, idx);
+      if (!h.n) continue;
+      hit += h.n; kh.set(it, h.n);
+      //   範囲には、字の半分以上が含まれていたまとまりの所だけを入れる(よくある言い回しが離れた所で合っただけのものは入れない)
+      if (h.n >= 0.5 * k.length) { found.add(it); for (const [p, n] of h.at) boxes.push(PC.union(B.at.slice(p, p + n).map(j => b.text.chars[j].box))); }
     }
     const blocks = a.blocks || [[0, a.text.chars.length]];
     const strong = blocks.filter(([s, e]) => {
@@ -138,7 +151,7 @@
       let n = 0, h = 0; for (const it of its) { const k = keyStr(byIt.get(it), true).s.length; n += k; h += kh.get(it) || 0; }
       return n >= 2 && h >= 0.5 * n;
     }).length;
-    if (hit < 8 || strong < Math.min(2, blocks.length)) return null;
+    if (hit < 8 || strong < Math.min(2, blocks.length) || !boxes.length) return null;
     const u = PC.union(boxes), m = 0.02 * diag([0, 0, b.w, b.h]);
     return { T: null, free: true, how: 'text', score: hit, vis: 0, txt: hit, all, found, region: [Math.max(0, u[0] - m), Math.max(0, u[1] - m), Math.min(b.w, u[2] + m), Math.min(b.h, u[3] + m)], src: [0, 0, a.w, a.h], same: false, crop: null, Tt: null, Tv: null };
   }
