@@ -2983,7 +2983,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       from[i + 1] = bj;
       //   strict: 前へ戻る飛び越し(すでに当てた成果物の字に当て直すことになる)は、手間を倍にする
       //   (消えた文の字を後ろの文の字との置き換えとし、後ろの文に戻って当て直す並べ方が、文をそのまま消す並べ方と同じ手間にならないように)
-      if (i + 1 < n) for (let j = 0; j < m; j++) { const v = best + J + (strict && j < bj ? J : 0) + (near ? near(i + 1, j) : 0); if (v < D[r1 + j]) { D[r1 + j] = v; op[r1 + j] = 3; } }
+      if (i + 1 < n) for (let j = 0; j < m; j++) { if (opt.noBack && j < bj) continue; const v = best + J + (strict && j < bj ? J : 0) + (near ? near(i + 1, j) : 0); if (v < D[r1 + j]) { D[r1 + j] = v; op[r1 + j] = 3; } }
     }
     let i = n, j = 0, best = Infinity;
     for (let q = 0; q <= m; q++) if (D[n * W + q] < best) { best = D[n * W + q]; j = q; }
@@ -3005,6 +3005,10 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       if (j1 > 0 && B[j1 - 1].it === B[j1].it && !(used && used[j1 - 1])) ops[0] = [A[0].c === B[j1 - 1].c ? '=' : A[0].k === B[j1 - 1].k ? '~' : 'x', 0, j1 - 1];
     }
     // strict: 1つのまとまりの中で、同じ成果物の字を2度使わない(抜けた文が、前の文の字に当たり直さないように)。一致の多い区間を残す
+    //   2度使う並べ方になったときは、前へ戻らない並べ方でも対応づけ、一致した字の多いほうを使う(消えた文の字を後ろの文の字との置き換えとし、
+    //   前へ戻って後ろの文に当て直す並べ方では、2度使った字を外すと、残った文のほうが消えたことになるため)
+    let dup = false;
+    if (strict && !opt.noBack) { const seen = new Uint8Array(m); for (const o of ops) { const jj = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1; if (jj < 0) continue; if (seen[jj]) { dup = true; break; } seen[jj] = 1; } }
     if (strict) {
       const segOf = [], hitsOf = []; let sg = 0;
       ops.forEach((o, k) => { if (o[0] === '|') { sg++; return; } segOf[k] = sg; hitsOf[sg] = (hitsOf[sg] || 0) + (o[0] === '=' || o[0] === '~' ? 1 : 0); });
@@ -3054,7 +3058,12 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       const atStart = a === 0 || out[a - 1][0] === '|', atEnd = b === out.length - 1 || out[b + 1][0] === '|';
       if ((atStart || atEnd) && !(opt.keepEdge && opt.keepEdge(out[k][1]))) keep[k] = false;
     }
-    return PC.shiftEdits(out.filter((_, k) => keep[k]), A, B);
+    const res = PC.shiftEdits(out.filter((_, k) => keep[k]), A, B);
+    if (dup) {
+      const hits = os => os.filter(o => o[0] === '=' || o[0] === '~').length, alt = PC.collate(A, B, { ...opt, noBack: true });
+      if (hits(alt) > hits(res)) return alt;
+    }
+    return res;
   };
 
   // ---- 違いの位置を整える(手間が同じ並べ方のうち、まとまった・切れ目のよい方を選ぶ) ----
@@ -3319,7 +3328,17 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     };
     //   旧版との比べ合わせ(同じレイアウト。位置の手がかりあり)では、成果物の段落をまたいで続けるときに手間をかける(PC.collate の bseg)
     //   (データファイルの表の行は、成果物ではセルごとの段落に分かれるので使わない)
-    const bseg = T && pr.strict ? (() => { const id = new Int32Array(Bk.length).fill(-1); PC.blocksOf(B.chars, B.items).forEach(([s, e], k) => id.fill(k, s, e)); return id; })() : null;
+    //   続きかどうかは、隣どうしの字の位置で決める: 同じ行(列)の続き(すき間が字の3倍まで)か、次の行(列)の始まり。それ以外(紙面で離れた所)へ続くときだけ手間をかける
+    //   (段落の分け方(PC.blocksOf)は、半角になった字のすき間などで分かれ方が変わるため使わない)
+    const flow = (p, q) => {
+      const sz = Math.max(p.box[3] - p.box[1], p.box[2] - p.box[0], q.box[3] - q.box[1], q.box[2] - q.box[0], 1), cy = b => (b[1] + b[3]) / 2, cx = b => (b[0] + b[2]) / 2;
+      const sameLine = Math.abs(cy(p.box) - cy(q.box)) < 0.6 * sz && q.box[0] > p.box[0] - sz && q.box[0] - p.box[2] < 3 * sz;
+      const nextLine = q.box[1] >= p.box[1] + 0.3 * sz && q.box[1] - p.box[3] < 1.5 * sz;
+      const sameCol = Math.abs(cx(p.box) - cx(q.box)) < 0.6 * sz && q.box[1] > p.box[1] - sz && q.box[1] - p.box[3] < 3 * sz;
+      const nextCol = q.box[2] <= p.box[2] - 0.3 * sz && p.box[0] - q.box[2] < 1.5 * sz;
+      return sameLine || nextLine || sameCol || nextCol;
+    };
+    const bseg = T && pr.strict ? (() => { const id = new Int32Array(Bk.length); for (let j = 1; j < Bk.length; j++) id[j] = id[j - 1] + (flow(Bk[j - 1], Bk[j]) ? 0 : 1); return id; })() : null;
     const coll = (cs, near, u = used) => units(collRaw(cs, near, u), u);
     const collRaw = (cs, near, u) => {
       if (!bmap) return PC.collate(cs, Bk, { jump: 3, near, used: u, strict, keepEdge, bseg });
@@ -4881,7 +4900,164 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     return out;
   }
   // 紙の赤字原稿(スキャン)のページ: スキャンを修正後に重ねて字形を比べる。修正前の文字は、修正後の文字から推定する
-  async function scanPage(src, p, nw, nc, step) {
+  // スキャンでないPDFの原稿(同じレイアウト): 字の形に加えて、原稿と成果物の文字データどうしも比べ、字の形の違いとして出ていない違いを足す
+  //   (形がほぼ同じ字: 全角・半角のかっこ・英字、「ー」と「一」、小さい字の句読点など)。比べ方は旧版との比べ合わせと同じ(PC.collatePage・厳しめ)
+  //   A, s: 原稿の描画 → 成果物の描画(nw)の重ね合わせ。nref: { doc, q, crop } 成果物のページ。ch(字の形の変化)を書き換える:
+  //   字の形の変化1つと文字データの違い1つだけが重なるときは、違う字の表示と位置を文字データのものにする(行をまたいで字の順番が乱れた表示を正す)。
+  //   それ以外の重なり方は、重なった字の形の変化を文字データの違いに置き換える。どの字の形の変化にも重ならない違いは、字の形では見えにくいものだけを足す。
+  //   原稿に赤で書き込んだ字(ページの中身として書いた指示)は比べない
+  async function textDiffChanges(src, p, A, s, sp, ch, nref) {
+    const { doc, i } = src.page(p), At0 = await PC.pageText(doc, i), Bt = await PC.pageText(nref.doc, nref.q), K = PC.S;
+    if (!At0.chars.length || !Bt.chars.length) return;
+    const c0 = nref.crop ? [nref.crop[0], nref.crop[1]] : [0, 0];
+    //   原稿の pt → 成果物の pt(重ね合わせの変換を pt に直したもの。T = [a, b, tx, ty, ay])
+    const T = [A[0] * s, (A[3] - A[1]) * s / 2, A[2] / K + c0[0], A[5] / K + c0[1], A[4] * s];
+    const px = b => [(b[0] - c0[0]) * K, (b[1] - c0[1]) * K, (b[2] - c0[0]) * K, (b[3] - c0[1]) * K];
+    //   赤で書き込んだ字(注釈でなく、ページの中身として書いた指示)は比べない(成果物にない字として出さない・指示の照合を乱さない)。
+    //   赤い字: 字の所に赤ペンの赤(成果物の同じ所に印刷されている赤を除いたもの)があり、黒い画素がほとんどなく、成果物の同じ所に赤い印刷がない字。
+    //   字のまとまり(PDFの文字列)の7割以上が赤い字なら、そのまとまりの字をすべて外す(赤い取り消し線が通る黒い「,」などを外さないように)
+    const W = sp.W, nred = PC.redMask(sp.N);
+    const redChar = c => {
+      const b = px(PC.mapBox(T, c.box)), x0 = Math.max(0, Math.floor(b[0])), y0 = Math.max(0, Math.floor(b[1])), x1 = Math.min(W.w, Math.ceil(b[2])), y1 = Math.min(W.h, Math.ceil(b[3]));
+      let black = 0, red = 0, nr = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const q = y * W.w + x, j = 4 * q;
+        if (Math.max(W.d[j], W.d[j + 1], W.d[j + 2]) < 110) black++;
+        if (sp.core[q]) red++;
+        if (nred[q]) nr++;
+      }
+      return red >= 4 && black <= 0.1 * red && nr < 0.05 * Math.max(1, (x1 - x0) * (y1 - y0));
+    };
+    const redIt = new Map();
+    for (const c of At0.chars) { const v = redIt.get(c.it) || [0, 0]; v[0]++; if (redChar(c)) v[1]++; redIt.set(c.it, v); }
+    const At = { ...At0, chars: At0.chars.filter(c => { const v = redIt.get(c.it); return v[1] < 0.7 * v[0]; }) };
+    if (!At.chars.length) return;
+    const region = nref.crop ? nref.crop.slice() : [0, 0, Bt.w, Bt.h];
+    const blocks = PC.collatePage(At, Bt, { T, Tt: null, region, src: [0, 0, At.w, At.h], strict: true, noInstr: true, free: false }, new Uint8Array(Bt.chars.length), new Set());
+    //   PDFの中の文字列の順番が原稿と成果物で違うと(書き直した文字列だけがページの最後に書かれたPDFなど)、同じ所にある同じ字を
+    //   「消えた」「入った」とすることがある。同じレイアウトなので、消えたとした原稿の字は、写した位置に、どこにも当たっていない成果物の同じ字があれば同じとする
+    const Bc = Bt.chars, usedB = new Uint8Array(Bc.length), freeB = new Map(), took = new Uint8Array(Bc.length);
+    for (const b of blocks) for (const o of b.ops) if (o.length === 3) usedB[o[2]] = 1;
+    for (let j = 0; j < Bc.length; j++) if (!usedB[j]) { if (!freeB.has(Bc[j].k)) freeB.set(Bc[j].k, []); freeB.get(Bc[j].k).push(j); }
+    const inPlace = (a, b) => { const iw = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), ih = Math.min(a[3], b[3]) - Math.max(a[1], b[1]); return iw > 0 && ih > 0 && iw * ih >= 0.5 * Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])); };
+    for (const b of blocks) {
+      const cs = At.chars.slice(b.s, b.e);
+      b.ops = b.ops.map(o => {
+        if (o[0] !== '-') return o;
+        const c = cs[o[1]], mb = PC.mapBox(T, c.box), j = (freeB.get(c.k) || []).find(j => !took[j] && inPlace(mb, Bc[j].box));
+        if (j === undefined) return o;
+        took[j] = 1; return ['=', o[1], j];
+      });
+    }
+    for (const b of blocks) b.ops = b.ops.filter(o => !(o[0] === '+' && took[o[1]]));
+    //   文字データが合わないページ(文字化け・アウトライン化など)では使わない: 原稿の字の8割以上が成果物の字と同じであること
+    let eq = 0; for (const b of blocks) for (const o of b.ops) if (o[0] === '=' || o[0] === '~') eq++;
+    if (eq < 0.8 * At.chars.length) return;
+    const ovl = (a, b, m) => a && b && a[0] - m < b[2] && b[0] - m < a[2] && a[1] - m < b[3] && b[1] - m < a[3];
+    const tokRange = (ts, box) => {   // 枠に重なる字形の番号の範囲。重なる字形がなければ、いちばん近い字形の前(幅0)
+      let lo = -1, hi = -1;
+      ts.forEach((t, k) => { if (ovl(t.box, box, 1)) { if (lo < 0) lo = k; hi = k; } });
+      if (lo >= 0) return [lo, hi + 1];
+      let best = 0, bd = Infinity; ts.forEach((t, k) => { const d = PC.gap(t.box, box); if (d < bd) { bd = d; best = k; } });
+      return [best, best];
+    };
+    //   成果物の字のうち、どの原稿の字にも当たらず、違いにも入っていない字(まとまりの端に入った字・まとまりごと置き換わった所の新しい字など):
+    //   ①原稿の字に当たった成果物の字のすぐ隣(同じ行で続く字)にあるものは、その字の前・後ろに入った字とする
+    //     (「12,800円」→「512,800円」の「5」。同じ数字の中のほかの違いと1つにまとまる)
+    //   ②写した位置が「消えた」違いに重なるものは、置き換わった字として加える(「品名」→「快日」を「品名」が消えただけとしない。下の違いのまとまりで)
+    //   ③どちらでもないものは、字の形の比べ方に任せる(見えない字・仕上がりの外の字などを出さないように)
+    const inPlus = new Uint8Array(Bc.length);
+    for (const b of blocks) for (const o of b.ops) if (o[0] === '+') inPlus[o[1]] = 1;
+    const isFree = j => j >= 0 && j < Bc.length && !usedB[j] && !took[j] && !inPlus[j];
+    const adj = (p, q) => { const s = Math.max(p.box[3] - p.box[1], q.box[3] - q.box[1], 1), oy = Math.min(p.box[3], q.box[3]) - Math.max(p.box[1], q.box[1]), ox = Math.min(p.box[2], q.box[2]) - Math.max(p.box[0], q.box[0]); return PC.gap(p.box, q.box) <= 1.2 * s && (oy >= 0.5 * s || ox >= 0.5 * s); };
+    const bref = new Map();   // 成果物の字の番号 → [まとまり, ops の番号]
+    blocks.forEach((b, bi) => b.ops.forEach((o, q) => { if (o.length === 3) bref.set(o[2], [bi, q]); else if (o[0] === '+') bref.set(o[1], [bi, q]); }));
+    const ins = [];
+    for (let j = 0; j < Bc.length; j++) {
+      if (!isFree(j)) continue;
+      let hi = j; while (isFree(hi + 1) && adj(Bc[hi], Bc[hi + 1])) hi++;
+      const lo = j, L = bref.get(lo - 1), R = bref.get(hi + 1), js = [];
+      j = hi;
+      for (let q = lo; q <= hi; q++) js.push(q);
+      if (L && adj(Bc[lo - 1], Bc[lo])) ins.push({ bi: L[0], at: L[1] + 1, js });
+      else if (R && adj(Bc[hi], Bc[hi + 1])) ins.push({ bi: R[0], at: R[1], js });
+    }
+    ins.sort((x, y) => y.at - x.at).forEach(x => { blocks[x.bi].ops.splice(x.at, 0, ...x.js.map(j => ['+', j])); x.js.forEach(j => { inPlus[j] = 1; }); });
+    const within = (b, ob) => { const iw = Math.min(b[2], ob[2]) - Math.max(b[0], ob[0]), ih = Math.min(b[3], ob[3]) - Math.max(b[1], ob[1]); return iw > 0 && ih > 0 && iw * ih >= 0.5 * (b[2] - b[0]) * (b[3] - b[1]); };
+    //   消えただけの所の印: 前後の成果物の字の境目のうち、写した原稿の字の位置に近いほう(行の頭の字が消えたときに、前の行の終わりに印を付けない)
+    const caretNear = (ops, hk, ob) => {
+      const nb = dir => { for (let q = dir < 0 ? hk.s - 1 : hk.e; q >= 0 && q < ops.length; q += dir) { const o = ops[q]; if (o[0] === '|') return null; if (o[0] !== '-') return Bc[o[0] === '+' ? o[1] : o[2]].box; } return null; };
+      const p = nb(-1), n = nb(1), cands = [p && px([p[2] - 1, p[1], p[2] + 1, p[3]]), n && px([n[0] - 1, n[1], n[0] + 1, n[3]])].filter(Boolean);
+      return cands.length ? cands.reduce((a, b) => (PC.gap(a, ob) <= PC.gap(b, ob) ? a : b)) : null;
+    };
+    //   違いのまとまりは、内容で照合するページと同じ分け方(PC.hunksOf: 数字のまとまりの中の違いは1つ。前後の同じ字を添えて示す)。
+    //   ただし、間の同じ字のところで行(縦組みは列)が変わるときは分ける(行の終わりと次の行の頭の違いを、2行にわたる1つの枠にしない)
+    const brk = (a, b) => { const oy = Math.min(a[3], b[3]) - Math.max(a[1], b[1]), ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0]); return oy < 0.5 * Math.min(a[3] - a[1], b[3] - b[1]) && ox < 0.5 * Math.min(a[2] - a[0], b[2] - b[0]); };
+    const lineSplit = (ops, hk, cs) => {
+      const bOf = o => (o[0] === '-' ? null : Bc[o[0] === '+' ? o[1] : o[2]].box), aOf = o => (o[0] === '+' ? null : cs[o[1]].box);
+      const cut = (o1, o2) => { const b1 = bOf(o1), b2 = bOf(o2); if (b1 && b2) return brk(b1, b2); const a1 = aOf(o1), a2 = aOf(o2); return !!(a1 && a2) && brk(a1, a2); };
+      const parts = []; let st = hk.s;
+      for (let q = hk.s + 1; q < hk.e - 1; q++) if (ops[q][0] === '=' && (cut(ops[q - 1], ops[q]) || cut(ops[q], ops[q + 1]))) { parts.push([st, q]); st = q + 1; }
+      parts.push([st, hk.e]);
+      return parts.map(([s, e]) => { while (s < e && ops[s][0] === '=') s++; while (e > s && ops[e - 1][0] === '=') e--; return { s, e, variant: ops.slice(s, e).every(o => o[0] === '~' || o[0] === '=') }; }).filter(x => x.e > x.s);
+    };
+    const out = [];
+    for (const b of blocks) {
+      const ops = b.ops, cs = At.chars.slice(b.s, b.e);
+      for (const hk of PC.hunksOf(ops, cs, Bc).flatMap(h => lineSplit(ops, h, cs))) {
+        const r = hunkView(ops, hk, cs, Bc), run = ops.slice(hk.s, hk.e).filter(o => o[0] !== '=');
+        let before = run.filter(o => o[0] !== '+').map(o => cs[o[1]].c).join(''), after = run.filter(o => o[0] !== '-').map(o => Bc[o.length === 3 ? o[2] : o[1]].c).join(''), segs = r.segs;
+        if (!before && !after) continue;
+        const obox = r.box ? px(PC.mapBox(T, r.box)) : null;
+        let nbox = r.nbox ? px(r.nbox) : obox;
+        if (before && !after && obox) {
+          const fr = []; for (let j = 0; j < Bc.length; j++) if (isFree(j) && within(px(Bc[j].box), obox)) fr.push(j);
+          if (fr.length) {
+            let lo = Math.min(...fr), hi = Math.max(...fr);
+            while (isFree(lo - 1) && adj(Bc[lo - 1], Bc[lo])) lo--;
+            while (isFree(hi + 1) && adj(Bc[hi], Bc[hi + 1])) hi++;
+            const js = []; for (let j = lo; j <= hi; j++) if (isFree(j)) js.push(j);
+            js.forEach(j => { took[j] = 1; });
+            after = js.map(j => Bc[j].c).join(''); nbox = px(PC.union(js.map(j => Bc[j].box)));
+            const k = segs.map(g => g[0]).lastIndexOf('-'); segs = [...segs.slice(0, k + 1), ['+', after], ...segs.slice(k + 1)];
+          } else nbox = caretNear(ops, hk, obox) || nbox;
+        }
+        const ob = obox || nbox;
+        if (!ob) continue;
+        out.push({ kind: 'text', tag: before && after ? 'replace' : before ? 'delete' : 'insert', oi: tokRange(sp.ot, ob), nj: tokRange(sp.nt, nbox), obox: ob, nbox, before, after, show: after || before,
+          variant: hk.variant, why: '文字データの比べ合わせ', diff: { segs, same: false, ob: [ob], nb: [nbox] }, h: Math.max(4, Math.min(ob[3] - ob[1], ob[2] - ob[0])),
+          sub: run.every(o => o[0] === 'x' || o[0] === '~') });
+      }
+    }
+    //   違いが多すぎるページ(文字データの並びが原稿と成果物で大きく違うもの)は、字の形の比べ方に任せる
+    if (out.length > 40) return;
+    //   字の形の変化と文字データの違いを、位置の重なりでつなぐ。字の形の変化1つと違い1つだけがつながるときは、その変化の表示を違いのものにする。
+    //   それ以外(1つの変化に違いが2つ以上、1つの違いに変化が2つ以上)は、つながった変化を違いに置き換える。
+    //   見た目だけの変化(字の形が同じで色などが違う)は、そのまま残す
+    const G = ch.filter(c => c.kind === 'text' && c.tag !== 'layout' && !c.hw && !c.look);
+    const hitsOf = new Map(G.map(c => [c, out.filter(r => ovl(c.nbox, r.nbox, 0.5 * r.h) || ovl(c.obox, r.obox, 0.5 * r.h))]));
+    const used = new Set(), drop = new Set();
+    for (const c of G) {
+      const hits = hitsOf.get(c);
+      if (!hits.length) continue;
+      if (hits.length === 1 && G.filter(x => hitsOf.get(x).includes(hits[0])).length === 1) {
+        const r = hits[0]; used.add(r);
+        Object.assign(c, { before: r.before, after: r.after, show: r.show, nbox: r.nbox, diff: r.diff, why: c.why || r.why });
+        if (r.variant) c.variant = true;
+        continue;
+      }
+      drop.add(c);
+    }
+    for (let k = ch.length - 1; k >= 0; k--) if (drop.has(ch[k])) ch.splice(k, 1);
+    //   どの字の形の変化にも重ならない違いは、字の形では見えにくいものだけを足す: 違う字が2字まで、同じ数の字の置き換え(全角・半角・形の似た字)、
+    //   字形が見つからない所(色地の上の字など)。長い文が消えた・入ったのなら字の形の変化として必ず見えるため、それに重ならない長い違いは、
+    //   文字データの並べ方の誤り(似た文の取り違え・1字ずつの縦組みの列の送りなど)とみなす
+    const linked = new Set([...hitsOf.values()].flat());
+    const blind = r => !sp.nt.some(t => ovl(t.box, r.nbox, 0)) && !sp.ot.some(t => ovl(t.box, r.obox, 0));
+    const subtle = r => Math.max([...r.before].length, [...r.after].length) <= 2 || r.sub || blind(r);
+    for (const r of out) if (!used.has(r) && (linked.has(r) || subtle(r))) { delete r.h; delete r.sub; ch.push(r); }
+  }
+  async function scanPage(src, p, nw, nc, step, nref = null) {
     step('スキャンを読み込み', 0.02); await PC.tick();
     const { img, dpi, digital } = await src.image(p);
     step('位置を合わせています', 0.05); await PC.tick();
@@ -4914,6 +5090,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     }
     mergeNumbers(ch, sp.ot, oc, sp.nt, nc);
     describe(ch, sp.ot, sp.ol, sp.nt, sp.nl, oc, nc);
+    if (digital && nref) { step('文字データを比べています', 0.85); await textDiffChanges(src, p, A, s, sp, ch, nref); }
     if (window.__pcDebug && typeof window.__pcDebug === 'object') window.__pcDebug.scan = { ot: sp.ot.map(t => t.box), nt: sp.nt.map(t => t.box), oc, nc, ch: ch.map(c => ({ oi: c.oi, nj: c.nj, show: c.show })) };
     ch.push(...layoutChanges(sp.ot, sp.ol, sp.nt, sp.nl, pairs));
     step('写真・図版を比べています', 0.86); await PC.tick();
@@ -5686,7 +5863,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         nw = PC.crop(nw, x0, y0, x1, y1);
         nc = nc.filter(([, b]) => (b[0] + b[2]) / 2 >= x0 && (b[0] + b[2]) / 2 < x1 && (b[1] + b[3]) / 2 >= y0 && (b[1] + b[3]) / 2 < y1).map(([c, b]) => [c, [b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0]]);
       }
-      const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step) : await scanPage(src, p, nw, nc, step);
+      const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step) : await scanPage(src, p, nw, nc, step, { doc: newDoc, q: pr.q, crop: pr.crop });
       if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、原稿と成果物の位置がうまく合いません（ページの向きを確かめてください）`);
       step('表示用の画像を作成', 0.96); await PC.tick();
       d.q = pr.q; d.crop = pr.crop; d.extra = [];
@@ -5860,7 +6037,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         Object.assign(f, { onNew: true, newOnly: true, level: x.level, j: { kind: x.kind, sub: x.sub, want: x.want, msg: x.msg, ctx: x.ctx, count: x.count || 0 }, moreNboxes: x.more, pnboxes: [x.nbox] });
       }
       for (const c of [...d.ch, ...d.im]) {
-        const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : 'C2') : 'C3'), a = c.anchor || {};
+        const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : c.variant ? 'V' : 'C2') : 'C3'), a = c.anchor || {};
         let chk = '', wantUsed = '';
         if (a.note && c.kind === 'text' && c.tag === 'layout') {   // 改行・追い込みの指示: 段落の始まりが指示どおりに変わったか
           const t = a.note.replace(/\s/g, '');

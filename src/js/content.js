@@ -289,7 +289,7 @@
       from[i + 1] = bj;
       //   strict: 前へ戻る飛び越し(すでに当てた成果物の字に当て直すことになる)は、手間を倍にする
       //   (消えた文の字を後ろの文の字との置き換えとし、後ろの文に戻って当て直す並べ方が、文をそのまま消す並べ方と同じ手間にならないように)
-      if (i + 1 < n) for (let j = 0; j < m; j++) { const v = best + J + (strict && j < bj ? J : 0) + (near ? near(i + 1, j) : 0); if (v < D[r1 + j]) { D[r1 + j] = v; op[r1 + j] = 3; } }
+      if (i + 1 < n) for (let j = 0; j < m; j++) { if (opt.noBack && j < bj) continue; const v = best + J + (strict && j < bj ? J : 0) + (near ? near(i + 1, j) : 0); if (v < D[r1 + j]) { D[r1 + j] = v; op[r1 + j] = 3; } }
     }
     let i = n, j = 0, best = Infinity;
     for (let q = 0; q <= m; q++) if (D[n * W + q] < best) { best = D[n * W + q]; j = q; }
@@ -311,6 +311,10 @@
       if (j1 > 0 && B[j1 - 1].it === B[j1].it && !(used && used[j1 - 1])) ops[0] = [A[0].c === B[j1 - 1].c ? '=' : A[0].k === B[j1 - 1].k ? '~' : 'x', 0, j1 - 1];
     }
     // strict: 1つのまとまりの中で、同じ成果物の字を2度使わない(抜けた文が、前の文の字に当たり直さないように)。一致の多い区間を残す
+    //   2度使う並べ方になったときは、前へ戻らない並べ方でも対応づけ、一致した字の多いほうを使う(消えた文の字を後ろの文の字との置き換えとし、
+    //   前へ戻って後ろの文に当て直す並べ方では、2度使った字を外すと、残った文のほうが消えたことになるため)
+    let dup = false;
+    if (strict && !opt.noBack) { const seen = new Uint8Array(m); for (const o of ops) { const jj = o.length === 3 ? o[2] : o[0] === '+' ? o[1] : -1; if (jj < 0) continue; if (seen[jj]) { dup = true; break; } seen[jj] = 1; } }
     if (strict) {
       const segOf = [], hitsOf = []; let sg = 0;
       ops.forEach((o, k) => { if (o[0] === '|') { sg++; return; } segOf[k] = sg; hitsOf[sg] = (hitsOf[sg] || 0) + (o[0] === '=' || o[0] === '~' ? 1 : 0); });
@@ -360,7 +364,12 @@
       const atStart = a === 0 || out[a - 1][0] === '|', atEnd = b === out.length - 1 || out[b + 1][0] === '|';
       if ((atStart || atEnd) && !(opt.keepEdge && opt.keepEdge(out[k][1]))) keep[k] = false;
     }
-    return PC.shiftEdits(out.filter((_, k) => keep[k]), A, B);
+    const res = PC.shiftEdits(out.filter((_, k) => keep[k]), A, B);
+    if (dup) {
+      const hits = os => os.filter(o => o[0] === '=' || o[0] === '~').length, alt = PC.collate(A, B, { ...opt, noBack: true });
+      if (hits(alt) > hits(res)) return alt;
+    }
+    return res;
   };
 
   // ---- 違いの位置を整える(手間が同じ並べ方のうち、まとまった・切れ目のよい方を選ぶ) ----
@@ -625,7 +634,17 @@
     };
     //   旧版との比べ合わせ(同じレイアウト。位置の手がかりあり)では、成果物の段落をまたいで続けるときに手間をかける(PC.collate の bseg)
     //   (データファイルの表の行は、成果物ではセルごとの段落に分かれるので使わない)
-    const bseg = T && pr.strict ? (() => { const id = new Int32Array(Bk.length).fill(-1); PC.blocksOf(B.chars, B.items).forEach(([s, e], k) => id.fill(k, s, e)); return id; })() : null;
+    //   続きかどうかは、隣どうしの字の位置で決める: 同じ行(列)の続き(すき間が字の3倍まで)か、次の行(列)の始まり。それ以外(紙面で離れた所)へ続くときだけ手間をかける
+    //   (段落の分け方(PC.blocksOf)は、半角になった字のすき間などで分かれ方が変わるため使わない)
+    const flow = (p, q) => {
+      const sz = Math.max(p.box[3] - p.box[1], p.box[2] - p.box[0], q.box[3] - q.box[1], q.box[2] - q.box[0], 1), cy = b => (b[1] + b[3]) / 2, cx = b => (b[0] + b[2]) / 2;
+      const sameLine = Math.abs(cy(p.box) - cy(q.box)) < 0.6 * sz && q.box[0] > p.box[0] - sz && q.box[0] - p.box[2] < 3 * sz;
+      const nextLine = q.box[1] >= p.box[1] + 0.3 * sz && q.box[1] - p.box[3] < 1.5 * sz;
+      const sameCol = Math.abs(cx(p.box) - cx(q.box)) < 0.6 * sz && q.box[1] > p.box[1] - sz && q.box[1] - p.box[3] < 3 * sz;
+      const nextCol = q.box[2] <= p.box[2] - 0.3 * sz && p.box[0] - q.box[2] < 1.5 * sz;
+      return sameLine || nextLine || sameCol || nextCol;
+    };
+    const bseg = T && pr.strict ? (() => { const id = new Int32Array(Bk.length); for (let j = 1; j < Bk.length; j++) id[j] = id[j - 1] + (flow(Bk[j - 1], Bk[j]) ? 0 : 1); return id; })() : null;
     const coll = (cs, near, u = used) => units(collRaw(cs, near, u), u);
     const collRaw = (cs, near, u) => {
       if (!bmap) return PC.collate(cs, Bk, { jump: 3, near, used: u, strict, keepEdge, bseg });

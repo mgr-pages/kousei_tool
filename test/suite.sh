@@ -5,6 +5,7 @@
 #   成果物だけで見るチェックは、testdata/jcheck を照合し、test/jcheck/gt.json で採点する
 #   商品マスタ(Excel)の一部の列を載せたカタログと、ページの端の切れ端は、testdata/records を照合し、test/records/gt.json で採点する
 #   数字の違い(1件ずつ・数字全体で出るか)と仕上がりの外のページ情報は、testdata/numtrim を照合し、test/numtrim/gt.json で採点する
+#   赤い文字で指示を書き込んだPDF原稿(注釈でないもの)は、testdata/redtext を照合し、test/redtext/evaluate.py で採点する
 #   bash test/suite.sh テストデータのフォルダ 正解表(gt.json) 採点スクリプト(evaluate.py) 出力フォルダ
 set -u
 DATA=$1; GT=$2; EVAL=$3; OUT=$4
@@ -60,6 +61,10 @@ OLD="$N/old.pdf" run - "$N/new.pdf" numtrim_old &
 run "$N/old.pdf" "$N/new.pdf" numtrim_marks &
 run "$N/genko.txt" "$N/new.pdf" numtrim_text &
 OLD="$N/old.pdf" run "$N/genko.txt" "$N/new.pdf" numtrim_all &
+# 赤字を注釈でなく、ページの中身(赤い文字・線)として書き込んだPDF原稿(test/redtext/make.py で作った模擬データ)。直していない成果物・指示どおりに直した成果物
+R=$DATA/redtext
+run "$R/genko.pdf" "$R/base.pdf" redtext_keep &
+run "$R/genko.pdf" "$R/applied.pdf" redtext_applied &
 wait
 for s in 1 2 3 4 5 6 7 8; do
   echo "紙 s$s: $(head1 "$OUT/paper_s$s.log" 60) | $(python3 "$EVAL" "$GT" "$OUT/paper_s$s.json" --csv "$OUT/paper_s$s.csv" | sed -n 1p)"
@@ -89,3 +94,4 @@ echo "表の商品ごとの照合: $(head1 "$OUT/records.log" 30) | $(python3 te
 python3 test/records/evaluate.py test/records/gt.json "$OUT/records.json" | tail -n +2
 for k in new old marks text all; do echo "数字とページ情報（$k）: $(head1 "$OUT/numtrim_$k.log" 24) | $(python3 test/numtrim/evaluate.py test/numtrim/gt.json $k "$OUT/numtrim_$k.json" | sed -n 1p)"; python3 test/numtrim/evaluate.py test/numtrim/gt.json $k "$OUT/numtrim_$k.json" | tail -n +2; done
 echo "表の商品ごとの照合（圧縮したPDF）: $(python3 test/records/evaluate.py test/records/gt.json "$OUT/records_objstm.json" | sed -n 1p)"
+for k in keep applied; do echo "赤い文字で書き込んだ原稿（$k）: $(head1 "$OUT/redtext_$k.log" 24) | $(python3 test/redtext/evaluate.py $k "$OUT/redtext_$k.json")"; done
