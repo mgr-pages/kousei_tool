@@ -66,6 +66,9 @@
       ['okuri', '送りがなの誤り', jk('okuri')],
       ['particle', '助詞の続き方', jk('particle')],
       ['phone', '電話番号・郵便番号の形', jk('phone', 'zip')],
+      ['tax', '税込・税抜の計算', jk('tax')],
+      ['price', '同じ品番の価格の食い違い', jk('price')],
+      ['noteref', '注記番号（※1）と注記の対応・番号の抜け', jk('noteref', 'listno')],
       ['yure', '表記ゆれ', jk('yure')],
       ['typo', 'カタカナ語の1字違い', jk('typo')],
       ['ranuki', 'ら抜き言葉・れ足す言葉', jk('ranuki')],
@@ -87,7 +90,7 @@
   // 項目の色: 分類(結果の概要のカード)の色にそろえる(参考の項目は、もとの種類の色)
   const colorOf = f => { const g = groupOf(f); return g.minor && !g.auto ? COLOR[f.cat] : g.c; };
   // 一言の結論と、何をすればよいか
-  const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', spell: 'つづり？', article: '冠詞（a・an）？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ' };
+  const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', spell: 'つづり？', article: '冠詞（a・an）？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ', tax: '税込・税抜の計算', price: '価格の食い違い？', noteref: '注記の番号', listno: '番号の抜け？' };
   // ---- 入れたファイルの組み合わせ(成果物は必ず入れる)ごとのチェックの仕方 ----
   //   new: 成果物だけ → 成果物の文字・表記のチェック
   //   marks: 原稿＋成果物 → 原稿との照合＋成果物のチェック

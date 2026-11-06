@@ -999,7 +999,19 @@
     if (post) push('=', post);
     // 挿入・削除だけのときは、隣の字の境目に細い枠
     const near = (side, dir) => { for (let q = dir < 0 ? h.s - 1 : h.e; q >= 0 && q < ops.length; q += dir) { const o = ops[q]; if (o[0] === '|') return null; const b = side === 'A' ? (o[0] === '+' ? null : cs[o[1]].box) : (o[0] === '-' ? null : B[o[0] === '+' ? o[1] : o[2]].box); if (b) return b; } return null; };
-    const caretOf = side => { const p = near(side, -1), n = near(side, 1); if (p) return [p[2] - 1, p[1], p[2] + 1, p[3]]; if (n) return [n[0] - 1, n[1], n[0] + 1, n[3]]; return null; };
+    //   消えただけのとき、原稿で消えた字が後ろの字にすき間なく続き、前の字とは離れている(行・表のセルの境目)なら、後ろの字の前に付ける
+    //   (行・セルの頭の字が消えたときに、前の行・セルの終わりに印を付けない)
+    const headDel = () => {
+      if (!ab.length || bb.length) return false;
+      const aAt = q => { const o = ops[q]; return o && o[0] !== '+' && o[0] !== '|' ? cs[o[1]].box : null; };
+      const ap = aAt(h.s - 1), an = aAt(h.e), a0 = ab[0], a1 = ab[ab.length - 1], sz = Math.max(1, Math.min(a0[3] - a0[1], a0[2] - a0[0]));
+      return !!an && PC.gap(a1, an) < 0.3 * sz && (!ap || PC.gap(ap, a0) >= 0.5 * sz);
+    };
+    const caretOf = side => {
+      const p = near(side, -1), n = near(side, 1);
+      if (n && side === 'B' && headDel()) return [n[0] - 1, n[1], n[0] + 1, n[3]];
+      if (p) return [p[2] - 1, p[1], p[2] + 1, p[3]]; if (n) return [n[0] - 1, n[1], n[0] + 1, n[3]]; return null;
+    };
     return { segs, box: ab.length ? union(ab) : caretOf('A'), nbox: bb.length ? union(bb) : caretOf('B') };
   }
   // 違いが、数字のすぐ前後の通貨の記号だけ(「¥1,280」→「1,280円」)
@@ -1142,7 +1154,9 @@
         if (e - k >= 2) {
           const run = gone.slice(k, e + 1), [x, ...rest] = run;
           for (const y of rest) pend.splice(pend.indexOf(y), 1);
-          Object.assign(x, { goneN: run.length, refs: run.map(y => y.ref).filter(Boolean), moreBoxes: rest.map(y => y.box), moreNboxes: [] });
+          //   違いの表示には、まとめたまとまりの文を(10まで)「…」で区切って並べる(1つ目の文だけにしない)
+          const segs = []; run.slice(0, 10).forEach((y, i) => { if (i) segs.push(['=', '…']); segs.push(...y.segs); });
+          Object.assign(x, { segs, goneN: run.length, refs: run.map(y => y.ref).filter(Boolean), moreBoxes: rest.map(y => y.box), moreNboxes: [] });
         }
         k = e + 1;
       }
@@ -1305,7 +1319,8 @@
     prog('辞書を読み込み、成果物だけで文字・表記を確認', 0.985); await PC.tick();
     const TK = await PC.tokenizer();
     if (!TK) warn.push('辞書を読み込めなかったため、成果物だけのチェックの一部（表記ゆれの一部・助詞の続き方など）を行っていません');
-    for (const x of PC.jcheck(JP, TK).sort((a, b) => a.q - b.q)) {   // 成果物のページの順に(「成果物だけ」のページもこの順に足す)
+    const pname = q => { const n = PC.pageOf(newDoc.parts, q); return n ? `${newDoc.parts.length > 1 ? n.name + ' ' : ''}${n.page}ページ` : `${q + 1}ページ`; };   // 成果物のページの名前(ファイルが複数なら名前も)
+    for (const x of PC.jcheck(JP, TK, pname).sort((a, b) => a.q - b.q)) {   // 成果物のページの順に(「成果物だけ」のページもこの順に足す)
       const c = PC.center(x.box), ds = P.filter(d => d.q === x.q && d.kind !== 'none');
       let d = ds.find(d => d.crop && c[0] >= d.crop[0] && c[0] <= d.crop[2] && c[1] >= d.crop[1] && c[1] <= d.crop[3]) || ds.find(d => !d.crop);
       if (!d) {

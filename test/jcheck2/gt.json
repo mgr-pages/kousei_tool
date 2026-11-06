@@ -1,0 +1,11 @@
+{
+ "note": "test/jcheck2/make.py で作る模擬データ(seika.pdf 2ページ。成果物だけで照合する)の正解。価格・計算・番号のチェック(区分 J)。採点は test/jcheck/evaluate.py(kind は種類、has は項目の文字、level は need(直す必要がありそう)・check(確認だけ)、want は直す候補、msg は説明に含まれる文字)。2ページ目の間違えやすい書き方から出た項目は余分な検出になる",
+ "expect": [
+  {"id": "P1", "kind": "price", "has": "円", "msg": "KX-3150B", "level": "check", "what": "同じ品番 KX-3150B の価格が、表（18,480円）と説明（18,840円）で違う"},
+  {"id": "P2", "kind": "tax", "has": "19,800円", "level": "need", "msg": "20,350円", "what": "税込19,800円と税抜18,500円が合わない（20,350円）"},
+  {"id": "P3", "kind": "tax", "has": "6,500円", "level": "need", "msg": "6,600円", "what": "税込6,500円と本体6,000円が合わない（10%でも8%でもない）"},
+  {"id": "P6", "kind": "tax", "has": "14,000円", "level": "need", "msg": "14,080円", "what": "「12,800円＋税（14,000円）」が合わない（14,080円）"},
+  {"id": "P4", "kind": "listno", "has": "④", "want": "③", "level": "check", "what": "丸数字の番号が飛んでいる（③がない）"},
+  {"id": "P5", "kind": "noteref", "has": "※4", "level": "need", "what": "本文の※4に対応する注記がない"}
+ ]
+}

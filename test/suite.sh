@@ -2,7 +2,7 @@
 # 自動テスト一式: テストキットの修正後ダミー原稿と、模擬の赤字原稿(紙のスキャン8通り・注釈PDF1通り)をブラウザ版で照合し、正解表で採点する
 #   あわせて、レイアウトが違う原稿(ラフ)と成果物の模擬データ(testdata/content)を照合し、test/content/gt.json で採点する
 #   データファイルの原稿(Excel・Word など)の模擬データ(testdata/office)も照合し、test/office/gt.json で採点する
-#   成果物だけで見るチェックは、testdata/jcheck を照合し、test/jcheck/gt.json で採点する
+#   成果物だけで見るチェックは、testdata/jcheck を照合し、test/jcheck/gt.json で採点する(価格・計算・番号のチェックは testdata/jcheck2 と test/jcheck2/gt.json)
 #   商品マスタ(Excel)の一部の列を載せたカタログと、ページの端の切れ端は、testdata/records を照合し、test/records/gt.json で採点する
 #   数字の違い(1件ずつ・数字全体で出るか)と仕上がりの外のページ情報は、testdata/numtrim を照合し、test/numtrim/gt.json で採点する
 #   赤い文字で指示を書き込んだPDF原稿(注釈でないもの)は、testdata/redtext を照合し、test/redtext/evaluate.py で採点する
@@ -37,6 +37,8 @@ run "$O/variant_master.xlsx" "$O/final.pdf" office_master &
 run "$DATA/jcheck/genko.txt" "$DATA/jcheck/seika.pdf" jcheck &
 #   原稿なし(成果物だけ)でも同じ項目が出るか
 run - "$DATA/jcheck/seika.pdf" jcheck_only &
+#   価格・計算・番号のチェック(同じ品番の価格の食い違い・税込と税抜の計算・注記番号・丸数字の番号。test/jcheck2/make.py で作った模擬データ)
+run - "$DATA/jcheck2/seika.pdf" jcheck2 &
 # 書式の指示(太字・大きさ・色)を注釈で入れた原稿と成果物(test/layout/make.py で作った模擬データ)
 run "$DATA/layout/genko.pdf" "$DATA/layout/seika.pdf" layout &
 wait
@@ -84,6 +86,8 @@ echo "成果物だけのチェック: $(head1 "$OUT/jcheck.log" 30) | $(python3 
 python3 test/jcheck/evaluate.py test/jcheck/gt.json "$OUT/jcheck.json" | tail -n +2
 echo "成果物だけのチェック（原稿なし）: $(head1 "$OUT/jcheck_only.log" 30) | $(python3 test/jcheck/evaluate.py test/jcheck/gt.json "$OUT/jcheck_only.json" | sed -n 1p)"
 python3 test/jcheck/evaluate.py test/jcheck/gt.json "$OUT/jcheck_only.json" | tail -n +2
+echo "価格・計算・番号のチェック: $(head1 "$OUT/jcheck2.log" 30) | $(python3 test/jcheck/evaluate.py test/jcheck2/gt.json "$OUT/jcheck2.json" | sed -n 1p)"
+python3 test/jcheck/evaluate.py test/jcheck2/gt.json "$OUT/jcheck2.json" | tail -n +2
 echo "書式の指示: $(head1 "$OUT/layout.log" 30) | $(python3 test/layout/evaluate.py test/layout/gt.json "$OUT/layout.json" | sed -n 1p)"
 python3 test/layout/evaluate.py test/layout/gt.json "$OUT/layout.json" | tail -n +2
 for k in same ng plain text_same text_ng old_ng; do nn=$([ "${k%_ng}" != "$k" ] && [ "$k" != ng ] && echo --need-new); echo "アウトライン（$k）: $(head1 "$OUT/outline_$k.log" 24) | $(python3 test/outline/evaluate.py test/outline/gt.json $k "$OUT/outline_$k.json" $nn | sed -n 1p)"; python3 test/outline/evaluate.py test/outline/gt.json $k "$OUT/outline_$k.json" $nn | tail -n +2; done
