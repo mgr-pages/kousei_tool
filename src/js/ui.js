@@ -77,6 +77,9 @@
       ['tari', '「〜たり」の並べ方', jk('tari')],
       ['keigo', '敬語', jk('keigo')],
       ['redund', '重複表現', jk('redund')],
+      ['style', '文体の混在（です・ます と だ・である）', jk('style')],
+      ['gram', '文法（二重否定・「を」や逆接の「が」の重なり・同じ接続詞の続き・「の」の続き）', jk('gram')],
+      ['colloq', '話し言葉（い抜き言葉・「〜ちゃう」・「すごく」「〜けど」など）', jk('colloq')],
       ['hankana', '半角カナ', jk('hankana')],
       ['spell', '英語のつづり', jk('spell')],
       ['article', '英語の冠詞（a・an）', jk('article')],
@@ -91,7 +94,7 @@
   // 項目の色: 分類(結果の概要のカード)の色にそろえる(参考の項目は、もとの種類の色)
   const colorOf = f => { const g = groupOf(f); return g.minor && !g.auto ? COLOR[f.cat] : g.c; };
   // 一言の結論と、何をすればよいか
-  const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', spell: 'つづり？', article: '冠詞（a・an）？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ', tax: '税込・税抜の計算', price: '価格の食い違い？', tmpl: 'ほかのページと違う？', noteref: '注記の番号', listno: '番号の抜け？' };
+  const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', spell: 'つづり？', article: '冠詞（a・an）？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ', tax: '税込・税抜の計算', price: '価格の食い違い？', tmpl: 'ほかのページと違う？', noteref: '注記の番号', listno: '番号の抜け？', style: '文体の混在？', gram: '文法？', colloq: '話し言葉？' };
   // ---- 入れたファイルの組み合わせ(成果物は必ず入れる)ごとのチェックの仕方 ----
   //   new: 成果物だけ → 成果物の文字・表記のチェック
   //   marks: 原稿＋成果物 → 原稿との照合＋成果物のチェック
@@ -188,6 +191,13 @@
     const q = s => `「${esc(clipMid(s || ''))}」`;
     if (f.cat === 'J') { const [a, z] = f.j.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.show)}</mark>${z}</span>${f.j.want ? `<span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.j.want)}</ins>${z}</span>` : ''}</div>`; }
     if (f.lint) { const [a, z] = f.lint.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.lint.c)}</mark>${z}</span><span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.lint.want)}</ins>${z}</span></div>`; }
+    if (f.s3) {   // 紙の赤字原稿＋旧版: 赤字ごと・赤字のない所の見た目の変化
+      if (f.s3.look) return '<div class="what">赤字のない所で、見た目（図版・色・大きさ・位置など）が旧版から変わっています。切り抜きで確認</div>';
+      const at = f.show ? `赤字の箇所 ${q(f.show)}` : '赤字';
+      if (f.cat === 'B') return `<div class="what">${at} → 旧版から変わっていません${f.s3.far ? '（すぐ近くは変わっていません。少し離れた所は変わっているので、赤字の指す先を確認）' : ''}</div>`;
+      const n = [f.s3.nt ? `文字 ${f.s3.nt}か所` : '', f.s3.nr ? `見た目 ${f.s3.nr}か所` : ''].filter(Boolean).join('・');
+      return `<div class="what">${at} → 近くが旧版から変わっています${n ? `（${n}）` : ''}。赤字どおりか、切り抜きで確認</div>`;
+    }
     if (f.segs && !f.same) return diffRows(f.segs, f.fromOld ? '旧版' : '原稿');
     if (f.same) return `<div class="what">文字は同じで、${f.color ? '色' : '見た目（書体・太さ・位置・色など）'}だけが違います</div>`;
     if (f.cat === 'B' || f.cat === 'B2') return f.ins ? `<div class="what">${q(geta(f.ins[0]))}と${q(geta(f.ins[1]))}の間に入れる赤字 → 修正後も何も入っていません</div>` : `<div class="what">${f.show ? '赤字の箇所 ' + q(geta(f.show)) : 'この位置の赤字'} → 修正後も変わっていません</div>`;
@@ -265,6 +275,18 @@
   const removeAt = (kind, i) => { S.lists[kind].splice(i, 1); S.doneMsg = ''; refresh(); };
   const clearList = kind => { S.lists[kind] = []; S.doneMsg = ''; refresh(); };
   const total = kind => S.lists[kind].reduce((n, e) => n + (e.pages || 0), 0);
+  //   入れたファイルの組み合わせ(照合した時と比べて、変わったかを見る)
+  const sigOf = () => Object.keys(KIND).map(k => S.lists[k].map(e => `${e.name}:${e.size}:${e.mtime}`).join('|')).join('/');
+  // 新しい校正: 入れたファイルと結果を空にして、最初の状態に戻す(詳細設定・確認の記録(このブラウザに残るもの)はそのまま)
+  function resetAll() {
+    if (S.running) return;
+    for (const k of Object.keys(KIND)) S.lists[k] = [];
+    S.res = null; S.sel = null; S.doneMsg = ''; S.addMsg = ''; S.runSig = '';
+    $('err').textContent = ''; $('pbar').style.width = '0';
+    $('results').classList.add('hidden');
+    refresh();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   function renderFiles(kind) {
     const k = KIND[kind], L = S.lists[kind];
     document.querySelector(`.step[data-kind="${kind}"]`).classList.toggle('has', L.length > 0);
@@ -283,6 +305,9 @@
     const bad = all.some(e => e.err), busy = all.some(e => e.pages == null && !e.err);
     const ready = PC.libsReady && S.lists.nw.length && !bad && !busy;   // 原稿はなくてもよい(成果物だけをチェックする)
     $('run').disabled = !ready;
+    //   新しい校正: 入れたファイルか結果があるときだけ出す。照合のあとでファイルを変えたら、前回の結果だと分かるように薄くする
+    $('reset').hidden = !(all.length || S.res);
+    $('results').classList.toggle('stale', !!S.res && !S.running && sigOf() !== S.runSig);
     const mode = modeOf();
     $('run').textContent = MODES[mode].run;
     // チェックの仕方: 入れたファイルの組み合わせの印と、何をするか(成果物がまだなければ、どれにも印を付けない)
@@ -312,6 +337,7 @@
   const progress = (msg, frac) => { $('pmsg').textContent = msg; $('pbar').style.width = Math.round(frac * 100) + '%'; };
   async function run(f) {
     S.running = true; $('run').disabled = true; $('err').textContent = ''; progress('ファイルを開いています', 0);
+    const runSig = sigOf();   // 照合したファイルの組み合わせ(照合の途中でファイルを変えても、照合したほうを覚える)
     const mode = f.marks && f.marks.length ? (f.old && f.old.length ? 'all' : 'marks') : f.old && f.old.length ? 'old' : 'new';
     const t0 = performance.now();
     try {
@@ -321,7 +347,7 @@
       S.key = 'pc:' + [...f.marks, ...f.nw, ...(f.old || [])].map(x => x.name + ':' + x.size).join('|');
       try { S.verdict = JSON.parse(localStorage.getItem(S.key) || '{}'); } catch (e) { S.verdict = {}; }
       await show(res);
-      S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1);
+      S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1); S.runSig = runSig;
       return res;
     } catch (e) {
       console.error(e); $('err').textContent = '処理できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
@@ -329,6 +355,7 @@
     } finally { S.running = false; refresh(); }
   }
   $('run').onclick = () => run(files()).catch(() => {});
+  $('reset').onclick = resetAll; $('reset2').onclick = resetAll;
 
   // ---- 結果の表示 ----
   async function show(res) {

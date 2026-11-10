@@ -1,0 +1,211 @@
+{
+ "note": "test/jcheck3/make.py で作る模擬データ(seika.pdf 2ページ。成果物だけで照合する)の正解。文法(kind: style・gram)と話し言葉(kind: colloq)のチェック(区分 J)。採点は test/jcheck/evaluate.py(has は項目の文字、level は check(確認だけ)、want は直す候補)。2ページ目の間違えやすい正しい書き方から出た項目は余分な検出になる",
+ "expect": [
+  {
+   "id": "S1",
+   "kind": "style",
+   "has": "静かだ",
+   "level": "check",
+   "what": "同じ段落のほかの文は「です・ます」なのに「静かだ。」"
+  },
+  {
+   "id": "S2",
+   "kind": "style",
+   "has": "簡単です",
+   "level": "check",
+   "what": "同じ段落のほかの文は「だ・である」なのに「簡単です。」"
+  },
+  {
+   "id": "G1",
+   "kind": "gram",
+   "has": "ないことはない",
+   "level": "check",
+   "what": "二重否定「使えないことはない」"
+  },
+  {
+   "id": "G2",
+   "kind": "gram",
+   "has": "なくはありません",
+   "level": "check",
+   "what": "二重否定「なくはありません」"
+  },
+  {
+   "id": "G3",
+   "kind": "gram",
+   "has": "を分析を",
+   "level": "check",
+   "what": "1つの述語に「を」が2つ（データを分析を行う）"
+  },
+  {
+   "id": "G4",
+   "kind": "gram",
+   "has": "が",
+   "level": "check",
+   "what": "1つの文に逆接の「が」が2つ"
+  },
+  {
+   "id": "G5",
+   "kind": "gram",
+   "has": "また",
+   "level": "check",
+   "what": "「また、」で始まる文が続く"
+  },
+  {
+   "id": "G6",
+   "kind": "gram",
+   "has": "製品の保証",
+   "level": "check",
+   "what": "「の」が3つ続く（当社の製品の保証の内容）"
+  },
+  {
+   "id": "C1",
+   "kind": "colloq",
+   "has": "てます",
+   "level": "check",
+   "what": "い抜き言葉「動作してます」",
+   "want": "ています"
+  },
+  {
+   "id": "C2",
+   "kind": "colloq",
+   "has": "てる",
+   "level": "check",
+   "what": "い抜き言葉「入ってる」",
+   "want": "ている"
+  },
+  {
+   "id": "C3",
+   "kind": "colloq",
+   "has": "ちゃっ",
+   "level": "check",
+   "what": "縮約形「消しちゃった」",
+   "want": "てしまっ"
+  },
+  {
+   "id": "C4",
+   "kind": "colloq",
+   "has": "なきゃ",
+   "level": "check",
+   "what": "縮約形「掃除しなきゃ」",
+   "want": "なければ"
+  },
+  {
+   "id": "C5",
+   "kind": "colloq",
+   "has": "じゃ",
+   "level": "check",
+   "what": "縮約形「操作じゃありません」",
+   "want": "では"
+  },
+  {
+   "id": "C6",
+   "kind": "colloq",
+   "has": "っていう",
+   "level": "check",
+   "what": "縮約形「便利っていう声」",
+   "want": "という"
+  },
+  {
+   "id": "C7",
+   "kind": "colloq",
+   "has": "すごく",
+   "level": "check",
+   "what": "話し言葉の語「すごく」"
+  },
+  {
+   "id": "C8",
+   "kind": "colloq",
+   "has": "ちゃんと",
+   "level": "check",
+   "what": "話し言葉の語「ちゃんと」",
+   "want": "きちんと"
+  },
+  {
+   "id": "C9",
+   "kind": "colloq",
+   "has": "やっぱり",
+   "level": "check",
+   "what": "話し言葉の語「やっぱり」",
+   "want": "やはり"
+  },
+  {
+   "id": "C10",
+   "kind": "colloq",
+   "has": "いろんな",
+   "level": "check",
+   "what": "話し言葉の語「いろんな」",
+   "want": "いろいろな"
+  },
+  {
+   "id": "C11",
+   "kind": "colloq",
+   "has": "こっち",
+   "level": "check",
+   "what": "話し言葉の語「こっち」",
+   "want": "こちら"
+  },
+  {
+   "id": "C12",
+   "kind": "colloq",
+   "has": "みたい",
+   "level": "check",
+   "what": "話し言葉の語「花みたいな」",
+   "want": "のよう"
+  },
+  {
+   "id": "C13",
+   "kind": "colloq",
+   "has": "とか",
+   "level": "check",
+   "what": "話し言葉の語「キッチンとか」",
+   "want": "や"
+  },
+  {
+   "id": "C14",
+   "kind": "colloq",
+   "has": "けど",
+   "level": "check",
+   "what": "話し言葉の語「小さいけど」",
+   "want": "が"
+  },
+  {
+   "id": "C15",
+   "kind": "colloq",
+   "has": "なので",
+   "level": "check",
+   "what": "文の頭の「なので」",
+   "want": "そのため"
+  },
+  {
+   "id": "C16",
+   "kind": "colloq",
+   "has": "でも",
+   "level": "check",
+   "what": "文の頭の「でも」",
+   "want": "しかし"
+  },
+  {
+   "id": "C17",
+   "kind": "colloq",
+   "has": "超",
+   "level": "check",
+   "what": "「超便利」",
+   "want": "とても"
+  },
+  {
+   "id": "C18",
+   "kind": "colloq",
+   "has": "ちょっと",
+   "level": "check",
+   "what": "話し言葉の語「ちょっと」",
+   "want": "少し"
+  },
+  {
+   "id": "C19",
+   "kind": "colloq",
+   "has": "えーと",
+   "level": "check",
+   "what": "つなぎの言葉「えーと」"
+  }
+ ]
+}

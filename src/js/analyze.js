@@ -531,6 +531,170 @@
     return res;
   }
 
+  // ---- 紙の赤字原稿(旧版を刷ったもの)＋旧版＋成果物 ----
+  //   変化は旧版と成果物の PDF どうしで求め(スキャンの揺れが入らない)、スキャンは赤字の位置を取るためだけに使う。
+  //   1) スキャンを旧版(同じ範囲)に重ね、旧版に印刷されていない赤(赤ペン)を取り出す。3mm 以内でつながる赤を1つの赤字(指示)にまとめる
+  //   2) 旧版と成果物を同じ解像度で描いて画素で比べた変化(文字・図版・色・大きさ・位置)と、文字データで比べた文字の変化(旧→新)
+  //   3) 赤字の線から 8mm 以内(囲んだ赤字はその内側も)を「赤字の近く」とし、変化を「赤字の近く」と「赤字のない所」に分ける。
+  //      大きな変化のうち赤字から離れた部分も、赤字のない所の変化として出す。近くに変化のない赤字は「直っていない」。
+  //      表と裏などを何枚かに分けて刷った原稿は、同じ成果物のページの赤字をまとめて使い、重なる所の変化は1枚にだけ出す(scan3Resolve)
+  //   旧版と成果物のページの大きさ・位置がそろっていない(作り直したレイアウト)ときは使わない(null)
+  const MM = mm => Math.round(mm * PC.DPI / 25.4);
+  async function scan3Page(src, p, pr, op, oldDoc, newDoc, nw, step) {
+    let ow = await PC.renderPage(oldDoc, op.p, PC.DPI, false);
+    if (pr.crop) { const [x0, y0, x1, y1] = pr.crop.map(v => Math.round(v * PC.S)); ow = PC.crop(ow, x0, y0, x1, y1); }
+    if (ow.w !== nw.w || ow.h !== nw.h) return null;
+    step('スキャンを読み込み', 0.02); await PC.tick();
+    const { img, dpi } = await src.image(p);
+    step('旧版に位置を合わせています', 0.08); await PC.tick();
+    const { W, matched } = PC.registerScan(img, ow, dpi);
+    step('赤字を取り出しています', 0.3); await PC.tick();
+    const w = ow.w, h = ow.h, n = w * h, cs = PC.cleanScan(W, ow);
+    //   暗い地(紺・黒の帯など)の上の赤ペンは暗い赤になり、色だけでは赤と分からない。旧版のその所より赤みがはっきり増えた所も赤ペンとする
+    //   (赤み = R − (G+B)/2。旧版が暗い所だけで見る。にじみ・位置のわずかなずれは、開く処理と大きさで除く)
+    const dark = new Uint8Array(n);
+    for (let i = 0, j = 0; i < n; i++, j += 4) {
+      const oR = ow.d[j], oG = ow.d[j + 1], oB = ow.d[j + 2], sR = W.d[j], sG = W.d[j + 1], sB = W.d[j + 2];
+      if (0.3 * oR + 0.59 * oG + 0.11 * oB > 110) continue;
+      if (sR - (sG + sB) / 2 - (oR - (oG + oB) / 2) > 45 && sR - oR > 30 && sR - Math.max(sG, sB) > 15) dark[i] = 255;
+    }
+    const dk = PC.morph(dark, w, h, 'open', 3, 3), pen0 = new Uint8Array(n); for (let i = 0; i < n; i++) pen0[i] = cs.pen[i] || dk[i] ? 255 : 0;
+    const rm = PC.morph(pen0, w, h, 'open', 2, 2);
+    //   つながりは薄い赤(にじみ・かすれ)も含めて見る(引き出し線が途切れて、書き込みと指す先が別の赤字にならないように)
+    const link = new Uint8Array(n); for (let i = 0; i < n; i++) link[i] = rm[i] || cs.core[i] ? 1 : 0;
+    const gc = PC.cc(PC.morph(PC.morph(link, w, h, 'open', 2, 2), w, h, 'dilate', 2 * MM(3) + 1, 2 * MM(3) + 1), w, h), ink = new Float64Array(gc.n), pts = Array.from({ length: gc.n }, () => []);
+    for (let i = 0; i < n; i++) if (rm[i]) { const c = gc.lab[i]; ink[c]++; if (ink[c] % 3 === 1) pts[c].push(i); }
+    const groups = [];
+    for (let c = 1; c < gc.n; c++) {
+      if (ink[c] < 80) continue;
+      const xs = pts[c].map(i => i % w), ys = pts[c].map(i => Math.floor(i / w));
+      groups.push({ c, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs) + 1, Math.max(...ys) + 1], xs, ys, hits: [] });
+    }
+    //   囲んだ赤字の内側: 赤字の枠の中で、線(1.5mm のすき間はつなぐ)を越えずに枠の外へ出られない所
+    const red = new Uint8Array(n), gs = new Set(groups.map(g => g.c)); for (let i = 0; i < n; i++) if (rm[i] && gs.has(gc.lab[i])) red[i] = 1;
+    const closed = PC.morph(red, w, h, 'dilate', 2 * MM(0.75) + 1, 2 * MM(0.75) + 1), inside = new Uint8Array(n);
+    for (const g of groups) {
+      const [x0, y0, x1, y1] = g.box, bw = x1 - x0 + 2, bh = y1 - y0 + 2, seen = new Uint8Array(bw * bh), q = [];
+      if (bw * bh > 0.6 * n || bw < MM(5) || bh < MM(5)) continue;
+      const at = (x, y) => (x < x0 || y < y0 || x >= x1 || y >= y1 ? 0 : closed[y * w + x]);
+      for (let x = 0; x < bw; x++) for (const y of [0, bh - 1]) { seen[y * bw + x] = 1; q.push(y * bw + x); }
+      for (let y = 0; y < bh; y++) for (const x of [0, bw - 1]) if (!seen[y * bw + x]) { seen[y * bw + x] = 1; q.push(y * bw + x); }
+      while (q.length) {
+        const k = q.pop(), x = k % bw, y = (k - x) / bw;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= bw || Y >= bh) continue;
+          const kk = Y * bw + X; if (seen[kk] || at(x0 - 1 + X, y0 - 1 + Y)) continue;
+          seen[kk] = 1; q.push(kk);
+        }
+      }
+      let cnt = 0; for (let y = 1; y < bh - 1; y++) for (let x = 1; x < bw - 1; x++) if (!seen[y * bw + x] && !at(x0 - 1 + x, y0 - 1 + y)) { inside[(y0 - 1 + y) * w + x0 - 1 + x] = 1; cnt++; }
+      g.inside = cnt > MM(3) * MM(3);
+    }
+    // 2) 旧版と成果物の画素の変化(字の縁の1画素のずれは除く)
+    step('旧版と成果物を比べています', 0.6); await PC.tick();
+    const dm = new Uint8Array(n);
+    for (let i = 0, j = 0; i < n; i++, j += 4) if (Math.max(Math.abs(ow.d[j] - nw.d[j]), Math.abs(ow.d[j + 1] - nw.d[j + 1]), Math.abs(ow.d[j + 2] - nw.d[j + 2])) > 48) dm[i] = 1;
+    const diff = PC.morph(dm, w, h, 'open', 3, 3);
+    //    文字の変化(文字データ): 旧版の字 → 成果物の字(同じ位置。ページの大きさ・位置がそろっていることを確かめてある)
+    const A = await PC.pageText(oldDoc, op.p), B = await PC.pageText(newDoc, pr.q), k = PC.S, off = pr.crop ? [Math.round(pr.crop[0] * k), Math.round(pr.crop[1] * k)] : [0, 0];
+    const px = b => [b[0] * k - off[0], b[1] * k - off[1], b[2] * k - off[0], b[3] * k - off[1]], inC = b => { const [x, y] = PC.center(px(b)); return x >= 0 && y >= 0 && x < w && y < h; };
+    const texts = [];
+    if (A.chars.length && B.chars.length) {
+      const used = new Uint8Array(B.chars.length), blocks = PC.collatePage(A, B, { ...op.pr, noInstr: true, strict: true }, used, new Set());
+      for (const bl of blocks) {
+        let cur = null;
+        const flush = () => { if (cur && (cur.before || cur.after) && cur.boxes.length) texts.push({ before: cur.before, after: cur.after, box: PC.union(cur.boxes), hits: [] }); cur = null; };
+        for (const o of [...bl.ops, ['|']]) {
+          if (o[0] === '|' || o[0] === '=' || o[0] === '~') { flush(); continue; }
+          const a = o[0] === '-' || o.length === 3 ? A.chars[bl.s + o[1]] : null, c = o[0] === '+' ? B.chars[o[1]] : o.length === 3 ? B.chars[o[2]] : null;
+          if (!(a ? inC(a.box) : c && inC(c.box))) { flush(); continue; }
+          if (!cur) cur = { before: '', after: '', boxes: [] };
+          if (a) { cur.before += a.c; cur.boxes.push(px(a.box)); }
+          if (c) { cur.after += c.c; cur.boxes.push(px(c.box)); }
+        }
+        flush();
+      }
+    }
+    //   赤字の下の旧版の字(項目の見出しに使う)
+    for (const g of groups) g.under = A.chars.filter(c => { const [x, y] = PC.center(px(c.box)); return x >= g.box[0] && x <= g.box[2] && y >= g.box[1] && y <= g.box[3]; }).map(c => c.c).join('').replace(/\s+/g, '').slice(0, 40);
+    step('表示用の画像を作成', 0.95); await PC.tick();
+    return { kind: 'scan3', groups, texts, red, inside, diff, w, h, off, matched, regs: [], ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], left: W, right: nw, oldPage: op.p };
+  }
+  // 同じ成果物のページに当たる紙の赤字原稿(何枚かに分けて刷ったもの)の赤字と変化を、ページ全体でまとめて突き合わせる
+  //   変化のまとまり(4mm 以内はまとめる。2mm² 未満は描画のわずかな違いとして除く)ごとに、画素の3割以上が赤字の近くなら「赤字の近くの変化」、
+  //   そうでなければ「赤字のない所の変化」(大きな写真が少し動いたなど、赤字の近くにかかるだけのものも、赤字のない所の変化として出す)。
+  //   赤字の近く: 赤字の線から 8mm 以内、囲んだ赤字の内側、四方のうち三方以上を同じ赤字の線に囲まれた所(開いた囲み・かっこ)
+  //   赤字ごとの「変わったか」は、そのまとまりの分け方によらず、赤字から 8mm 以内(囲んだ赤字は内側も)の変化の画素で決める。
+  //   8mm 以内が変わっていなくても 25mm 以内が変わっていれば、指す先が離れている可能性として添える
+  function scan3Resolve(P) {
+    const R = MM(8), R2 = MM(25), MIN = MM(1.4) * MM(1.4), byQ = new Map();
+    for (const d of P) if (d.kind === 'scan3') { if (!byQ.has(d.q)) byQ.set(d.q, []); byQ.get(d.q).push(d); }
+    for (const ds of byQ.values()) {
+      const PW = Math.max(...ds.map(d => d.off[0] + d.w)), PH = Math.max(...ds.map(d => d.off[1] + d.h)), N = PW * PH;
+      const red = new Uint8Array(N), inside = new Uint8Array(N), diff = new Uint8Array(N);
+      for (const d of ds) for (let y = 0; y < d.h; y++) for (let x = 0; x < d.w; x++) { const i = y * d.w + x, I = (y + d.off[1]) * PW + x + d.off[0]; if (d.red[i]) red[I] = 1; if (d.inside[i]) inside[I] = 1; if (d.diff[i]) diff[I] = 1; }
+      const G = ds.flatMap(d => d.groups.map(g => ({ g, xs: g.xs.map(x => x + d.off[0]), ys: g.ys.map(y => y + d.off[1]), box: [g.box[0] + d.off[0], g.box[1] + d.off[1], g.box[2] + d.off[0], g.box[3] + d.off[1]] })));
+      //   四方のうち三方以上を、同じ赤字の線に囲まれているか(線から 2mm の帯で見る)
+      const band = MM(2), surrounded = (x, y) => G.some(o => {
+        if (x < o.box[0] || x > o.box[2] || y < o.box[1] || y > o.box[3]) return false;
+        let l = 0, r = 0, u = 0, dn = 0;
+        for (let i = 0; i < o.xs.length; i++) { const X = o.xs[i], Y = o.ys[i]; if (Math.abs(Y - y) <= band) { if (X < x) l = 1; else if (X > x) r = 1; } if (Math.abs(X - x) <= band) { if (Y < y) u = 1; else if (Y > y) dn = 1; } }
+        return l + r + u + dn >= 3;
+      });
+      const near = PC.morph(red, PW, PH, 'dilate', 2 * R + 1, 2 * R + 1); for (let i = 0; i < N; i++) if (inside[i]) near[i] = 1;
+      const nearAt = b => { const [x, y] = PC.center(b).map(Math.round); if (surrounded(x, y)) return true; for (let yy = Math.max(0, Math.floor(b[1])); yy < Math.min(PH, Math.ceil(b[3])); yy++) for (let xx = Math.max(0, Math.floor(b[0])); xx < Math.min(PW, Math.ceil(b[2])); xx++) if (near[yy * PW + xx]) return true; return false; };
+      //   変化のまとまり
+      const dc = PC.cc(PC.morph(diff, PW, PH, 'dilate', 2 * MM(4) + 1, 2 * MM(4) + 1), PW, PH), acc = Array.from({ length: dc.n }, () => [Infinity, Infinity, -1, -1, 0, 0]);
+      for (let i = 0; i < N; i++) if (diff[i]) { const a = acc[dc.lab[i]], x = i % PW, y = (i - x) / PW; if (x < a[0]) a[0] = x; if (y < a[1]) a[1] = y; if (x >= a[2]) a[2] = x + 1; if (y >= a[3]) a[3] = y + 1; a[4]++; if (near[i]) a[5]++; }
+      const parts = [];
+      for (let c = 1; c < dc.n; c++) { const a = acc[c]; if (a[4] < MIN) continue; const box = a.slice(0, 4); parts.push({ box, area: a[4], near: a[5] >= 0.3 * a[4] || surrounded(...PC.center(box).map(Math.round)), hits: [] }); }
+      //   文字の変化(重なる所の同じ変化は1つに。1枚の端で切れた一部の字は、ほかの1枚の長いほうに含める)
+      const all = ds.flatMap(d => d.texts.map(t => ({ ...t, box: [t.box[0] + d.off[0], t.box[1] + d.off[1], t.box[2] + d.off[0], t.box[3] + d.off[1]] })));
+      const texts = all.filter((t, i) => !all.some((u, j) => j !== i && PC.ov(u.box, t.box, 4) && u.before.includes(t.before) && u.after.includes(t.after) && (u.before.length + u.after.length > t.before.length + t.after.length || j < i)));
+      for (const t of texts) { t.near = nearAt(t.box); t.hits = []; }
+      //   すき間が 3mm 以内で続く文字の変化(帯の文をまとめて消したものなど)は、どれかが赤字の近くなら、まとめて赤字の近くとする
+      for (let again = true; again;) { again = false; for (const t of texts) if (!t.near && texts.some(u => u.near && PC.gap(u.box, t.box) <= MM(3))) { t.near = true; again = true; } }
+      //   赤字ごとに、8mm 以内(囲んだ・三方を囲んだ赤字は内側も)の変化
+      for (const o of G) {
+        const zone = [o.box[0] - R2, o.box[1] - R2, o.box[2] + R2, o.box[3] + R2].map(Math.round), zw = zone[2] - zone[0], zh = zone[3] - zone[1];
+        const m = new Uint8Array(zw * zh); for (let i = 0; i < o.xs.length; i++) { const X = o.xs[i] - zone[0], Y = o.ys[i] - zone[1]; if (X >= 0 && Y >= 0 && X < zw && Y < zh) m[Y * zw + X] = 1; }
+        const m8 = PC.morph(m, zw, zh, 'dilate', 2 * R + 1, 2 * R + 1), m25 = PC.morph(m, zw, zh, 'dilate', 2 * R2 + 1, 2 * R2 + 1);
+        let c8 = 0, c25 = 0;
+        for (let Y = 0; Y < zh; Y++) { const y = Y + zone[1]; if (y < 0 || y >= PH) continue; for (let X = 0; X < zw; X++) { const x = X + zone[0]; if (x < 0 || x >= PW || !diff[y * PW + x]) continue; const k = Y * zw + X; if (m8[k] || (o.g.inside && inside[y * PW + x])) c8++; else if (m25[k]) c25++; } }
+        o.g.changed = c8 >= MIN; o.g.farChanged = !o.g.changed && c25 >= MIN;
+        o.g.hits = [...parts, ...texts].filter(x => (x.near || 'after' in x) && x.box[0] < o.box[2] + R && o.box[0] - R < x.box[2] && x.box[1] < o.box[3] + R && o.box[1] - R < x.box[3]);
+        if (o.g.changed) for (const x of o.g.hits) x.hits.push(o.g);
+      }
+      //   どの1枚に出すか: 変化の中心が、その1枚の範囲のいちばん内側にあるもの
+      const home = b => { const [cx, cy] = PC.center(b); let best = ds[0], bv = -Infinity; for (const d of ds) { const v = Math.min(cx - d.off[0], d.off[0] + d.w - cx, cy - d.off[1], d.off[1] + d.h - cy); if (v > bv) { bv = v; best = d; } } return best; };
+      const loc = (d, b) => [b[0] - d.off[0], b[1] - d.off[1], b[2] - d.off[0], b[3] - d.off[1]];
+      for (const d of ds) { d.regs = []; d.ptexts = []; }
+      for (const x of parts) { const d = home(x.box); d.regs.push({ ...x, box: loc(d, x.box) }); }
+      for (const t of texts) { const d = home(t.box); d.ptexts.push({ ...t, box: loc(d, t.box) }); }
+      for (const d of ds) { d.red = d.inside = d.diff = null; }
+    }
+  }
+  // 紙の赤字原稿＋旧版の照合の項目(s3: 画面の文の作り分けに使う)
+  function scan3Findings(d, p, add) {
+    const bx = b => b.map(Math.round), short = t => (t.length > 40 ? t.slice(0, 40) + '…' : t), loc = b => [b[0] - d.off[0], b[1] - d.off[1], b[2] - d.off[0], b[3] - d.off[1]];
+    const textOf = t => (t.before && t.after ? `「${short(t.before)}」→「${short(t.after)}」` : t.before ? `「${short(t.before)}」が消えた` : `「${short(t.after)}」が入った`);
+    for (const g of d.groups) {
+      if (!g.changed) { const f = add(p + 1, 'B', bx(g.box), g.under, '赤字（紙）', '', '', bx(g.box)); f.s3 = { far: g.farChanged }; continue; }
+      const nt = g.hits.filter(x => 'after' in x).length, nr = g.hits.length - nt;
+      const f = add(p + 1, 'A', bx(g.box), g.under, '赤字（紙）', '', '', g.hits.length ? bx(PC.union(g.hits.map(x => loc(x.box)))) : bx(g.box));
+      f.s3 = { nt, nr };
+    }
+    for (const t of d.ptexts) {
+      const f = add(p + 1, t.near ? 'A' : 'C2', bx(t.box), textOf(t), t.near ? '赤字の近くの文字の変化' : '赤字のない所の文字の変化', '', '', bx(t.box));
+      Object.assign(f, { segs: charSegs(t.before, t.after), same: false, pboxes: [bx(t.box)], pnboxes: [bx(t.box)], fromOld: true });
+    }
+    for (const r of d.regs) {
+      if (r.near || d.ptexts.some(t => PC.ov(t.box, r.box) && t.near === r.near)) continue;   // 赤字の近くの見た目の変化は赤字の項目に含める。文字の変化として出したものも除く
+      const f = add(p + 1, 'C3', bx(r.box), '', '', '', '', bx(r.box));
+      Object.assign(f, { kind: 'image', s3: { look: true } });
+    }
+  }
+
   // 見た目が似た別の字(修正後の文字データだけで調べる): カタカナの間の漢字・記号、漢字の間のカタカナ
   const TO_KATA = { '一': 'ー', '−': 'ー', '‐': 'ー', '－': 'ー', '―': 'ー', '─': 'ー', '口': 'ロ', '力': 'カ', '工': 'エ', '二': 'ニ', '八': 'ハ', '卜': 'ト', '夕': 'タ', '才': 'オ' };
   const TO_KAN = { 'ー': '一', 'ロ': '口', 'カ': '力', 'エ': '工', 'ニ': '二', 'ハ': '八', 'ト': '卜', 'タ': '夕', 'オ': '才' };
@@ -1324,6 +1488,14 @@
       NQ.set(q, v);
       return v;
     };
+    //   紙の赤字原稿と旧版があるとき: 旧版の各ページが成果物のどのページに当たるか(赤字原稿が旧版を刷ったものなら、変化は旧版と成果物のPDFどうしで求める)
+    let OLDP = null; const s3 = [];
+    if (opts.oldDoc && npages) {
+      const osrc = { numPages: opts.oldDoc.numPages, page: p => ({ doc: opts.oldDoc, i: p }), label: () => null, image: async p => ({ img: await PC.renderPage(opts.oldDoc, p, 300, false), dpi: 300 }) };
+      for (let p = 0; p < npages; p++) if (!src.page(p).virt && pairs[p].q >= 0 && pairs[p].same && (await src.kind(p)) !== 'annot') { OLDP = await PC.pairPages(osrc, newDoc, (s, f) => prog('旧版：' + s, W0 * f)); break; }
+    }
+    //   成果物のページ q に、大きさ・位置がそろって当たる旧版のページ(なければ null)
+    const sameOld = q => { if (!OLDP) return null; const i = OLDP.findIndex(x => x.q === q && x.same && x.T && Math.abs(x.T[0] - 1) < 0.01 && Math.abs(x.T[1]) < 0.01 && Math.abs(x.T[2]) < 3 && Math.abs(x.T[3]) < 3 && Math.abs((x.T.length > 4 ? x.T[4] : x.T[0]) - 1) < 0.01); return i >= 0 ? { p: i, pr: OLDP[i] } : null; };
     // 2) ページごとに照合: 同じレイアウトなら字形を重ねて比べ、レイアウトが違えば文字データの内容で比べる
     for (let p = 0; p < npages; p++) {
       const step = (s, f) => prog(`${p + 1} / ${npages} ページ：${s}`, W0 + (1 - W0) * 0.97 * (p + f) / npages);
@@ -1365,6 +1537,15 @@
         nw = PC.crop(nw, x0, y0, x1, y1);
         nc = nc.filter(([, b]) => (b[0] + b[2]) / 2 >= x0 && (b[0] + b[2]) / 2 < x1 && (b[1] + b[3]) / 2 >= y0 && (b[1] + b[3]) / 2 < y1).map(([c, b]) => [c, [b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0]]);
       }
+      //   紙の赤字原稿で、成果物のページに大きさ・位置のそろう旧版があれば、変化は旧版と成果物のPDFどうしで求める
+      const op0 = kind !== 'annot' ? sameOld(pr.q) : null, op = op0 && !(await src.image(p)).digital ? op0 : null;
+      const d3 = op ? await scan3Page(src, p, pr, op, opts.oldDoc, newDoc, nw, step) : null;
+      if (d3) {
+        s3.push({ p: p + 1, n: d3.groups.length });
+        d3.q = pr.q; d3.crop = pr.crop; d3.extra = [];
+        d3.thumbs = { left: await toThumb(d3.left), right: await toThumb(d3.right) }; d3.left = d3.right = null;
+        put(d3); continue;
+      }
       const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step) : await scanPage(src, p, nw, nc, step, { doc: newDoc, q: pr.q, crop: pr.crop });
       if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、原稿と成果物の位置がうまく合いません（ページの向きを確かめてください）`);
       step('表示用の画像を作成', 0.96); await PC.tick();
@@ -1372,6 +1553,8 @@
       d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right) }; d.left = d.right = null;
       put(d);
     }
+    scan3Resolve(P);   // 紙の赤字原稿＋旧版: 同じ成果物のページの赤字と変化を、ページ全体でまとめて突き合わせる
+    if (s3.length) warn.push(`紙の赤字原稿（${spans(s3.map(x => x.p))}ページ目）は旧版を刷ったものとして、変化を旧版と成果物のPDFどうしで求め、赤字の近くかどうかで分けました（取り出した赤字 ${s3.reduce((t, x) => t + x.n, 0)}か所）`);
     // 成果物の全ページの文字データ(商品ごとの照合・成果物だけで見るチェックに使う)
     const JP = [];
     for (let q = 0; q < newDoc.numPages; q++) JP.push({ q, B: NQ.has(q) ? NQ.get(q).B : await PC.pageText(newDoc, q) });
@@ -1532,6 +1715,7 @@
       if (d.kind === 'content') contentFindings(d, p, add);
       if (d.kind === 'records') recordFindings(d, p, add);
       if (d.kind === 'merge') mergeFindings(d, p, add);
+      if (d.kind === 'scan3') scan3Findings(d, p, add);
       for (const x of d.olds || []) {   // 旧版から変わった所(原稿のない部分): 指示にない変更
         const f = add(p + 1, x.variant ? 'V' : 'C2', x.nbox, x.text, x.variant ? '旧版から書き方だけ変わった所（全角・半角など）' : '旧版から変わった所（原稿のない部分）', '', '', x.nbox);
         Object.assign(f, { onNew: true, newOnly: true, fromOld: x.kind, segs: x.segs, same: false, pnboxes: [x.nbox], old: x.old });

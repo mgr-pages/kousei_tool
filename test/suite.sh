@@ -7,6 +7,7 @@
 #   数字の違い(1件ずつ・数字全体で出るか)と仕上がりの外のページ情報は、testdata/numtrim を照合し、test/numtrim/gt.json で採点する
 #   赤い文字で指示を書き込んだPDF原稿(注釈でないもの)は、testdata/redtext を照合し、test/redtext/evaluate.py で採点する
 #   差し込み印刷(名刺・社員証)は、testdata/merge を照合し、test/merge/evaluate.py で採点する
+#   紙の赤字原稿＋旧版＋成果物は testdata/scan3 と test/scan3/evaluate.py、文法・話し言葉は testdata/jcheck3 と test/jcheck3/gt.json で採点する
 #   bash test/suite.sh テストデータのフォルダ 正解表(gt.json) 採点スクリプト(evaluate.py) 出力フォルダ
 set -u
 DATA=$1; GT=$2; EVAL=$3; OUT=$4
@@ -74,6 +75,9 @@ cp "$M/truth_err.json" "$OUT/merge_err/v1/truth.json" && run "$M/meishi.xlsx" "$
 cp "$M/truth_err2.json" "$OUT/merge_err/v2/truth.json" && run "$M/meishi.xlsx" "$M/seika_err2.pdf" merge_err/v2/seika &
 run "$M/shain.xlsx" "$M/shain_seika.pdf" merge_id_clean &
 cp "$M/shain_truth_err.json" "$OUT/merge_id_err/v1/truth.json" && run "$M/shain.xlsx" "$M/shain_seika_err.pdf" merge_id_err/v1/seika &
+#   紙の赤字原稿(旧版を刷ったもの)＋旧版＋成果物(test/scan3/make.py)。文法・話し言葉のチェック(test/jcheck3/make.py)
+OLD="$DATA/scan3/old.pdf" run "$DATA/scan3/scan.pdf" "$DATA/scan3/new.pdf" scan3 &
+run - "$DATA/jcheck3/seika.pdf" jcheck3 &
 R=$DATA/redtext
 run "$R/genko.pdf" "$R/base.pdf" redtext_keep &
 run "$R/genko.pdf" "$R/applied.pdf" redtext_applied &
@@ -115,3 +119,7 @@ python3 test/merge/evaluate.py "$OUT/merge_err" --detail | grep -E "見逃し|�
 echo "差し込み印刷・社員証（誤りなし）: $(head1 "$OUT/merge_id_clean.log" 24) | $(python3 test/merge/evaluate.py --clean "$OUT/merge_id_clean.json" | sed -n 1p)"
 echo "差し込み印刷・社員証（誤りを入れたもの）: $(head1 "$OUT/merge_id_err/v1/seika.log" 24) | $(python3 test/merge/evaluate.py "$OUT/merge_id_err" --detail | sed -n 1p)"
 python3 test/merge/evaluate.py "$OUT/merge_id_err" --detail | grep -E "見逃し|余分"
+echo "紙の赤字原稿＋旧版: $(head1 "$OUT/scan3.log" 12) | $(python3 test/scan3/evaluate.py "$DATA/scan3/truth.json" "$OUT/scan3.json" | sed -n 1p)"
+python3 test/scan3/evaluate.py "$DATA/scan3/truth.json" "$OUT/scan3.json" | tail -n +2
+echo "文法・話し言葉のチェック: $(head1 "$OUT/jcheck3.log" 12) | $(python3 test/jcheck/evaluate.py test/jcheck3/gt.json "$OUT/jcheck3.json" | sed -n 1p)"
+python3 test/jcheck/evaluate.py test/jcheck3/gt.json "$OUT/jcheck3.json" | tail -n +2

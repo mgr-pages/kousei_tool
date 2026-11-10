@@ -654,7 +654,7 @@
   PC.jcheck = (pages, tk, pname) => {
     const E = edges(pages), P = pages.map(({ q, B }, n) => ({ q, B, ...textOf(B, E.skip[n]) }));
     const M2 = tk ? morph(P, tk) : P.flatMap(pg => [...pg.s.matchAll(RANUKI)].map(m => ({ pg, i: m.index, n: m[0].length, kind: 'ranuki', level: 'check', want: m[0].replace(/れ(る|ます|ません|ない|た|て)$/, 'られ$1'), msg: 'ら抜き言葉の可能性があります（「〜られる」）' })));
-    let raw = [...dates(P), ...badDates(P), ...P.flatMap(parens), ...P.flatMap(pg => rules(pg, tk)), ...M2, ...P.flatMap(numbers), ...yure(P), ...(tk ? yureDict(P, tk) : []), ...mixes(P), ...prices(P, pname), ...noteRefs(P)];
+    let raw = [...dates(P), ...badDates(P), ...P.flatMap(parens), ...P.flatMap(pg => rules(pg, tk)), ...M2, ...(tk && PC.jgram ? PC.jgram(P) : []), ...P.flatMap(numbers), ...yure(P), ...(tk ? yureDict(P, tk) : []), ...mixes(P), ...prices(P, pname), ...noteRefs(P)];
     // 同じ所の同じ種類の項目は1つにする(決まった言い方の一覧と辞書の両方で見つかったもの)
     raw = raw.filter((r, k) => r.multi || !raw.some((o, j) => j < k && !o.multi && o.pg === r.pg && o.kind === r.kind && o.i < r.i + r.n && r.i < o.i + o.n));
     const out = [...E.found, ...(PC.echeck ? PC.echeck(P, E.skip) : [])];   // 英語(echeck.js)
