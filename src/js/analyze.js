@@ -679,7 +679,9 @@
     const bx = b => b.map(Math.round), short = t => (t.length > 40 ? t.slice(0, 40) + '…' : t), loc = b => [b[0] - d.off[0], b[1] - d.off[1], b[2] - d.off[0], b[3] - d.off[1]];
     const textOf = t => (t.before && t.after ? `「${short(t.before)}」→「${short(t.after)}」` : t.before ? `「${short(t.before)}」が消えた` : `「${short(t.after)}」が入った`);
     for (const g of d.groups) {
-      if (!g.changed) { const f = add(p + 1, 'B', bx(g.box), g.under, '赤字（紙）', '', '', bx(g.box)); f.s3 = { far: g.farChanged }; continue; }
+      //   近くが変わっていない赤字: 手書きの中身は読まないため、直す指示か、見本・参考として書いた赤字(ほかの赤字が記号などで指すもの)かは
+      //   決められない。「直っていない」と言い切らず、人が判断する指示として出す(件数は結果の上にも出す)
+      if (!g.changed) { const f = add(p + 1, 'K', bx(g.box), g.under, '赤字（紙）', '', '', bx(g.box)); f.s3 = { still: true, far: g.farChanged }; continue; }
       const nt = g.hits.filter(x => 'after' in x).length, nr = g.hits.length - nt;
       const f = add(p + 1, 'A', bx(g.box), g.under, '赤字（紙）', '', '', g.hits.length ? bx(PC.union(g.hits.map(x => loc(x.box)))) : bx(g.box));
       f.s3 = { nt, nr };
@@ -1554,7 +1556,11 @@
       put(d);
     }
     scan3Resolve(P);   // 紙の赤字原稿＋旧版: 同じ成果物のページの赤字と変化を、ページ全体でまとめて突き合わせる
-    if (s3.length) warn.push(`紙の赤字原稿（${spans(s3.map(x => x.p))}ページ目）は旧版を刷ったものとして、変化を旧版と成果物のPDFどうしで求め、赤字の近くかどうかで分けました（取り出した赤字 ${s3.reduce((t, x) => t + x.n, 0)}か所）`);
+    if (s3.length) {
+      warn.push(`紙の赤字原稿（${spans(s3.map(x => x.p))}ページ目）は旧版を刷ったものとして、変化を旧版と成果物のPDFどうしで求め、赤字の近くかどうかで分けました（取り出した赤字 ${s3.reduce((t, x) => t + x.n, 0)}か所）`);
+      const still = P.filter(d => d.kind === 'scan3').reduce((t, d) => t + d.groups.filter(g => !g.changed).length, 0);
+      if (still) warn.push(`近くが旧版から変わっていない赤字が ${still}か所あります（「指示・書き込みの確認」の中）。直す指示なら直っていません。見本・参考として書いた赤字なら問題ありません`);
+    }
     // 成果物の全ページの文字データ(商品ごとの照合・成果物だけで見るチェックに使う)
     const JP = [];
     for (let q = 0; q < newDoc.numPages; q++) JP.push({ q, B: NQ.has(q) ? NQ.get(q).B : await PC.pageText(newDoc, q) });

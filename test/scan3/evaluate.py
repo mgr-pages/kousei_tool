@@ -1,7 +1,7 @@
 # 紙の赤字原稿＋旧版＋成果物の模擬データ(test/scan3/make.py)の採点
 #   python3 test/scan3/evaluate.py truth.json 出力.json
-#   赤字(指示どおり → 赤字どおり変わった(A)、直していない → 直っていない(B))と、指示にない変化(文字 → C2、見た目 → C3)が、
-#   それぞれ枠の重なる項目として出ているか。余分な検出: 直っていない(B)・指示にない変更(C2・C3)のうち、正解のどれにも当たらないもの
+#   赤字(指示どおり → 赤字どおり変わった(A)、直していない → 近くが変わっていない赤字として人が判断する指示(K))と、指示にない変化
+#   (文字 → C2、見た目 → C3)が、それぞれ枠の重なる項目として出ているか。余分な検出: K・B・C2・C3 のうち、正解のどれにも当たらないもの
 import json, sys
 truth = json.load(open(sys.argv[1], encoding='utf-8'))
 F = json.load(open(sys.argv[2], encoding='utf-8'))
@@ -18,7 +18,7 @@ for x in truth['marks'] + truth['changes']:
     if hit: ok += 1; used.update(hit)
     else: lines.append(f"   見逃し {x['what']}（{want}）")
 total = len(truth['marks']) + len(truth['changes'])
-extra = [f for i, f in enumerate(F) if i not in used and f['cat'] in ('B', 'C2', 'C3')]
+extra = [f for i, f in enumerate(F) if i not in used and f['cat'] in ('K', 'B', 'C2', 'C3')]
 for f in extra: lines.append(f"   余分な検出 {f['cat']} 「{(f.get('show') or '')[:30]}」")
 print(f"紙の赤字原稿＋旧版 {total}件中 合格{ok}件 / 見逃し{total - ok}件 / 余分な検出{len(extra)}件")
 for l in lines: print(l)
