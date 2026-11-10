@@ -116,7 +116,8 @@
       // 同じ語の重なり(「the the」)。よく使う短い語は直す必要がありそう、それ以外は確認だけ(「had had」「that that」など正しいものは除く)
       for (const m of s.matchAll(/(?<![A-Za-z])([A-Za-z]+)[ \t]+\1(?![A-Za-z])/gi)) {
         const w = m[1].toLowerCase();
-        if (REPEAT_OK.has(w) || w.length < 1 || /^[A-Z]$/.test(m[1])) continue;
+        if (REPEAT_OK.has(w) || (w.length === 1 && w !== 'a')) continue;   // 1字の語(字間を空けた語の「o o」など)は、「a a」のほかは見ない
+        if (m[0].slice(m[0].length - m[1].length).slice(1) !== m[1].slice(1)) continue;   // 大文字・小文字の違いは先頭の1字だけ認める(「The the」は出し、ロゴの「KAKUU」と社名の「Kakuu」は出さない)
         push(n, m.index, m[0].length, 'dup', FUNC.has(w) ? 'need' : 'check', m[1], `「${m[1]}」が2回続いています`);
       }
       // 冠詞の a と an(文の始めの「A」「An」と、小文字の「a」「an」だけを見る。略語・数字に続くものは見ない)

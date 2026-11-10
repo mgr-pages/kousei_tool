@@ -1,0 +1,57 @@
+{
+ "seed": 5,
+ "edits": [
+  {
+   "page": 7,
+   "type": "tmpl",
+   "before": "このカードは架空ホールディングス株式会社の所有物です",
+   "after": "このカードは架空ホールディングス株物会社の所有物です",
+   "size": 5,
+   "box": [
+    83,
+    681,
+    444,
+    698
+   ]
+  },
+  {
+   "page": 4,
+   "type": "roman",
+   "before": "MAKOTO EBIHARA",
+   "after": "MTKOTO EBIHARA",
+   "size": 7,
+   "box": [
+    83,
+    531,
+    258,
+    555
+   ]
+  },
+  {
+   "page": 1,
+   "type": "name_add_h",
+   "before": "空野　花子",
+   "after": "空野　花子山",
+   "size": 14,
+   "box": [
+    83,
+    478,
+    317,
+    526
+   ]
+  },
+  {
+   "page": 2,
+   "type": "name",
+   "before": "緑川　健一",
+   "after": "緑川　健中",
+   "size": 14,
+   "box": [
+    83,
+    478,
+    278,
+    526
+   ]
+  }
+ ]
+}

@@ -47,6 +47,7 @@
       ['rule', '全体指示・以下同様の直し忘れ', f => f.cat === 'D' || f.cat === 'C1'],
       ['text', '原稿（ラフ・データ）と違う文字', f => f.cat === 'T' || f.cat === 'N'],
       ['rec', '表（商品マスタ）と商品ごとの照合', f => !!f.rec],
+      ['merge', '差し込み印刷（名刺など）の行ごとの照合', f => !!f.merge || (f.cat === 'J' && f.j.kind === 'tmpl')],
       ['width', '全角・半角などの書き方の違い', f => f.cat === 'V'],
       ['look', '見た目が同じで文字データが違う字', f => f.cat === 'E'],
       ['note', '原稿の指示・コメント、成果物の書き込み（アタリなど）', f => f.cat === 'K' || f.cat === 'W'],
@@ -82,7 +83,7 @@
     ]],
   ];
   //   仕上がりの外の項目は、どの種類でも「範囲」の設定で外せるよう、いちばん先に見る
-  const OPT_ALL = OPTS.flatMap(([, xs]) => xs), FIRST = ['slug', 'ocr', 'rec', 'old'], OPT_ORDER = [...FIRST, ...OPT_ALL.map(o => o[0]).filter(k => !FIRST.includes(k))].map(k => OPT_ALL.find(o => o[0] === k));
+  const OPT_ALL = OPTS.flatMap(([, xs]) => xs), FIRST = ['slug', 'ocr', 'rec', 'merge', 'old'], OPT_ORDER = [...FIRST, ...OPT_ALL.map(o => o[0]).filter(k => !FIRST.includes(k))].map(k => OPT_ALL.find(o => o[0] === k));
   const OPT_KEY = 'pc:opts';
   const optOff = (() => { try { const v = JSON.parse(localStorage.getItem(OPT_KEY) || '[]'); return new Set(Array.isArray(v) ? v : []); } catch (e) { return new Set(); } })();
   const optOf = f => OPT_ORDER.find(o => o[2](f));
@@ -90,7 +91,7 @@
   // 項目の色: 分類(結果の概要のカード)の色にそろえる(参考の項目は、もとの種類の色)
   const colorOf = f => { const g = groupOf(f); return g.minor && !g.auto ? COLOR[f.cat] : g.c; };
   // 一言の結論と、何をすればよいか
-  const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', spell: 'つづり？', article: '冠詞（a・an）？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ', tax: '税込・税抜の計算', price: '価格の食い違い？', noteref: '注記の番号', listno: '番号の抜け？' };
+  const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', spell: 'つづり？', article: '冠詞（a・an）？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ', tax: '税込・税抜の計算', price: '価格の食い違い？', tmpl: 'ほかのページと違う？', noteref: '注記の番号', listno: '番号の抜け？' };
   // ---- 入れたファイルの組み合わせ(成果物は必ず入れる)ごとのチェックの仕方 ----
   //   new: 成果物だけ → 成果物の文字・表記のチェック
   //   marks: 原稿＋成果物 → 原稿との照合＋成果物のチェック
@@ -104,6 +105,14 @@
   };
   const modeOf = () => (S.lists.marks.length ? (S.lists.old.length ? 'all' : 'marks') : S.lists.old.length ? 'old' : 'new');
   function verdictOf(f) {
+    if (f.merge) {   // 差し込み印刷(名刺など)の行ごとの照合
+      const r = f.merge;
+      if (r.kind === 'ok') return ['原稿の表と一致', `原稿の表の${r.rn}行目の${r.fields.join('・')}が、このページにあります（自動で確認済み）`];
+      if (r.kind === 'field') return [`${r.field}が違う`, `原稿の表の${r.rn}行目の${r.field}「${r.want}」と違います`];
+      if (r.kind === 'missing') return [`${r.field}が見当たらない`, `原稿の表の${r.rn}行目の${r.field}「${r.want}」が、この行のページ（表・裏）に見当たりません`];
+      if (r.kind === 'common') return ['共通の値が違う', `原稿の表の${r.cell}の値「${r.want}」（会社名・住所・事業所の電話番号など、どのページにも載る値）と違います`];
+      if (r.kind === 'commonMissing') return ['共通の値が見当たらない', `原稿の表の${r.cell}の値「${r.want}」（会社名・住所・事業所の電話番号など）が、同じ作りのほかのページで載っている所に見当たりません`];
+    }
     if (f.rec) {   // 表(商品マスタなど)の商品ごとの照合
       const r = f.rec;
       if (r.kind === 'ok') return ['原稿の表と一致', `${r.n}件の商品の${r.fields.join('・')}が一致しています（自動で確認済み）`];

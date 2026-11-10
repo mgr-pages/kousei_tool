@@ -1,0 +1,57 @@
+{
+ "seed": 7,
+ "edits": [
+  {
+   "page": 1,
+   "type": "line_drop",
+   "before": "1-2-3 Kakuucho, Kita-ku, Kakuu Building",
+   "after": "",
+   "size": 5.5,
+   "box": [
+    125,
+    554,
+    399,
+    573
+   ]
+  },
+  {
+   "page": 11,
+   "type": "entitle_add",
+   "before": "Manager",
+   "after": "Senior Manager",
+   "size": 6.3,
+   "box": [
+    125,
+    155,
+    250,
+    177
+   ]
+  },
+  {
+   "page": 4,
+   "type": "swap_title",
+   "before": "研究開発部長",
+   "after": "経営企画室長",
+   "size": 5.5,
+   "box": [
+    125,
+    176,
+    217,
+    195
+   ]
+  },
+  {
+   "page": 0,
+   "type": "title_add",
+   "before": "技術本部長",
+   "after": "本技術本部長",
+   "size": 5.5,
+   "box": [
+    125,
+    176,
+    217,
+    195
+   ]
+  }
+ ]
+}

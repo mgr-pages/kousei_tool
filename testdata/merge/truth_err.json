@@ -1,0 +1,57 @@
+{
+ "seed": 7,
+ "edits": [
+  {
+   "page": 6,
+   "type": "email_f",
+   "before": "E　y.morino@example.com",
+   "after": "E　y.mhrino@example.com",
+   "size": 6.3,
+   "box": [
+    128,
+    669,
+    329,
+    690
+   ]
+  },
+  {
+   "page": 0,
+   "type": "titledrop",
+   "before": "専務取締役",
+   "after": "",
+   "size": 5.5,
+   "box": [
+    125,
+    151,
+    201,
+    170
+   ]
+  },
+  {
+   "page": 9,
+   "type": "email_b",
+   "before": "E m.ebihara@example.com",
+   "after": "E m.ebihara@exampbe.com",
+   "size": 6.3,
+   "box": [
+    128,
+    669,
+    350,
+    690
+   ]
+  },
+  {
+   "page": 2,
+   "type": "name",
+   "before": "子",
+   "after": "誠",
+   "size": 11,
+   "box": [
+    475,
+    314,
+    506,
+    352
+   ]
+  }
+ ]
+}

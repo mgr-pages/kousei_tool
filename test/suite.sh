@@ -6,6 +6,7 @@
 #   商品マスタ(Excel)の一部の列を載せたカタログと、ページの端の切れ端は、testdata/records を照合し、test/records/gt.json で採点する
 #   数字の違い(1件ずつ・数字全体で出るか)と仕上がりの外のページ情報は、testdata/numtrim を照合し、test/numtrim/gt.json で採点する
 #   赤い文字で指示を書き込んだPDF原稿(注釈でないもの)は、testdata/redtext を照合し、test/redtext/evaluate.py で採点する
+#   差し込み印刷(名刺・社員証)は、testdata/merge を照合し、test/merge/evaluate.py で採点する
 #   bash test/suite.sh テストデータのフォルダ 正解表(gt.json) 採点スクリプト(evaluate.py) 出力フォルダ
 set -u
 DATA=$1; GT=$2; EVAL=$3; OUT=$4
@@ -64,6 +65,15 @@ run "$N/old.pdf" "$N/new.pdf" numtrim_marks &
 run "$N/genko.txt" "$N/new.pdf" numtrim_text &
 OLD="$N/old.pdf" run "$N/genko.txt" "$N/new.pdf" numtrim_all &
 # 赤字を注釈でなく、ページの中身(赤い文字・線)として書き込んだPDF原稿(test/redtext/make.py で作った模擬データ)。直していない成果物・指示どおりに直した成果物
+#   差し込み印刷(名刺。データファイルの表の1行が成果物の表・裏の2ページに載るもの。test/merge/make.py で作った模擬データ)。誤りなし・誤りを入れたもの
+#   誤りの種類は2組(1字の違い・行の値が抜ける・共通の値の違いなど／字が増える・ほかの人の値・行ごと消えるなど)。2つ目の作り(社員証。表だけ)も
+M=$DATA/merge
+run "$M/meishi.xlsx" "$M/seika.pdf" merge_clean &
+mkdir -p "$OUT/merge_err/v1" "$OUT/merge_err/v2" "$OUT/merge_id_err/v1"
+cp "$M/truth_err.json" "$OUT/merge_err/v1/truth.json" && run "$M/meishi.xlsx" "$M/seika_err.pdf" merge_err/v1/seika &
+cp "$M/truth_err2.json" "$OUT/merge_err/v2/truth.json" && run "$M/meishi.xlsx" "$M/seika_err2.pdf" merge_err/v2/seika &
+run "$M/shain.xlsx" "$M/shain_seika.pdf" merge_id_clean &
+cp "$M/shain_truth_err.json" "$OUT/merge_id_err/v1/truth.json" && run "$M/shain.xlsx" "$M/shain_seika_err.pdf" merge_id_err/v1/seika &
 R=$DATA/redtext
 run "$R/genko.pdf" "$R/base.pdf" redtext_keep &
 run "$R/genko.pdf" "$R/applied.pdf" redtext_applied &
@@ -99,3 +109,9 @@ python3 test/records/evaluate.py test/records/gt.json "$OUT/records.json" | tail
 for k in new old marks text all; do echo "数字とページ情報（$k）: $(head1 "$OUT/numtrim_$k.log" 24) | $(python3 test/numtrim/evaluate.py test/numtrim/gt.json $k "$OUT/numtrim_$k.json" | sed -n 1p)"; python3 test/numtrim/evaluate.py test/numtrim/gt.json $k "$OUT/numtrim_$k.json" | tail -n +2; done
 echo "表の商品ごとの照合（圧縮したPDF）: $(python3 test/records/evaluate.py test/records/gt.json "$OUT/records_objstm.json" | sed -n 1p)"
 for k in keep applied; do echo "赤い文字で書き込んだ原稿（$k）: $(head1 "$OUT/redtext_$k.log" 24) | $(python3 test/redtext/evaluate.py $k "$OUT/redtext_$k.json")"; done
+echo "差し込み印刷（誤りなし）: $(head1 "$OUT/merge_clean.log" 24) | $(python3 test/merge/evaluate.py --clean "$OUT/merge_clean.json" | sed -n 1p)"
+echo "差し込み印刷（誤りを入れたもの2組）: $(head1 "$OUT/merge_err/v1/seika.log" 24) | $(python3 test/merge/evaluate.py "$OUT/merge_err" --detail | sed -n 1p)"
+python3 test/merge/evaluate.py "$OUT/merge_err" --detail | grep -E "見逃し|余分"
+echo "差し込み印刷・社員証（誤りなし）: $(head1 "$OUT/merge_id_clean.log" 24) | $(python3 test/merge/evaluate.py --clean "$OUT/merge_id_clean.json" | sed -n 1p)"
+echo "差し込み印刷・社員証（誤りを入れたもの）: $(head1 "$OUT/merge_id_err/v1/seika.log" 24) | $(python3 test/merge/evaluate.py "$OUT/merge_id_err" --detail | sed -n 1p)"
+python3 test/merge/evaluate.py "$OUT/merge_id_err" --detail | grep -E "見逃し|余分"

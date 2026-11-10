@@ -33,7 +33,7 @@ const workerSrc = (() => {
   if (src.split(at).length !== 2) throw new Error('pdf.worker の差し込み場所が見つかりません(pdf.js の版が変わった?)');
   return workerHook + src.replace(at, '{const __pcM=globalThis.__pcCidToUnicode&&globalThis.__pcCidToUnicode(e);if(__pcM)return new ToUnicodeMap(__pcM)}' + at);
 })();
-const order = ['util', 'myers', 'docsrc', 'pdfio', 'vision', 'marks', 'scan', 'content', 'ocr', 'jcheck', 'echeck', 'records', 'pairing', 'analyze', 'ui'];
+const order = ['util', 'myers', 'docsrc', 'pdfio', 'vision', 'marks', 'scan', 'content', 'ocr', 'jcheck', 'echeck', 'records', 'merge', 'pairing', 'analyze', 'ui'];
 // OCR(Tesseract.js 7.0.0・本体 tesseract.js-core 7.0.0・日本語の学習データ 4.0.0_best_int)。文字データのない所を読むのに使う
 //   作業者(Worker)は、本体(SIMD・LSTMだけの版。WebAssembly を埋め込んだもの)を先に読み込んでおき、外から本体を読みに行かないようにする
 //   Tesseract.js 7.0.0 は、学習データを直接渡すと言語の名前の代わりにデータをつなげてしまうため、名前(code)を使うよう1か所直す

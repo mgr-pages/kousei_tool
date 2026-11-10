@@ -66,7 +66,8 @@
       cls[n].forEach((c, k) => {
         if (!c) return;
         if (c !== 'trim') skip[n].add(k);
-        if (c === 'away' || (c === 'out' && slug(n, k))) return;
+        //   ページの端にかかる字でも、仕上がりの外にあって印刷用の情報と同じ行のもの(ページの外まで続くページ情報の時刻など)は、印刷用の情報とする
+        if (c === 'away' || ((c === 'out' || (c === 'cut' && B.trim && apart(B.items[k].box, B.trim))) && slug(n, k))) return;
         hits.push({ c, k, box: B.items[k].box });
       });
       // 近くの同じ種類のものは1つにまとめる(「〈フ」と、その下の「YR」など)

@@ -750,12 +750,86 @@
     }
   }
 
+  // ---- 差し込み印刷(名刺・宛名ラベルなど。データファイルの表の1行が、成果物の1ページ(表と裏の2ページのことも)に載るもの)の、行ごとの照合 ----
+  //   成果物のページが1行ずつの差し込みと分かったときだけ(merge.js)、その表のシートの照合を、行ごとの照合に置き換える。
+  //   同じ人などの行がほかの表にもあり、差し込んだ表の行のほうがよく合う表と、差し込んだページに当てたほかのデータファイルの照合も外す
+  async function mergePages(P, src, JP, newDoc, NQ, warn) {
+    const sheets = new Map();
+    for (let p = 0; p < src.numPages; p++) { const it = src.page(p); if (!it.virt || !it.virt.sheet || sheets.has(it.virt.sheet)) continue; sheets.set(it.virt.sheet, { src: p, label: src.label(p).replace(/（\d+）$/, '') }); }
+    if (!sheets.size) return;
+    const res = PC.matchMerge([...sheets.keys()], JP);
+    if (!res) return;
+    const k = PC.S, px = b => b.map(v => v * k), used = new Set(res.groups.map(g => g.t.sheet)), lost = new Set(res.lost.map(t => t.sheet)), mq = new Set(res.groups.flatMap(g => g.pages.map(P => P.q)));
+    const drop = d => { if (d.src == null) return false; const it = src.page(d.src); return !!(it.virt && it.virt.sheet) && (used.has(it.virt.sheet) || lost.has(it.virt.sheet) || (d.q >= 0 && mq.has(d.q))); };
+    const at = P.findIndex(drop), entries = [];
+    for (const g of res.groups) {
+      const info = sheets.get(g.t.sheet);
+      //   原稿の表示: その行の、見出し(項目)と値の2列の表
+      const vp = PC.tablePages(`${info.label}（${g.r.rn}行目）`, [{ cells: ['項目', '原稿の値'], rn: '' }, ...g.r.fields.map(f => ({ cells: [f.label, f.value], rn: '' }))], {})[0];
+      const fbox = new Map(); vp.blocks.forEach(([s0, e0], bi) => { if (bi > 0) fbox.set(g.r.fields[bi - 1], PC.union(vp.chars.slice(s0, e0).map(c => c.box))); });
+      const left = await toThumb(vp.render(PC.DPI)), pgs = g.pages.slice().sort((a, b) => a.q - b.q);
+      for (const Pg of pgs) {
+        const right = NQ.has(Pg.q) ? NQ.get(Pg.q).thumb : await toThumb(await PC.renderPage(newDoc, Pg.q, PC.DPI, false));
+        const d = { kind: 'merge', q: Pg.q, src: info.src, label: `${info.label}（${g.r.rn}行目）`, mg: { g, fbox, Pg, res: res.res.filter(x => x.g === g), cmiss: res.cmiss.filter(x => x.P === Pg) }, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], thumbs: { left, right } };
+        //   同じ作りのほかのページと違う所(成果物だけで見た項目として出す)
+        //   gone: ほかのページにある、元の表にない字だけの行が、このページにない。extra: ほかのページでは元の表の値だけの位置に、元の表にない字がある
+        const tmsg = x => (x.gone ? `同じ作りのほかのページ（${x.n}ページ）にある「${x.want}」の行が、このページにありません。消えていないか確認してください`
+          : x.extra ? `同じ作りのほかのページ（${x.n}ページ）では、この位置の字はすべて差し込みの元の表の値です。「${x.show}」は元の表にない字なので、増えた字でないか確認してください`
+          : `同じ作りのほかのページ（${x.n}ページ）では「${x.want}」です。差し込みの元の表にない字なので、ページごとに違う理由がないか確認してください`);
+        d.jf = res.tmpl.filter(x => x.P === Pg).map(x => ({ q: Pg.q, kind: 'tmpl', level: 'check', show: x.show, want: x.extra ? '' : x.want, msg: tmsg(x), ctx: ['', ''], nbox: px(x.box || PC.mergeBox(Pg.B, x.js)), more: [] }));
+        entries.push(d);
+      }
+    }
+    const gone = [...new Set(P.filter(drop).map(d => d.label).filter(Boolean))];
+    for (let i = P.length - 1; i >= 0; i--) if (drop(P[i])) P.splice(i, 1);
+    P.splice(at < 0 ? P.length : at, 0, ...entries);
+    //   外した照合のページについての注意(文字データがないなど)も外す
+    for (let i = warn.length - 1; i >= 0; i--) if (gone.some(l => warn[i].startsWith(l + ' '))) warn.splice(i, 1);
+    const names = ts => [...ts].map(t => sheets.get(t).label).join('・');
+    warn.push(`${names(used)}の表の1行が成果物の1ページ${res.groups.some(g => g.pages.length >= 2) ? '（表・裏）' : ''}に載る差し込み印刷として、行ごとに照合しました（${res.groups.length}行・成果物${mq.size}ページ）`);
+    if (lost.size) warn.push(`${names(lost)}にも成果物と同じ値の行がありますが、${names(used)}の行のほうがよく合うため、照合に使っていません`);
+    if (res.multi) warn.push(`成果物の${res.multi}ページは、1ページに2件以上の行が載っているようです。差し込み印刷の照合は1ページ1件（表・裏）のものだけに対応しているため、2件目以降の行は照合していません（「成果物に見当たらない行」として知らせることがあります）`);
+    for (const m of res.missing) warn.push(`${sheets.get(m.t.sheet).label}の${m.rows.length}行（${m.rows.slice(0, 8).map(r => r.rn).join('・')}${m.rows.length > 8 ? 'ほか' : ''}行目）は、成果物に見当たりませんでした（作らないものなら問題ありません）`);
+  }
+  // 差し込み印刷の行ごとの照合の項目: 値が違う・見当たらない値。すべて一致したページは、まとめて1件(一覧には出さない)
+  function mergeFindings(d, p, add) {
+    const k = PC.S, px = b => b && b.map(v => v * k), { g, fbox, Pg, res, cmiss } = d.mg, ref = `${g.r.rn}行目`, ok = [], okBox = [];
+    let bad = 0;
+    const shown = t => t.replace(/\u00ad/g, '-');   // 見えないハイフン(ソフトハイフン)は「-」として示す
+    for (const m of cmiss) {   // 共通の値(会社名・住所・事業所の電話番号など)の違い・見当たらないもの
+      const nb = m.got ? PC.mergeBox(Pg.B, m.got.js) : m.box, f = add(p + 1, 'T', [0, 0, 10, 10], m.got ? shown(m.got.t) : '', '共通の値', '', '', px(nb));
+      Object.assign(f, { segs: m.got ? charSegs(m.a.raw.replace(/\s+/g, ''), shown(m.got.t).replace(/\s+/g, '')) : [['-', m.a.raw]], same: false, pboxes: [], pnboxes: nb ? [px(nb)] : [], ref: m.a.cell, merge: { kind: m.got ? 'common' : 'commonMissing', field: '共通の値', want: m.a.raw, got: m.got && shown(m.got.t), cell: m.a.cell } });
+      if (!m.got) f.approx = true;
+      bad++;
+    }
+    for (const x of res) {
+      const hs = x.per.get(Pg) || [];
+      if (hs.length) { ok.push(x.f); okBox.push(...hs.map(h => PC.mergeBox(Pg.B, [...new Set(Pg.at.slice(h.i, h.i + h.n))]))); }
+      for (const m of x.miss) {
+        if (m.P !== Pg) continue;
+        //   表示: 空白を除き、成果物が大文字だけなら原稿の値も大文字にそろえて比べる(ローマ字の名前)
+        let want = x.a.raw.replace(/\s+/g, '');
+        if (m.got && !/[a-z]/.test(m.got.t) && /[A-Z]/.test(m.got.t)) want = want.toUpperCase();
+        const lb = fbox.get(x.f), nb = m.got ? PC.mergeBox(Pg.B, m.got.js) : m.area || null;
+        const got = m.got && shown(m.got.t), f = add(p + 1, 'T', px(lb) || [0, 0, 10, 10], got || '', x.f.label, '', '', px(nb));
+        Object.assign(f, { segs: m.got ? charSegs(want, got.replace(/\s+/g, '')) : [['-', x.a.raw]], same: false, pboxes: lb ? [px(lb)] : [], pnboxes: nb ? [px(nb)] : [], ref, merge: { kind: m.got ? 'field' : 'missing', field: x.f.label, want: x.a.raw, got, rn: g.r.rn } });
+        if (!m.got) f.approx = true;
+        bad++;
+      }
+    }
+    if (ok.length && !bad) {   // このページの値がすべて一致(まとめて1件。一覧には出さない)
+      const ls = [...new Set(ok)], f = add(p + 1, 'T', px(PC.union(ls.map(x => fbox.get(x)).filter(Boolean))), '', '', '', '', px(PC.union(okBox)));
+      Object.assign(f, { auto: 'ok', ref, merge: { kind: 'ok', fields: ls.map(x => x.label), rn: g.r.rn } });
+    }
+  }
+
   // ---- 商品マスタのような表(1行が1商品で、成果物には一部の列だけが載るもの)の、商品ごとの照合 ----
   //   行の文字の多くが成果物に載る表(価格表など)は、ほかのデータファイルと同じく文字の並びで照合する。ここでは、それで対応が見つからなかったシートだけを扱う
   const charSegs = (a, b) => { const A = [...a], B = [...b], segs = []; for (const [t, i1, i2, j1, j2] of PC.opcodes(A, B)) { if (t === 'equal') segs.push(['=', A.slice(i1, i2).join('')]); else { if (i2 > i1) segs.push(['-', A.slice(i1, i2).join('')]); if (j2 > j1) segs.push(['+', B.slice(j1, j2).join('')]); } } return segs; };
   async function recordPages(P, src, JP, newDoc, NQ) {
     const sheets = new Map();
-    P.forEach(d => { if (d.src == null) return; const it = src.page(d.src); if (!it.virt || !it.virt.sheet) return; const sh = it.virt.sheet; if (!sheets.has(sh)) sheets.set(sh, { all: [], used: false, src: d.src }); const x = sheets.get(sh); x.all.push(d); if (d.kind !== 'none') x.used = true; });
+    const merged = new Set(P.filter(d => d.kind === 'merge').map(d => src.page(d.src).virt.sheet));   // 差し込み印刷として照合したシートは扱わない
+    P.forEach(d => { if (d.src == null) return; const it = src.page(d.src); if (!it.virt || !it.virt.sheet || merged.has(it.virt.sheet)) return; const sh = it.virt.sheet; if (!sheets.has(sh)) sheets.set(sh, { all: [], used: false, src: d.src }); const x = sheets.get(sh); x.all.push(d); if (d.kind !== 'none') x.used = true; });
     for (const [sh, x] of sheets) {
       const res = PC.matchRecords(sh, JP);
       if (!res) continue;
@@ -1302,6 +1376,7 @@
     const JP = [];
     for (let q = 0; q < newDoc.numPages; q++) JP.push({ q, B: NQ.has(q) ? NQ.get(q).B : await PC.pageText(newDoc, q) });
     prog('表の商品ごとの照合', 0.93); await PC.tick();
+    await mergePages(P, src, JP, newDoc, NQ, warn);
     await recordPages(P, src, JP, newDoc, NQ);
     // 旧版(任意)があれば、成果物の字が旧版から変わったかを求める(原稿のない部分の変化・前回のままの見分けに使う)
     const OLD = opts.oldDoc ? await oldDiff(opts.oldDoc, newDoc, NQ, prog, JP) : null;
@@ -1456,6 +1531,7 @@
     P.forEach((d, p) => {
       if (d.kind === 'content') contentFindings(d, p, add);
       if (d.kind === 'records') recordFindings(d, p, add);
+      if (d.kind === 'merge') mergeFindings(d, p, add);
       for (const x of d.olds || []) {   // 旧版から変わった所(原稿のない部分): 指示にない変更
         const f = add(p + 1, x.variant ? 'V' : 'C2', x.nbox, x.text, x.variant ? '旧版から書き方だけ変わった所（全角・半角など）' : '旧版から変わった所（原稿のない部分）', '', '', x.nbox);
         Object.assign(f, { onNew: true, newOnly: true, fromOld: x.kind, segs: x.segs, same: false, pnboxes: [x.nbox], old: x.old });
