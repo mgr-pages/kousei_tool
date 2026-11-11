@@ -196,7 +196,7 @@
       if (f.s3.look) return '<div class="what">赤字のない所で、見た目（図版・色・大きさ・位置など）が旧版から変わっています。切り抜きで確認</div>';
       const at = f.show ? `赤字の箇所 ${q(f.show)}` : '赤字';
       if (f.s3.still) return `<div class="what">${at} → 近くは旧版から変わっていません。直す指示なら直っていません（見本・参考として書いた赤字なら問題ありません）${f.s3.far ? '。少し離れた所は変わっているので、赤字の指す先も確認' : ''}</div>`;
-      const n = [f.s3.nt ? `文字 ${f.s3.nt}か所` : '', f.s3.nr ? `見た目 ${f.s3.nr}か所` : ''].filter(Boolean).join('・');
+      const n = [f.s3.nt ? `文字 ${+f.s3.nt}か所` : '', f.s3.nr ? `見た目 ${+f.s3.nr}か所` : ''].filter(Boolean).join('・');
       return `<div class="what">${at} → 近くが旧版から変わっています${n ? `（${n}）` : ''}。赤字どおりか、切り抜きで確認</div>`;
     }
     if (f.segs && !f.same) return diffRows(f.segs, f.fromOld ? '旧版' : '原稿');
@@ -272,6 +272,8 @@
     catch (err) { e.err = 'PDFとして開けません（' + (err && err.message || err) + '）。パスワード付き・壊れたPDFは使えません。'; }
   }
   function add(kind, files) {
+    const rf = [...files].find(isResultFile);
+    if (rf) { openResult(rf); return; }
     const L = S.lists[kind], skipped = [];
     const fresh = [...files].filter(f => accepts(kind, f) || (skipped.push(f.name), false)).sort(byName);
     for (const f of fresh) {
@@ -312,7 +314,7 @@
   function resetAll() {
     if (S.running) return;
     for (const k of Object.keys(KIND)) S.lists[k] = [];
-    S.res = null; S.sel = null; S.doneMsg = ''; S.addMsg = ''; S.runSig = '';
+    dropRes(); S.sel = null; S.doneMsg = ''; S.addMsg = ''; S.runSig = ''; S.opened = null;
     $('err').textContent = ''; $('pbar').style.width = '0';
     $('results').classList.add('hidden');
     refresh();
@@ -389,6 +391,7 @@
     try {
       const marks = await PC.markSource(f.marks), newDoc = await PC.openPdfs(f.nw), oldDoc = f.old && f.old.length ? await PC.openPdfs(f.old) : null;
       const res = await PC.analyze({ marks, newDoc, oldDoc, progress: (m, x) => { if (S.abort) throw ABORT; progress(m, x); } });
+      S.opened = null;
       res.seconds = (performance.now() - t0) / 1000; res.markParts = marks.parts; res.newParts = newDoc.parts; res.oldParts = oldDoc ? oldDoc.parts : null; res.mode = mode;
       S.key = 'pc:' + [...f.marks, ...f.nw, ...(f.old || [])].map(x => x.name + ':' + x.size).join('|');
       try { S.verdict = JSON.parse(localStorage.getItem(S.key) || '{}'); } catch (e) { S.verdict = {}; }
@@ -406,7 +409,10 @@
   $('reset').onclick = resetAll; $('reset2').onclick = resetAll;
 
   // ---- 結果の表示 ----
+  const urlsOf = r => r ? [...(r.pages || []).flatMap(p => [p.left && p.left.url, p.right && p.right.url]), ...Array.from(r.oldPages || [], o => o && o.url)].filter(Boolean) : [];
+  const dropRes = () => { for (const u of urlsOf(S.res)) URL.revokeObjectURL(u); S.res = null; };
   async function show(res) {
+    if (S.res && S.res !== res) dropRes();
     S.res = res; S.sel = null; S.page = 0; S.runMode = res.mode || 'marks';
     S.only = null; S.zoom = 1; S.vc = { L: null, R: null }; S.warned = false;   // 新しい結果は、絞り込み・拡大なしで出す
     S.imgs = res.pages.map(p => ({ L: null, R: null, Lurl: p.left ? p.left.url : null, Rurl: p.right ? p.right.url : null, lw: p.left ? p.left.w : 0, lh: p.left ? p.left.h : 0, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
@@ -425,7 +431,7 @@
     //   ページ数: 結果のページ(原稿のページごと)。成果物だけのチェックで項目がないときは、チェックした成果物のページ数
     const nNew = (res.newParts || []).reduce((n, x) => n + x.pages, 0);
     $('sumNote').textContent = `${res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`}・${res.seconds.toFixed(1)}秒`;
-    const notes = [ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : ''].filter(Boolean);
+    const notes = [S.opened ? `保存した結果を開いています（${S.opened}）。照合し直してはいません` : '', ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : ''].filter(Boolean);
     $('notes').innerHTML = notes.map(t => `<li>${esc(t)}</li>`).join('');
     $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : MODES[S.runMode].note || MODES.new.note;
     //   2つのまとまり(直す必要がありそう・確認だけ)と、件数のある種類の札。見出しや札を押すと、それだけを一覧とページに出す(もう一度押すと全部に戻る)
@@ -500,9 +506,9 @@
     if (!F.length) { list.innerHTML = '<div class="empty">表示する項目はありません</div>'; return; }
     list.innerHTML = F.map(f => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
-      return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${f.id}" style="--c: var(--c-${colorOf(f)})">
+      return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${+f.id}" style="--c: var(--c-${colorOf(f)})">
         <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
-        ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
+        ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${+f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${+f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
         <div class="crops">${f.old ? '<figure><canvas data-side="O" width="300" height="130"></canvas><figcaption>旧版</figcaption></figure>' : ''}${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
         <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"><span class="kh">キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目</span></div>
       </div>`;
@@ -551,7 +557,7 @@
   $('nextU').onclick = nextUnchecked;
   //   キー操作(一覧の項目を選んでいるとき): ↑↓ 前・次の項目、1 OK・2 要修正・3 保留(付けたら次の項目へ)。文字を入れる欄では使わない
   document.addEventListener('keydown', ev => {
-    if (!S.res || S.sel == null || $('results').classList.contains('hidden') || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
+    if (!S.res || S.sel == null || $('results').classList.contains('hidden') || !$('savePop').hidden || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
     if (ev.target && ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); stepItem(ev.key === 'ArrowDown' ? 1 : -1); return; }
     const val = { 1: 'ok', 2: 'fix', 3: 'hold' }[ev.key];
@@ -754,6 +760,7 @@
     return ok;
   };
   $('csv').onclick = () => {
+    closeMenu();
     if (!okToExport('CSVで保存')) return;
     const V = { ok: 'OK', fix: '要修正', hold: '保留' }, q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
     const rows = [['No.', 'ページ', '原稿のファイル', '原稿のページ', '成果物のファイル', '成果物のページ', '区分', '結論', 'すること', '違い（原稿→成果物）', '指示', '自動確認', '確認', 'メモ', '補足', '位置（原稿・200dpi）']];
@@ -764,7 +771,122 @@
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '校正結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  $('print').onclick = async () => { if (!okToExport('印刷')) return; if (S.only) setOnly(null); for (let i = 0; i < S.imgs.length; i++) await ensure(i); document.querySelectorAll('.item').forEach(drawCrops); window.print(); };
+  $('print').onclick = async () => { closeMenu(); if (!okToExport('印刷')) return; if (S.only) setOnly(null); for (let i = 0; i < S.imgs.length; i++) await ensure(i); document.querySelectorAll('.item').forEach(drawCrops); window.print(); };
+
+  // ---- 結果の保存と、保存した結果を開く ----
+  //   ファイル(.kousei): 1行目「KOUSEI-TOOL-RESULT 1」(1は版)、2行目に JSON のバイト数、続けて JSON(UTF-8)、そのあとに表示用の画像をそのままつなげる
+  //   JSON: { format, version, saved, key, res(表示用の画像は images の番号), verdict(判定・メモ), images: [{ type, size }] }
+  //   開くと、照合し直さずに、保存したときの結果・判定・メモに戻る。中身は信用せず、形と数を確かめてから使う
+  const RES_MAGIC = 'KOUSEI-TOOL-RESULT', RES_VER = 1, RES_EXT = '.kousei';
+  function isResultFile(f) { return /\.kousei$/i.test(f.name || ''); }
+  const two = n => String(n).padStart(2, '0'), stamp = d => `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+  const download = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60000); };
+  const pop = $('savePop'), sbtn = $('saveBtn');
+  function closeMenu() { pop.hidden = true; sbtn.setAttribute('aria-expanded', 'false'); }
+  sbtn.onclick = ev => { ev.stopPropagation(); const open = pop.hidden; pop.hidden = !open; sbtn.setAttribute('aria-expanded', String(open)); };
+  document.addEventListener('click', ev => { if (!pop.hidden && !ev.target.closest('#saveMenu')) closeMenu(); });
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !pop.hidden) { closeMenu(); sbtn.focus(); } });
+  $('saveRes').onclick = async () => {
+    closeMenu();
+    const res = S.res; if (!res) return;
+    const urls = [], at = new Map();
+    const ref = x => { if (!x || !x.url) return null; if (!at.has(x.url)) { at.set(x.url, urls.length); urls.push(x.url); } return { img: at.get(x.url), w: x.w, h: x.h }; };
+    const pages = res.pages.map(pg => ({ ...pg, left: ref(pg.left), right: ref(pg.right) })), oldPages = Array.from(res.oldPages || [], ref);
+    const label = sbtn.innerHTML; sbtn.disabled = true; sbtn.textContent = '保存しています…';
+    try {
+      const blobs = []; for (const u of urls) blobs.push(await (await fetch(u)).blob());
+      const head = { format: RES_MAGIC, version: RES_VER, saved: new Date().toISOString(), key: S.key, res: { ...res, pages, oldPages }, verdict: S.verdict, images: blobs.map(b => ({ type: b.type || 'image/jpeg', size: b.size })) };
+      const json = new TextEncoder().encode(JSON.stringify(head)), base = (((res.newParts || [])[0] || {}).name || '成果物').replace(/\.[^.]+$/, '');
+      const name = `校正結果_${base.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40)}_${stamp(new Date())}${RES_EXT}`;
+      download(new Blob([`${RES_MAGIC} ${RES_VER}\n${json.length}\n`, json, ...blobs], { type: 'application/octet-stream' }), name);
+    } catch (e) { console.error(e); $('err').textContent = '結果を保存できませんでした：' + (e && e.message ? e.message : e); }
+    finally { sbtn.disabled = false; sbtn.innerHTML = label; }
+  };
+  //   保存した結果の中身の形をそろえる(壊れた・作り変えたファイルでも、画面が止まったり、中の文字が動いたりしないように)
+  const num = v => (typeof v === 'number' && isFinite(v) ? v : 0), str = v => (v == null ? '' : String(v)), int = v => (Number.isInteger(v) ? v : null);
+  const box4 = b => (Array.isArray(b) && b.length >= 4 && b.slice(0, 4).every(v => typeof v === 'number' && isFinite(v)) ? b.slice(0, 4) : null);
+  const pair = a => (Array.isArray(a) ? [str(a[0]), str(a[1])] : ['', '']);
+  function cleanRes(r, urls) {
+    const img = x => (x && int(x.img) != null && urls[x.img] ? { url: urls[x.img], w: num(x.w), h: num(x.h) } : null);
+    const pages = r.pages.map(pg => { pg = pg && typeof pg === 'object' ? pg : {}; return { kind: str(pg.kind), q: int(pg.q) ?? -1, src: int(pg.src), label: pg.label == null ? null : str(pg.label), crop: box4(pg.crop), region: box4(pg.region), left: img(pg.left), right: img(pg.right) }; });
+    const P = Math.max(1, pages.length);
+    const findings = r.findings.map((f0, i) => {
+      const f = f0 && typeof f0 === 'object' ? f0 : {}, g = { ...f, id: i, page: Math.min(P, Math.max(1, Math.round(num(f.page)) || 1)), cat: str(f.cat), label: str(f.label), box: box4(f.box) || [0, 0, 0, 0], nbox: box4(f.nbox), show: str(f.show), how: str(f.how), note: str(f.note), check: str(f.check) };
+      for (const k of ['pboxes', 'pnboxes', 'moreBoxes', 'moreNboxes']) if (k in f) g[k] = Array.isArray(f[k]) ? f[k].map(box4).filter(Boolean) : [];
+      for (const k of ['frm', 'to', 'byInstr', 'ref', 'dropText']) if (k in f) g[k] = str(f[k]);
+      for (const k of ['more', 'goneN']) if (k in f) g[k] = num(f[k]);
+      if ('noteBox' in f) g.noteBox = box4(f.noteBox);
+      if ('segs' in f) g.segs = Array.isArray(f.segs) ? f.segs.filter(x => Array.isArray(x) && ['=', '-', '+'].includes(x[0])).map(x => [x[0], str(x[1])]) : [];
+      if ('refs' in f) g.refs = Array.isArray(f.refs) ? f.refs.map(str) : [];
+      if ('ins' in f) g.ins = Array.isArray(f.ins) ? pair(f.ins) : null;
+      if (f.j || g.cat === 'J') { const j = f.j && typeof f.j === 'object' ? f.j : {}; g.j = { ...j, kind: str(j.kind), msg: str(j.msg), want: str(j.want), ctx: pair(j.ctx) }; }
+      if (f.lint) g.lint = { c: str(f.lint.c), want: str(f.lint.want), ctx: pair(f.lint.ctx) };
+      if (f.s3) g.s3 = { still: !!f.s3.still, far: !!f.s3.far, look: !!f.s3.look, nt: num(f.s3.nt), nr: num(f.s3.nr) };
+      if (f.old) g.old = { p: int(f.old.p) ?? -1, box: box4(f.old.box) };
+      for (const k of ['merge', 'rec']) if (f[k]) g[k] = typeof f[k] === 'object' ? { ...f[k], kind: str(f[k].kind), fields: Array.isArray(f[k].fields) ? f[k].fields.map(str) : [] } : null;
+      return g;
+    });
+    const parts = a => (Array.isArray(a) ? a.map(x => ({ name: str(x && x.name), start: num(x && x.start), pages: num(x && x.pages) })) : null);
+    return {
+      findings, pages, oldPages: Array.isArray(r.oldPages) ? r.oldPages.map(img) : [],
+      rules: Array.isArray(r.rules) ? r.rules.map(x => ({ frm: str(x && x.frm), to: str(x && x.to), how: str(x && x.how) })) : [],
+      warn: Array.isArray(r.warn) ? r.warn.map(str) : [], seconds: num(r.seconds), mode: MODES[r.mode] ? r.mode : 'marks',
+      markParts: parts(r.markParts) || [], newParts: parts(r.newParts) || [], oldParts: parts(r.oldParts),
+    };
+  }
+  async function openResult(file) {
+    if (S.running) return;
+    const urls = [], fail = m => { throw new Error(m); };
+    $('err').textContent = ''; $('pmsg').textContent = '保存した結果を開いています…';
+    try {
+      const u8 = new Uint8Array(await file.arrayBuffer()), dec = new TextDecoder();
+      const n1 = u8.indexOf(10), n2 = n1 < 0 ? -1 : u8.indexOf(10, n1 + 1), l1 = n1 > 0 && n1 < 64 ? dec.decode(u8.subarray(0, n1)) : '';
+      if (!l1.startsWith(RES_MAGIC + ' ')) fail('このツールの「結果を保存」で保存したファイルではありません');
+      const ver = parseInt(l1.slice(RES_MAGIC.length + 1), 10);
+      if (!(ver >= 1)) fail('ファイルが壊れています');
+      if (ver > RES_VER) fail('新しい版のツールで保存した結果です。新しい版のツール（Web版など）で開いてください');
+      const len = n2 > n1 && n2 - n1 < 16 ? parseInt(dec.decode(u8.subarray(n1 + 1, n2)), 10) : NaN, j0 = n2 + 1;
+      if (!(len > 0) || j0 + len > u8.length) fail('ファイルが壊れています（途中までしかありません）');
+      let head = null; try { head = JSON.parse(dec.decode(u8.subarray(j0, j0 + len))); } catch (e) { /* 下で知らせる */ }
+      const r = head && head.res;
+      if (!head || head.format !== RES_MAGIC || !r || !Array.isArray(r.findings) || !Array.isArray(r.pages) || !Array.isArray(head.images)) fail('ファイルが壊れています');
+      let off = j0 + len;
+      for (const im of head.images) {
+        const size = im && Number.isInteger(im.size) ? im.size : -1, type = im && /^image\/(jpeg|png)$/.test(im.type) ? im.type : '';
+        if (size < 0 || !type || off + size > u8.length) fail('ファイルが壊れています（画像を読めません）');
+        urls.push(URL.createObjectURL(new Blob([u8.subarray(off, off + size)], { type }))); off += size;
+      }
+      const res = cleanRes(r, urls);
+      for (const k of Object.keys(KIND)) S.lists[k] = [];   // 開いた結果だけにする(入れていたファイルは外す)
+      S.addMsg = ''; S.sel = null;
+      S.key = typeof head.key === 'string' && head.key ? head.key : 'pc:result:' + str(head.saved);
+      S.verdict = {};
+      if (head.verdict && typeof head.verdict === 'object') for (const [k, x] of Object.entries(head.verdict)) {
+        const i = +k; if (!Number.isInteger(i) || i < 0 || i >= res.findings.length || !x || typeof x !== 'object') continue;
+        const v = ['ok', 'fix', 'hold'].includes(x.v) ? x.v : '', memo = str(x.memo).slice(0, 2000);
+        if (v || memo) S.verdict[i] = { v, memo };
+      }
+      save();   // 保存したときの判定とメモで開く(このブラウザにも残す)
+      const when = new Date(str(head.saved));
+      S.opened = `${isNaN(when) ? '' : `${when.toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}に保存・`}${file.name}`;
+      await show(res);
+      S.doneMsg = '保存した結果を開きました'; S.runSig = sigOf(); $('pbar').style.width = '0';
+      refresh();
+      $('results').scrollIntoView({ behavior: 'smooth' });
+    } catch (e) {
+      for (const u of urls) if (!S.res || !urlsOf(S.res).includes(u)) URL.revokeObjectURL(u);
+      console.error(e); $('err').textContent = '結果を開けませんでした：' + (e && e.message ? e.message : e); refresh();
+    }
+  }
+  $('fRes').addEventListener('change', () => { const f = $('fRes').files[0]; $('fRes').value = ''; if (f) openResult(f); });
+  //   ページのどこにファイルを落としても、ブラウザがそのファイルを開いて画面が切り替わらないようにする(結果のファイルなら開く)
+  document.addEventListener('dragover', ev => ev.preventDefault());
+  document.addEventListener('drop', ev => {
+    if (ev.defaultPrevented) return;   // ファイルの欄で受け取ったもの
+    ev.preventDefault();
+    const f = [...((ev.dataTransfer && ev.dataTransfer.files) || [])].find(isResultFile);
+    if (f) openResult(f);
+  });
 
   // ---- 詳細設定の画面 ----
   function renderOpts() {
