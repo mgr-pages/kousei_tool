@@ -220,7 +220,7 @@
   const imageShow = c => { c.show = { changed: '画像・図版の変化', moved: '画像・図版の移動', removed: '画像・図版の削除' }[c.kind]; };
 
   // 注釈を入れたPDFのページ: 注釈を消した描画が修正前、注釈ありとの描画の差が赤字
-  async function annotPage(src, p, nw, nc, cb, step) {
+  async function annotPage(src, p, nw, nc, cb, step, nref = null) {
     const { doc, i } = src.page(p);
     const old = await PC.renderPage(doc, i, PC.DPI, false), oc = await PC.textCharsSnapped(doc, i, old);
     step('文字のまとまりを解析', 0.1); await PC.tick();
@@ -246,11 +246,22 @@
     }
     mergeNumbers(merged, ot, oc, nt, nc);
     describe(merged, ot, ol, nt, nl, oc, nc);
+    //   文字データでも比べる(原稿も成果物もPDF): 字形のまとまり方が変わっただけの所を違いとしないように、また違う字を正しく示すように
+    let tx = null;
+    if (nref) {
+      step('文字データを比べています', 0.6); await PC.tick();
+      const At = await PC.pageText(doc, i), Bt = await PC.pageText(nref.doc, nref.q);
+      if (At.chars.length && Bt.chars.length) { const c0 = nref.crop ? [nref.crop[0], nref.crop[1]] : [0, 0]; tx = textDiffCore(At, Bt, [1, 0, c0[0], c0[1], 1], c0, ot, nt, merged, nref.crop, { annot: true }) || null; }
+    }
     merged.push(...layoutChanges(ot, ol, nt, nl, pairs));
     const im = PC.imageChanges(old, nw, ob, nb); im.forEach(imageShow);
     step('赤字を読み取り', 0.7); await PC.tick();
-    const notes = await PC.annotations(doc, i), withA = await PC.renderPage(doc, i, PC.DPI, true);
-    const { rm, shown } = PC.fromAnnots(withA, old, notes);
+    const notes0 = await PC.annotations(doc, i), withA = await PC.renderPage(doc, i, PC.DPI, true);
+    const { rm, shown } = PC.fromAnnots(withA, old, notes0);
+    //   返信(In Reply To)は、返信先のコメントにつなげる(やり取りを1つの指示として読む)
+    const byId = new Map(notes0.filter(n => n.id).map(n => [n.id, n]));
+    for (const n of notes0) if (n.irt && byId.has(n.irt)) { let r = byId.get(n.irt); for (let k = 0; k < 20 && r.irt && byId.has(r.irt); k++) r = byId.get(r.irt); (r.replies = r.replies || []).push(n.text); n.isReply = true; }
+    const notes = notes0.filter(n => !n.isReply).map(n => n.replies ? { ...n, text: [n.text, ...n.replies.map(t => '（返信）' + t)].join('\n'), thread: true } : n);
     const { an, used } = PC.anchors(rm, old.w, old.h, ol.filter(l => l.toks.length), ot, ob.filter(b => b.kind === 'image'));
     for (const n of notes) {   // 挿入の注釈は位置情報から直接読む
       if (n.type !== 'Caret') continue;
@@ -269,13 +280,28 @@
       if (!PC.MARKUP.has(n.type) || !n.quads.length) continue;
       const area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]), inter = (p_, q) => area([Math.max(p_[0], q[0]), Math.max(p_[1], q[1]), Math.min(p_[2], q[2]), Math.min(p_[3], q[3])]);
       const toks = new Set(); ot.forEach((t, k) => { if (n.quads.some(q => inter(t.box, q) >= 0.4 * area(t.box))) toks.add(k); });
-      const box = union(n.quads).map(Math.trunc);
-      if (toks.size) an.push({ kind: 'tokens', toks, how: MK[n.type], box, stroke: -1, note: n.text });
-      else if (ob.some(b => b.kind === 'image' && ov(b.box, box))) an.push({ kind: 'image', how: MK[n.type], box, stroke: -1, note: n.text });
+      const box = union(n.quads).map(Math.trunc), quads = n.quads.map(q => q.map(Math.trunc));
+      //   マーカーの下の字(文字データ。字形のまとまりが大きいデザインでも正しく分かるように)
+      const under = oc.filter(([, b]) => { const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2; return n.quads.some(q => cx >= q[0] && cx <= q[2] && cy >= q[1] && cy <= q[3]); }).map(c => c[0]).join('');
+      const base = { how: MK[n.type], box, quads, under, stroke: -1, note: n.text, thread: !!n.thread };
+      if (toks.size) an.push({ kind: 'tokens', toks, ...base });
+      else if (ob.some(b => b.kind === 'image' && ov(b.box, box))) an.push({ kind: 'image', ...base });
+      //   どの字形・画像にも当たらない(字形のまとまりが大きいときの一部だけ・字のない所に引いたものなど)ものも捨てず、位置で照合する
+      else an.push({ kind: 'area', ...base });
+    }
+    //   付箋(テキストの注釈)のコメントも指示として読む(返信はつなげてある)。同じ所にほかの指示があれば、そちらに任せる
+    for (const n of notes) {
+      if (n.type !== 'Text' || !String(n.text || '').trim() || an.some(a => ov(a.box, n.box, 4))) continue;
+      an.push({ kind: 'area', how: '付箋(注釈)', box: n.box.map(Math.trunc), quads: [n.box.map(Math.trunc)], under: '', stroke: -1, note: n.text, thread: !!n.thread });
     }
     for (const a of an) if (a.note === undefined) a.note = (notes.find(n => n.type !== 'Caret' && ov(n.box, a.box, 8)) || {}).text || (notes.find(n => n.type === 'Caret' && ov(n.box, a.box, 2)) || {}).text || '';
+    //   マーカーの注釈を描いたときの色の付いた縁など(注釈そのものの描画)から読んだ赤の印は、マーカーの注釈が受け持つので外す(同じ指示を二重に数えないように)
+    const marks = notes.filter(n => PC.MARKUP.has(n.type) && n.quads && n.quads.length);
+    for (let k = an.length - 1; k >= 0; k--) { const a = an[k]; if (a.stroke >= 0 && marks.some(n => n.text === a.note && a.box[0] >= n.box[0] - 12 && a.box[1] >= n.box[1] - 12 && a.box[2] <= n.box[2] + 12 && a.box[3] <= n.box[3] + 12)) an.splice(k, 1); }
+    //   文字のない字形の変化(図・模様など)で、原稿側の位置(読み順で決めた入る位置)が成果物側と大きく離れるものは、同じレイアウトなので成果物側と同じ所とする
+    for (const c of merged) if (c.kind === 'text' && c.tag !== 'layout' && !c.before && !c.after && c.obox && c.nbox && PC.gap(c.obox, c.nbox) > 30 * PC.S) c.obox = c.nbox.slice();
     for (const c of merged) if (c.obox && c.nbox) c.sty = { o: styleOf(old, c.obox), n: styleOf(nw, c.nbox) };   // 書式の指示の確認用
-    return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, w: old.w };
+    return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, tx, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, w: old.w };
   }
 
   // 数字のまとまり(桁区切り・小数点・時刻・日付の区切り)の中の違いを1件にまとめる(字形で比べるページ)
@@ -346,7 +372,15 @@
     for (const c of At0.chars) { const v = redIt.get(c.it) || [0, 0]; v[0]++; if (redChar(c)) v[1]++; redIt.set(c.it, v); }
     const At = { ...At0, chars: At0.chars.filter(c => { const v = redIt.get(c.it); return v[1] < 0.7 * v[0]; }) };
     if (!At.chars.length) return;
-    const region = nref.crop ? nref.crop.slice() : [0, 0, Bt.w, Bt.h];
+    return textDiffCore(At, Bt, T, c0, sp.ot, sp.nt, ch, nref.crop, {});
+  }
+  //   文字データの違いを求め、字の形の変化(ch)とつなぐ。At・Bt: 原稿・成果物の文字データ(pt)、T: 原稿の pt → 成果物の pt、c0: 成果物の切り出しの左上(pt)、
+  //   ot・nt: 原稿・成果物の字形。opt.annot: 注釈PDFのページ(原稿も成果物もPDF)。違いの原稿側の枠も文字データのものにし、
+  //   文字データに違いのない所の字形の変化に印(textSame)を付ける(字形のまとまり方が変わっただけのもの。あとで、指示に当たらなければ参考にする)
+  //   返り値: 原稿の字ごとの照合の結果(状態 'm' 対応あり・'d' 消えた)と、使った文字データ(指示の自動確認に使う)。使えないページは undefined
+  function textDiffCore(At, Bt, T, c0, ot, nt, ch, crop, opt) {
+    const K = PC.S, px = b => [(b[0] - c0[0]) * K, (b[1] - c0[1]) * K, (b[2] - c0[0]) * K, (b[3] - c0[1]) * K];
+    const region = crop ? crop.slice() : [0, 0, Bt.w, Bt.h];
     const blocks = PC.collatePage(At, Bt, { T, Tt: null, region, src: [0, 0, At.w, At.h], strict: true, noInstr: true, free: false }, new Uint8Array(Bt.chars.length), new Set());
     //   PDFの中の文字列の順番が原稿と成果物で違うと(書き直した文字列だけがページの最後に書かれたPDFなど)、同じ所にある同じ字を
     //   「消えた」「入った」とすることがある。同じレイアウトなので、消えたとした原稿の字は、写した位置に、どこにも当たっていない成果物の同じ字があれば同じとする
@@ -365,8 +399,10 @@
     }
     for (const b of blocks) b.ops = b.ops.filter(o => !(o[0] === '+' && took[o[1]]));
     //   文字データが合わないページ(文字化け・アウトライン化など)では使わない: 原稿の字の8割以上が成果物の字と同じであること
+    //   (注釈PDFのページは6割以上。同じデザインのファイルから書き出した原稿と成果物なので文字データはそろいやすく、
+    //    小さいページで行や文をまとめて消す指示があっても使えるように)
     let eq = 0; for (const b of blocks) for (const o of b.ops) if (o[0] === '=' || o[0] === '~') eq++;
-    if (eq < 0.8 * At.chars.length) return;
+    if (eq < (opt.annot ? 0.6 : 0.8) * At.chars.length) return;
     const ovl = (a, b, m) => a && b && a[0] - m < b[2] && b[0] - m < a[2] && a[1] - m < b[3] && b[1] - m < a[3];
     const tokRange = (ts, box) => {   // 枠に重なる字形の番号の範囲。重なる字形がなければ、いちばん近い字形の前(幅0)
       let lo = -1, hi = -1;
@@ -438,13 +474,29 @@
         }
         const ob = obox || nbox;
         if (!ob) continue;
-        out.push({ kind: 'text', tag: before && after ? 'replace' : before ? 'delete' : 'insert', oi: tokRange(sp.ot, ob), nj: tokRange(sp.nt, nbox), obox: ob, nbox, before, after, show: after || before,
+        out.push({ kind: 'text', tag: before && after ? 'replace' : before ? 'delete' : 'insert', oi: tokRange(ot, ob), nj: tokRange(nt, nbox), obox: ob, nbox, before, after, show: after || before,
           variant: hk.variant, why: '文字データの比べ合わせ', diff: { segs, same: false, ob: [ob], nb: [nbox] }, h: Math.max(4, Math.min(ob[3] - ob[1], ob[2] - ob[0])),
           sub: run.every(o => o[0] === 'x' || o[0] === '~') });
       }
     }
+    //   注釈PDFのページ: どの原稿の字にもつながらない成果物の字の並び(まるごと入った行など)も、入った字の候補にする。
+    //   見えない字・仕上がりの外の字を出さないように、字形の変化と重なるもの(下の linked)だけを使う
+    if (opt.annot) {
+      for (let j = 0; j < Bc.length; j++) {
+        if (!isFree(j)) continue;
+        let hi = j; while (isFree(hi + 1) && adj(Bc[hi], Bc[hi + 1])) hi++;
+        const js = []; for (let q = j; q <= hi; q++) js.push(q);
+        j = hi;
+        const after = js.map(q => Bc[q].c).join(''), nb = px(PC.union(js.map(q => Bc[q].box)));
+        if (!after.trim()) continue;
+        out.push({ kind: 'text', tag: 'insert', oi: tokRange(ot, nb), nj: tokRange(nt, nb), obox: nb, nbox: nb, before: '', after, show: after, why: '文字データの比べ合わせ', diff: { segs: [['+', after]], same: false, ob: [nb], nb: [nb] }, h: Math.max(4, Math.min(nb[3] - nb[1], nb[2] - nb[0])), sub: false, freeRun: true });
+      }
+    }
     //   違いが多すぎるページ(文字データの並びが原稿と成果物で大きく違うもの)は、字の形の比べ方に任せる
     if (out.length > 40) return;
+    //   原稿の字ごとの照合の結果(注釈PDFのページの指示の自動確認用)
+    const stat = new Map();
+    for (const b of blocks) for (const o of b.ops) { if (o.length === 3) stat.set(b.s + o[1], 'm'); else if (o[0] === '-') stat.set(b.s + o[1], 'd'); }
     //   字の形の変化と文字データの違いを、位置の重なりでつなぐ。字の形の変化1つと違い1つだけがつながるときは、その変化の表示を違いのものにする。
     //   それ以外(1つの変化に違いが2つ以上、1つの違いに変化が2つ以上)は、つながった変化を違いに置き換える。
     //   見た目だけの変化(字の形が同じで色などが違う)は、そのまま残す
@@ -457,6 +509,10 @@
       if (hits.length === 1 && G.filter(x => hitsOf.get(x).includes(hits[0])).length === 1) {
         const r = hits[0]; used.add(r);
         Object.assign(c, { before: r.before, after: r.after, show: r.show, nbox: r.nbox, diff: r.diff, why: c.why || r.why });
+        //   注釈PDFのページ: 字形の変化が文字データの違いを大きく含むとき(字形のまとまりが表ごと・枠ごとになったもの)だけ、原稿側の枠も文字データのものにする
+        //   (表の中で文字データの並びが違い、別の行の字に対応づいたときに、正しい字形の枠を動かさないように)
+        const area_ = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]), within_ = (b, o) => b[0] >= o[0] - 2 && b[1] >= o[1] - 2 && b[2] <= o[2] + 2 && b[3] <= o[3] + 2;
+        if (opt.annot) { c.fromText = true; if (c.obox && r.obox && within_(r.obox, c.obox) && area_(c.obox) > 3 * Math.max(1, area_(r.obox))) Object.assign(c, { obox: r.obox, oi: r.oi, nj: r.nj, tag: r.tag }); }
         if (r.variant) c.variant = true;
         continue;
       }
@@ -467,9 +523,28 @@
     //   字形が見つからない所(色地の上の字など)。長い文が消えた・入ったのなら字の形の変化として必ず見えるため、それに重ならない長い違いは、
     //   文字データの並べ方の誤り(似た文の取り違え・1字ずつの縦組みの列の送りなど)とみなす
     const linked = new Set([...hitsOf.values()].flat());
-    const blind = r => !sp.nt.some(t => ovl(t.box, r.nbox, 0)) && !sp.ot.some(t => ovl(t.box, r.obox, 0));
+    const blind = r => !nt.some(t => ovl(t.box, r.nbox, 0)) && !ot.some(t => ovl(t.box, r.obox, 0));
     const subtle = r => Math.max([...r.before].length, [...r.after].length) <= 2 || r.sub || blind(r);
-    for (const r of out) if (!used.has(r) && (linked.has(r) || subtle(r))) { delete r.h; delete r.sub; ch.push(r); }
+    //   注釈PDFのページで、字形の変化につながらない小さな違いは、見た目が同じで文字データが違う字(「ー」と「一」など)とする
+    for (const r of out) if (!used.has(r) && (linked.has(r) || (subtle(r) && !r.freeRun))) {
+      //   字形の変化につながらない、同じ字数の置き換え(字形のある所)は、見た目が同じで文字データが違う字(「ー」と「一」など)とする
+      if (opt.annot && !linked.has(r) && r.before && r.after && [...r.before].length === [...r.after].length && !blind(r)) r.lookAlike = true;
+      delete r.h; delete r.sub; r.fromText = true; ch.push(r);
+    }
+    //   注釈PDFのページ: 文字データの違いにつながらない字形の変化のうち、その所に文字データがある(原稿か成果物に字がある)ものは、
+    //   字形のまとまり方・位置が変わっただけとみなして印を付ける(字のない所の変化=図・線などは、そのまま)
+    if (opt.annot) {
+      const eqOld = new Set(), eqNew = new Set();
+      for (const b of blocks) for (const o of b.ops) if (o[0] === '=') { eqOld.add(b.s + o[1]); eqNew.add(o[2]); }
+      const oPx = At.chars.map(c => px(PC.mapBox(T, c.box))), nPx = Bt.chars.map(c => px(c.box));
+      const inside = (bs, b) => (b ? bs.map((x, i) => i).filter(i => { const x = bs[i], cx = (x[0] + x[2]) / 2, cy = (x[1] + x[3]) / 2; return cx >= b[0] && cx <= b[2] && cy >= b[1] && cy <= b[3]; }) : []);
+      for (const c of ch) {
+        if (c.kind !== 'text' || c.tag === 'layout' || c.hw || c.look || c.fromText || hitsOf.get(c)?.length) continue;
+        const oi = inside(oPx, c.obox), nj = inside(nPx, c.nbox);
+        if ((oi.length || nj.length) && oi.every(i => eqOld.has(i)) && nj.every(j => eqNew.has(j))) c.textSame = true;
+      }
+    }
+    return { stat, At, Bt, T, c0 };
   }
   async function scanPage(src, p, nw, nc, step, nref = null) {
     step('スキャンを読み込み', 0.02); await PC.tick();
@@ -1268,6 +1343,48 @@
   }
   // 自動確認の結果の文 → 'ok'(指示どおり)・'ng'(指示どおりでない可能性)・null(人が確認)
   const autoOf = chk => (/自動確認OK/.test(chk) ? 'ok' : /見当たらない|されていない|なっていない/.test(chk) ? 'ng' : null);
+  // 注釈のコメントを行ごとに見分ける: text 成果物に載るはずの文字(「2,900」「週末」「※…ご覧ください。」など)、drop 消す字(「※トル」の「※」。空はマーカーの下の字)、
+  //   ask 依頼・質問・やり方の説明、reply 返事・お礼・宛先、file 素材のファイル名・URL。返信は「（返信）」から始まる
+  const ASK_END = /([？?]|でしょうか|ませんか|ますか|ください|下さい|願います|ほしい|欲しい)[。．.！!…]*$/, ASK_ANY = /でしょうか|いただけない|いただけます|頂けます|ご検討|可能ですか/;
+  const REPLY = /ありがとう|大丈夫です|承知|了解|問題ありません|問題ないです|ＯＫです|OKです|そのままで|そのように|申し訳|よろしく/;
+  const LAYW = /揃え|そろえ|調整|字間|行間|中央|大きく|小さく|ぼか|アキ|寄せ|詰め|改行|追い?込|太字|細字|差し?替|入れ替|移動|配置|位置/;
+  function noteParts(note) {
+    const r = { text: [], drop: [], ask: [], reply: [], file: [] };
+    let inReply = false;
+    for (const raw of String(note || '').split(/\n+/)) {
+      const t = raw.replace(/\s+/g, '');
+      if (!t || /^[-ー－—―─=＝_＿]{3,}$/.test(t)) continue;   // 区切りの線(「、」「・」だけの行は、その字を入れる指示として読む)
+      if (t.startsWith('（返信）')) inReply = true;
+      if (inReply || /^[@＠]/.test(t)) { r.reply.push(t); continue; }
+      if (/^https?:\/\//i.test(t) || /\.(ai|eps|psd|png|jpe?g|tiff?|gif|svg|pdf|indd)$/i.test(t)) { r.file.push(t); continue; }
+      const dm = t.match(/^(.{0,12}?)(トルツメ|トル|削除)$/);
+      if (dm) { r.drop.push(dm[1]); continue; }
+      if (/^[※＊*]/.test(t)) { r.text.push(t); continue; }
+      const body = t.replace(/[（(][^）)]*(以下同様|全体|ママ|イキ|同様)[^）)]*[）)]/g, '');   // 「目指し（以下同様）」の添え書きは外す
+      const core = t.replace(/[（(][^）)]*[）)][。．.]*$/, '');   // 文の終わりのかっこ書き(おわびなど)は外して見る
+      if (REPLY.test(core)) r.reply.push(t);
+      else if (ASK_END.test(core) || ASK_ANY.test(core) || ([...t].length <= 15 && LAYW.test(t))) r.ask.push(t);
+      else if (body) r.text.push(body);
+    }
+    return r;
+  }
+  //   載るはずの文字は、変化の所(ctxOf)かマーカーの所の成果物の文字にあるか。消す字は、マーカーの所に残っていないか
+  //   依頼・質問・素材の指定がまじるコメントは、文字があっても自動では決めない(人が判断)
+  function noteCheck(d, c, a, ctxOf) {
+    const P_ = noteParts(a.note), fk = s => [...String(s)].map(PC.fold).join('');
+    const atMark = w => { const qs = a.quads && a.quads.length ? a.quads : a.box ? [a.box] : []; return qs.map(q => around(d.nc, q, [...w].length + 3)).join('\u0000'); };
+    if (P_.drop.length) {
+      const left = P_.drop.filter(x => (x ? fk(atMark(x)).includes(fk(x)) : !(c.tag === 'delete' || !c.after)));
+      if (left.length) return { chk: '削除されていない可能性（要確認）' };
+      return { chk: P_.text.length || P_.ask.length || P_.file.length ? '削除を確認。ほかの指示は人が確認' : '削除を確認（自動確認OK）' };
+    }
+    if (P_.text.length) {
+      const has = w => (fk(ctxOf(w)) + '\u0000' + fk(atMark(w))).includes(fk(w)), miss = P_.text.filter(w => !has(w));   // 載るはずの文字は、行ごとにすべてあるか
+      if (!P_.ask.length && !P_.file.length) return miss.length ? { chk: '指示文が修正後に見当たらない（要確認）', want: miss[0] } : { chk: '指示文が修正後にある（自動確認OK）', want: P_.text.join('') };
+      return { chk: miss.length ? '指示の内容を確認（人が判断）' : '指示の文字は修正後にある。ほかの指示は人が確認' };
+    }
+    return { chk: '指示の内容を確認（人が判断）' };
+  }
   // 内容で照合したページの指示(書き込み・コメント)の自動確認: 指示の文から、成果物にあるはずの文字・なくなるはずの文字を取り出し、
   // 原稿のページが当たる成果物の範囲で調べる。返り値: { auto, check } または null(文字では判定できない指示)
   //   quads: 取り消し線などが引かれた範囲(あれば、「トル」だけの指示はその下の字が消えたかを見る)
@@ -1548,7 +1665,7 @@
         d3.thumbs = { left: await toThumb(d3.left), right: await toThumb(d3.right) }; d3.left = d3.right = null;
         put(d3); continue;
       }
-      const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step) : await scanPage(src, p, nw, nc, step, { doc: newDoc, q: pr.q, crop: pr.crop });
+      const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step, { doc: newDoc, q: pr.q, crop: pr.crop }) : await scanPage(src, p, nw, nc, step, { doc: newDoc, q: pr.q, crop: pr.crop });
       if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、原稿と成果物の位置がうまく合いません（ページの向きを確かめてください）`);
       step('表示用の画像を作成', 0.96); await PC.tick();
       d.q = pr.q; d.crop = pr.crop; d.extra = [];
@@ -1603,19 +1720,37 @@
     prog('照合', 0.97); await PC.tick();
     // 照合: 変更 × 赤字の指示箇所
     const meets = (set, a, b) => { for (let k = a; k < b; k++) if (set.has(k)) return true; return false; };
+    //   位置での結びつけ(注釈PDFのページ): マーカーの範囲が、変化の原稿側・成果物側の枠に重なる(3pt以内)。
+    //   同じレイアウトなので、原稿の字のない所に引いたマーカー(「ここに注を入れる」など)も、成果物で入った字の位置で結べる
+    const nearA = (a, c) => { const M = 3 * PC.S, del = c.kind === 'text' && c.before && !c.after; return (a.quads && a.quads.length ? a.quads : [a.box]).some(q => (c.obox && ov(q, c.obox, M)) || (!del && c.nbox && ov(q, c.nbox, M))); };
+    const cen = b => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], dist = (a, c) => { const p = cen(a.box), q = cen((c.diff && c.diff.ob && c.diff.ob[0]) || c.obox || c.nbox); return Math.hypot(p[0] - q[0], p[1] - q[1]); };
     for (const d of P) {
       for (const a of d.an) a.hit = [];
       for (const c of [...d.ch, ...d.im]) {
-        c.status = null;
+        c.status = null; c.anchors = [];
         if (c.hw) continue;   // 赤以外の書き込みは、修正の対象ではない
         for (const a of d.an) {
           if (KEEP.test(a.note || '') && a.kind === 'tokens' && c.kind === 'text' && meets(a.toks, c.oi[0], Math.max(c.oi[1], c.oi[0] + 1))) { a.hit.push(c); continue; }
           let m = false;
-          if (c.kind === 'text' && a.kind === 'tokens') { const [lo, hi] = c.oi; m = meets(a.toks, lo - (c.tag === 'layout' ? 1 : 0), Math.max(hi, lo + 1)); }
+          if (c.kind === 'text' && a.kind === 'tokens' && d.kind === 'annot' && c.fromText) m = nearA(a, c);
+          else if (c.kind === 'text' && a.kind === 'tokens') {
+            const [lo, hi] = c.oi; m = meets(a.toks, lo - (c.tag === 'layout' ? 1 : 0), Math.max(hi, lo + 1));
+            //   文字データの違い・字の入っただけの変化は、位置でも結ぶ(マーカーのすぐ後ろに字を足す指示など)
+            if (!m && d.kind === 'annot' && c.tag !== 'layout' && (c.fromText || c.oi[0] === c.oi[1])) m = nearA(a, c);
+          }
           else if (c.kind === 'text' && a.kind === 'insert') { const [lo, hi] = a.span || [a.at - 1, a.at + 1]; m = (lo <= c.oi[0] && c.oi[0] <= hi) || (lo <= c.oi[1] && c.oi[1] <= hi); }
           else if (c.kind !== 'text' && a.kind === 'image') m = ov(c.obox, a.box, 5);
+          else if (c.kind === 'text' && a.kind === 'image' && d.kind === 'annot' && (c.fromText || (!c.before && !c.after))) m = nearA(a, c);   // 画像の上のマーカー: 字の入れ替え・文字のない字形の変化
+          else if (a.kind === 'area' && c.tag !== 'layout') m = nearA(a, c);
           if (m && a.printedLike) { a.hit.push(c); continue; }
-          if (m) { c.status = c.kind === 'text' ? 'A' : 'A_IMG'; c.anchor = a; a.hit.push(c); }
+          if (m) { c.status = c.kind === 'text' ? 'A' : 'A_IMG'; c.anchor = a; c.anchors.push(a); a.hit.push(c); }
+        }
+        //   注釈PDFのページは、当たった指示ごとに1件にする(近い順)。紙のスキャンは、1つの赤字が丸囲み・引き出し線などに分かれるので、これまでどおり1件
+        if (d.kind !== 'annot') c.anchors = c.anchor ? [c.anchor] : [];
+        else if (c.anchors.length > 1) {
+          c.anchors.sort((x, y) => dist(x, c) - dist(y, c));
+          const seen = new Set(); c.anchors = c.anchors.filter(a => { const k = String(a.note || '').replace(/\s/g, ''); if (seen.has(k)) return false; seen.add(k); return true; });   // 同じ文の指示は1件
+          c.anchor = c.anchors[0];
         }
       }
     }
@@ -1655,6 +1790,8 @@
         const after = (a.note || '').includes('以下同様');
         if (!after && !(c.after && isWord(c.before))) continue;
         const [b, ca] = coreOf(c.before, c.after);
+        //   字を足しただけの指示(「市立図書館」→「市立第二図書館」の「第二」)からは、以下同様の候補を作らない(同じ語のほかの箇所を直し忘れとしないように)
+        if (!after && !b) continue;
         if (rules.some(r => r.core[1] === ca && fits(r.core[0], b))) continue;
         rules.push({ frm: c.before, to: c.after, core: [b, ca], how: after ? '以下同様' : '同じ語の他の箇所（以下同様の候補）', check: '変更なし（展開漏れの候補）', after, src: [p, c.nbox] });
       }
@@ -1685,7 +1822,7 @@
     // 文字データでの裏取り(注釈PDFのページ): 見た目で「同じ」と対応づいた字形どうしで、文字データが違うもの
     const lookalike = [];
     P.forEach((d, p) => {
-      if (d.kind !== 'annot') return;
+      if (d.kind !== 'annot' || d.tx) return;
       // 文字データを字形に割り当てる: 字形の枠に中心が入る文字、なければ同じ行の中で字形の幅(縦組みは高さ)に入る文字
       const owner = (cs, T, L) => {
         const res = new Map();
@@ -1731,21 +1868,25 @@
         const f = add(p + 1, 'J', x.nbox, x.show, '', '', '', x.nbox);
         Object.assign(f, { onNew: true, newOnly: true, level: x.level, j: { kind: x.kind, sub: x.sub, want: x.want, msg: x.msg, ctx: x.ctx, count: x.count || 0 }, moreNboxes: x.more, pnboxes: [x.nbox] });
       }
-      for (const c of [...d.ch, ...d.im]) {
-        const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : c.variant ? 'V' : 'C2') : 'C3'), a = c.anchor || {};
+      for (const c of [...d.ch, ...d.im]) for (const a0 of (c.anchors && c.anchors.length ? c.anchors : [c.anchor || null])) {
+        const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : c.variant ? 'V' : c.lookAlike ? 'E' : 'C2') : 'C3'), a = a0 || {};
         let chk = '', wantUsed = '';
         if (a.note && c.kind === 'text' && c.tag === 'layout') {   // 改行・追い込みの指示: 段落の始まりが指示どおりに変わったか
           const t = a.note.replace(/\s/g, '');
           if (/改行|改段|段落/.test(t)) chk = (c.show || '').includes('追加') ? '改行を確認（自動確認OK）' : '改行の指示どおりになっていない可能性（要確認）';
           else if (/追い込|追込|改行トル|改行なし/.test(t)) chk = (c.show || '').includes('解除') ? '追い込みを確認（自動確認OK）' : '追い込みの指示どおりになっていない可能性（要確認）';
         }
-        if (a.note && c.kind === 'text' && c.tag !== 'layout') {   // 指示文(注釈のコメント)が、修正後の該当箇所の前後にあるか
+        if (a.note && c.kind === 'text' && c.tag !== 'layout' && a.thread) chk = 'コメントのやり取り（人が判断）';   // 返信のあるコメントは、やり取りの結果を人が読む
+        else if (a.note && c.kind === 'text' && c.tag !== 'layout') {   // 指示文(注釈のコメント)が、修正後の該当箇所の前後にあるか
           // 「目指し（以下同様）」のような添え書きは外す(指示文全体がかっこ書きなら外さない)
           const strip = a.note.replace(/[（(][^）)]*(以下同様|全体|ママ|イキ|トル|同様)[^）)]*[）)]/g, '').replace(/\s/g, '');
           const want = strip || a.note.replace(/\s/g, '');
           // 「A」→「B」・「B」に修正・「A」トル のような指示は、何に直すか(B)・何を消すか(A)を取り出して調べる
           const tgt = PC.instrTarget(want), ctxOf = w => (c.nbox ? around(d.nc, c.nbox, [...w].length + 3) : '');
-          if (tgt && tgt.want) { wantUsed = tgt.want; chk = ctxOf(tgt.want).includes(tgt.want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
+          //   素材の指定や質問がまじるコメントは、書式の指示として調べず、人が判断する(「もっと大きくできますか？」など)
+          const P_ = d.kind === 'annot' && !tgt ? noteParts(a.note) : null;
+          if (P_ && !P_.drop.length && (P_.file.length || P_.ask.some(t => /[？?]|でしょうか|ますか|可能/.test(t)))) chk = '指示の内容を確認（人が判断）';
+          else if (tgt && tgt.want) { wantUsed = tgt.want; chk = ctxOf(tgt.want).includes(tgt.want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
           else if (tgt && tgt.drop) chk = c.tag === 'delete' || !c.after || !ctxOf(tgt.drop).includes(tgt.drop) ? '削除を確認（自動確認OK）' : '削除されていない可能性（要確認）';
           else if (/太字|細字|書体|ゴシック|明朝|イタリック|斜体|色|サイズ|大きく|小さく|字下げ|改行|追い込み|写真|差し?替/.test(want) || /^(赤|青|緑|黒|白|朱|紫|ピンク|オレンジ|黄)(色|字)?(に|で)?(する|して)?$/.test(want)) {
             // 同じ指示に結びついた変化(行の折り返しなどで分かれる)のどれかで指示どおりの見た目になっていれば、指示どおりとする
@@ -1754,13 +1895,14 @@
             chk = sc ? (any ? '書式の指示どおり（自動確認OK）' : sc) : '書式・組みの指示（人が確認）';
           }
           else if (/^(トル|トルツメ|トルママ|削除)$/.test(want)) chk = c.tag === 'delete' || !c.after ? '削除を確認（自動確認OK）' : '削除されていない可能性（要確認）';
-          else { wantUsed = want; const ctx = ctxOf(want); chk = want && ctx.includes(want) ? '指示文が修正後にある（自動確認OK）' : '指示文が修正後に見当たらない（要確認）'; }
+          else { const r = noteCheck(d, c, a, ctxOf); chk = r.chk; wantUsed = r.want || ''; }
         }
         add(p + 1, st, c.obox, c.show + (c.look === 'color' ? '（色のみ）' : ''), a.how || c.why || '', a.note || '', chk, c.nbox);
         const f = F[F.length - 1];
         // 指示どおりかを自動で判定できたもの(1字だけの指示は、変わった字がその字そのものでなければ、たまたまある字と見分けられないので人が確認)
         if (st === 'A' && chk) { const v = autoOf(chk); if (v && !(v === 'ok' && wantUsed && [...wantUsed].length < 2 && (c.after || '').replace(/\s/g, '') !== wantUsed)) f.auto = v; }
-        if (c.anchor) Object.defineProperty(f, 'anchorRef', { value: c.anchor, enumerable: false });
+        if (a0) Object.defineProperty(f, 'anchorRef', { value: a0, enumerable: false });
+        if (c.textSame && !a0) f.textSame = true;   // 文字データに違いのない字形の変化(字形のまとまり方・位置が変わっただけ。参考)
         if (c.diff) Object.assign(f, { segs: c.diff.segs, same: c.diff.same, pboxes: c.diff.ob, pnboxes: c.diff.nb });
         if (c.tag === 'layout') f.kind = 'layout';
         if (c.kind !== 'text') f.kind = 'image';
@@ -1774,6 +1916,11 @@
         if (keep && a.hit.length) { add(p + 1, 'C2', a.box, 'ママ／イキの指示なのに変更あり', a.how, a.note); continue; }
         if (keep) { add(p + 1, 'M', a.box, textIn(d.oc, a.box), a.how, a.note, '', mapBox(d, a.box)); continue; }
         if (a.hit.length) continue;
+        //   返信のあるコメント・返事やお礼・質問だけのコメントは、変化がなくても「直っていない」とせず、人が判断する項目にする
+        if (a.note && (a.kind === 'area' || a.how === 'マーカー(注釈)' || a.how === '付箋(注釈)')) {
+          const P_ = noteParts(a.note), talk = a.thread || (!P_.text.length && !P_.drop.length && !P_.file.length && (P_.reply.length + P_.ask.length > 0) && P_.ask.every(t => /[？?]|でしょうか|ますか|可能/.test(t)));
+          if (talk) { add(p + 1, 'K', a.box, a.under || textIn(d.oc, a.box), a.how, a.note, a.thread ? 'コメントのやり取り（人が判断）' : '指示の内容を確認（人が判断）', mapBox(d, a.box) || a.box); Object.defineProperty(F[F.length - 1], 'anchorRef', { value: a, enumerable: false }); continue; }
+        }
         // 指示どおり変わった赤字のすぐ隣(行の折り返しで続く取り消し線など)は、続きの赤字として軽く扱う
         const adj = a.kind === 'tokens' && d.an.some(b => b.hit.length && b.kind === 'tokens' && [...a.toks].some(k => b.toks.has(k - 1) || b.toks.has(k + 1)));
         const cat = (done.has(a.stroke) && a.stroke >= 0) || adj ? 'B2' : 'B';
@@ -1787,7 +1934,7 @@
         if (a.kind === 'insert') {
           const at = Math.min(a.at, d.ot.length), pre = at > 0 ? tokText(d.oc, d.ot[at - 1].box) : '', post = at < d.ot.length ? tokText(d.oc, d.ot[at].box) : '';
           show = `${pre}｜${post}（挿入位置）`; nb = union([tokBox(d, at - 1), tokBox(d, at)].filter(Boolean));
-        } else { show = textIn(d.oc, a.box); nb = mapBox(d, a.box); }
+        } else { show = a.under || textIn(d.oc, a.box); nb = mapBox(d, a.box) || (a.kind === 'area' ? a.box : null); }
         add(p + 1, cat, a.box, show, a.how, a.note || '', '', nb);
         Object.defineProperty(F[F.length - 1], 'anchorRef', { value: a, enumerable: false });
         if (a.kind === 'insert') F[F.length - 1].ins = show.replace('（挿入位置）', '').split('｜');

@@ -169,7 +169,8 @@
       // 取り消し線・下線・マーカーは、どの文字の上に引いたかの範囲(QuadPoints)も取り出す
       const quads = [];
       if (a.quadPoints) for (let i = 0; i + 7 < a.quadPoints.length; i += 8) { const q = a.quadPoints; quads.push(px([Math.min(q[i], q[i + 4]), Math.min(q[i + 1], q[i + 5]), Math.max(q[i + 2], q[i + 6]), Math.max(q[i + 1], q[i + 5])])); }
-      return { type: a.subtype, box: px(a.rect), quads, text: (a.contentsObj && a.contentsObj.str) || a.contents || '' };
+      //   id・irt: 返信(In Reply To)のつながり。返信は、返信先のコメントにつなげて読む
+      return { type: a.subtype, box: px(a.rect), quads, text: (a.contentsObj && a.contentsObj.str) || a.contents || '', id: a.id || null, irt: a.inReplyTo || null };
     });
   };
 

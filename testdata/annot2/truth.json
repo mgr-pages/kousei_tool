@@ -1,0 +1,83 @@
+{
+ "instr": [
+  {
+   "note": "週末",
+   "want": "A",
+   "auto": "ng",
+   "what": "「土日」→「週末」（成果物は「集末」）"
+  },
+  {
+   "note": "2,900",
+   "want": "A",
+   "auto": "ok",
+   "what": "参加費"
+  },
+  {
+   "note": "※来年度から参加費",
+   "want": "A",
+   "auto": "ok",
+   "what": "字のない所に注を足す"
+  },
+  {
+   "note": "sample_code_2.ai",
+   "want": "human",
+   "what": "素材の指定"
+  },
+  {
+   "note": "第二",
+   "exact": true,
+   "want": "A",
+   "auto": "ok",
+   "what": "「第二」を足す"
+  },
+  {
+   "note": "トル",
+   "exact": true,
+   "want": "A",
+   "auto": "ok",
+   "what": "1行目を消す"
+  },
+  {
+   "note": "※トル",
+   "want": "A",
+   "auto": "ng",
+   "what": "「※」が残った"
+  },
+  {
+   "note": "今のままで問題ありません",
+   "want": "human",
+   "what": "質問への返事"
+  },
+  {
+   "note": "A",
+   "exact_first": true,
+   "want": "human",
+   "what": "字の右に「 A」を足す"
+  },
+  {
+   "note": "地図を入れていただけないでしょうか",
+   "want": "K",
+   "what": "付箋のやり取り（返信つき）"
+  },
+  {
+   "note": "、",
+   "exact": true,
+   "want": "A",
+   "auto": "ok",
+   "what": "「、」を入れる（1字だけのコメント）"
+  },
+  {
+   "note": "コツ（以下同様）",
+   "want": "A",
+   "auto": "ok",
+   "what": "「こつ」→「コツ」（添え書きの「（以下同様）」は探さない）"
+  }
+ ],
+ "extra": [
+  {
+   "what": "「駅前店」→「駅店」（指示にない変更）",
+   "cat": "C2",
+   "text": "前"
+  }
+ ]
+}

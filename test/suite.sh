@@ -8,6 +8,7 @@
 #   赤い文字で指示を書き込んだPDF原稿(注釈でないもの)は、testdata/redtext を照合し、test/redtext/evaluate.py で採点する
 #   差し込み印刷(名刺・社員証)は、testdata/merge を照合し、test/merge/evaluate.py で採点する
 #   紙の赤字原稿＋旧版＋成果物は testdata/scan3 と test/scan3/evaluate.py、文法・話し言葉は testdata/jcheck3 と test/jcheck3/gt.json で採点する
+#   コメント(マーカー・付箋と返信)で指示を入れたPDF原稿は、testdata/annot2 を照合し、test/annot2/evaluate.py で採点する
 #   bash test/suite.sh テストデータのフォルダ 正解表(gt.json) 採点スクリプト(evaluate.py) 出力フォルダ
 set -u
 DATA=$1; GT=$2; EVAL=$3; OUT=$4
@@ -78,6 +79,8 @@ cp "$M/shain_truth_err.json" "$OUT/merge_id_err/v1/truth.json" && run "$M/shain.
 #   紙の赤字原稿(旧版を刷ったもの)＋旧版＋成果物(test/scan3/make.py)。文法・話し言葉のチェック(test/jcheck3/make.py)
 OLD="$DATA/scan3/old.pdf" run "$DATA/scan3/scan.pdf" "$DATA/scan3/new.pdf" scan3 &
 run - "$DATA/jcheck3/seika.pdf" jcheck3 &
+#   コメント(マーカー・付箋と返信)で指示を入れたPDF原稿(test/annot2/make.py)
+run "$DATA/annot2/genko.pdf" "$DATA/annot2/seika.pdf" annot2 &
 R=$DATA/redtext
 run "$R/genko.pdf" "$R/base.pdf" redtext_keep &
 run "$R/genko.pdf" "$R/applied.pdf" redtext_applied &
@@ -123,3 +126,5 @@ echo "紙の赤字原稿＋旧版: $(head1 "$OUT/scan3.log" 12) | $(python3 test
 python3 test/scan3/evaluate.py "$DATA/scan3/truth.json" "$OUT/scan3.json" | tail -n +2
 echo "文法・話し言葉のチェック: $(head1 "$OUT/jcheck3.log" 12) | $(python3 test/jcheck/evaluate.py test/jcheck3/gt.json "$OUT/jcheck3.json" | sed -n 1p)"
 python3 test/jcheck/evaluate.py test/jcheck3/gt.json "$OUT/jcheck3.json" | tail -n +2
+echo "コメントで指示したPDF原稿: $(head1 "$OUT/annot2.log" 12) | $(python3 test/annot2/evaluate.py "$DATA/annot2/truth.json" "$OUT/annot2.json" | sed -n 1p)"
+python3 test/annot2/evaluate.py "$DATA/annot2/truth.json" "$OUT/annot2.json" | tail -n +2

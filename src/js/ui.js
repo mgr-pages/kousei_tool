@@ -15,7 +15,7 @@
     { key: 'B', label: '直っていない', test: f => f.cat === 'B', need: true },
     // 文字データのない所(アウトライン・画像の文字)を OCR で読んだ字がかかわる違い(読み違いのこともあるので分けて示す)
     { key: 'CO', label: '旧版と違う？（OCRで読んだ字）', test: f => f.cat === 'C2' && f.ocr, need: true },
-    { key: 'C', label: '指示にない変更', test: f => f.cat === 'C2' || f.cat === 'C3', need: true },
+    { key: 'C', label: '指示にない変更', test: f => (f.cat === 'C2' || f.cat === 'C3') && !f.textSame, need: true },
     { key: 'TO', label: '原稿と違う？（OCRで読んだ字）', test: f => (f.cat === 'T' || f.cat === 'N') && f.ocr, need: true },
     { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', need: true },
     { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, need: true },
@@ -133,6 +133,7 @@
     if (f.auto === 'ok') return f.byInstr ? ['指示どおりの違い', `原稿の指示「${f.byInstr.replace(/\s+/g, ' ')}」のとおりに変わっています（自動で確認済み）`] : ['指示どおり', (f.check || '').includes('削除') ? '指示どおり消えています（自動で確認済み）' : '指示の文字が成果物にあります（自動で確認済み）'];
     if (f.auto === 'ng') return ['指示どおりになっていない？', (f.check || '').includes('削除') ? '消す指示の文字が、成果物に残っている可能性があります' : '指示の文字が、成果物の該当箇所に見当たりません'];
     if (f.cat === 'B' || f.cat === 'B2') return isLight(f) ? ['直っていない？', (f.how || '').includes('引き出し線') ? '細い線なので、引き出し線かもしれません' : '前の赤字の続き（行の折り返しなど）の可能性。念のため確認'] : ['直っていない', '赤字が修正後に反映されていません'];
+    if (f.textSame) return ['字形だけの違い', '文字データは同じです。字のまとまり方・位置が変わっただけのことが多いので、念のため切り抜きで確認'];
     if (f.cat === 'C2') return f.kind === 'layout' ? ['指示にない変更', '赤字がないのに、改行・段落が変わっています'] : ['指示にない変更', '赤字がないのに変わっています。意図した変更か確認'];
     if (f.cat === 'C3') return ['指示にない変更', '赤字がないのに、画像・色・位置が変わっています'];
     if (f.cat === 'E') return f.lint ? ['似た別の字？', `「${f.lint.c}」になっています。「${f.lint.want}」では？`] : ['文字だけ違う', '見た目は同じですが、文字データが違います（検索・テキストに影響）'];
@@ -192,6 +193,7 @@
     const q = s => `「${esc(clipMid(s || ''))}」`;
     if (f.cat === 'J') { const [a, z] = f.j.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.show)}</mark>${z}</span>${f.j.want ? `<span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.j.want)}</ins>${z}</span>` : ''}</div>`; }
     if (f.lint) { const [a, z] = f.lint.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.lint.c)}</mark>${z}</span><span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.lint.want)}</ins>${z}</span></div>`; }
+    if (f.textSame) return '<div class="what">文字データに違いはありません（字のまとまり方・位置の違い）</div>';
     if (f.s3) {   // 紙の赤字原稿＋旧版: 赤字ごと・赤字のない所の見た目の変化
       if (f.s3.look) return '<div class="what">赤字のない所で、見た目（図版・色・大きさ・位置など）が旧版から変わっています。切り抜きで確認</div>';
       const at = f.show ? `赤字の箇所 ${q(f.show)}` : '赤字';
@@ -217,6 +219,7 @@
   // CSV用の短い文: 「旧→新」をか所ごとに
   function diffText(f) {
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
+    if (f.textSame) return '文字データは同じ（字形・位置の違い）';
     if (f.cat === 'J') return `${f.j.ctx[0]}【${f.show}】${f.j.ctx[1]}：${f.j.msg}${f.j.want ? `（候補「${f.j.want}」）` : ''}`;
     if (f.segs && !f.same) return groupsOf(PC.numberSegs(f.segs)).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
     if (f.same) return '見た目だけの違い';
@@ -227,7 +230,7 @@
   const markOf = f => {   // 指示文(注釈のコメント)と、自動確認の結果
     if (!f.note) return '';
     const c = f.check || '', cls = c.includes('OK') ? 'okc' : c.includes('見当たらない') || c.includes('されていない') ? 'ng' : '';
-    const res = c.includes('OK') ? '✔ 成果物にある' : c.includes('見当たらない') ? '✖ 成果物に見当たらない' : c.includes('されていない') ? '✖ 削除されていない' : c ? c.replace(/（.*）/, '') : '';
+    const res = c.includes('削除を確認') ? (c.includes('OK') ? '✔ 消えている' : c) : c.includes('OK') ? '✔ 成果物にある' : c.includes('見当たらない') ? '✖ 成果物に見当たらない' : c.includes('されていない') ? '✖ 削除されていない' : c ? c.replace(/（.*）/, '') : '';
     return `<div class="${f.cat === 'K' ? 'what' : 'meta'}">指示：「${esc(f.note)}」${res ? ` <span class="${cls}">${esc(res)}</span>` : ''}</div>`;
   };
 
