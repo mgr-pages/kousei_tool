@@ -1822,7 +1822,7 @@
         Object.assign(F[F.length - 1], { lint: { c: l.c, want: l.want, ctx: l.ctx }, onNew: !ob });
       }
     });
-    prog('完了', 1);
+    prog('結果をまとめています', 1);
     // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
     const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
     const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null }));

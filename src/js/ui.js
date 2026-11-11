@@ -254,14 +254,26 @@
     }
     if (!PC.isPdf(e)) { e.pages = 1; return; }
     if (!PC.libsReady) return;   // 部品の準備ができたら数える
-    try { const d = await PC.openPdf(e.buf.slice(0)); e.pages = d.numPages; d.destroy(); }
+    try {
+      const d = await PC.openPdf(e.buf.slice(0)); e.pages = d.numPages;
+      //   処理時間の目安に使う: 1ページ目の大きさ(A4 を 1)。原稿は、照合と同じ見分け方で1ページ目の種類を決める
+      //   (注釈と文字データがある → 注釈を入れたPDF、ページを覆う画像がない → スキャンでないPDF、それ以外 → 紙のスキャン)
+      try {
+        const pg = await d.getPage(1), vp = pg.getViewport({ scale: 1 }); e.area = Math.max(0.2, (vp.width * vp.height) / (595 * 842));
+        if (e.list === 'marks') {
+          const an = (await PC.annotations(d, 0)).length, tx = an ? (await PC.textChars(d, 0)).length : 0;
+          e.mk = an && tx ? 'annot' : (await PC.isDigitalPage(d, 0)) ? 'digital' : 'scan';
+        }
+      } catch (err) { /* 目安に使うだけなので、読めなくてもよい */ }
+      d.destroy();
+    }
     catch (err) { e.err = 'PDFとして開けません（' + (err && err.message || err) + '）。パスワード付き・壊れたPDFは使えません。'; }
   }
   function add(kind, files) {
     const L = S.lists[kind], skipped = [];
     const fresh = [...files].filter(f => accepts(kind, f) || (skipped.push(f.name), false)).sort(byName);
     for (const f of fresh) {
-      const e = { file: f, name: f.name, size: f.size, type: f.type, mtime: f.lastModified, buf: null, pages: null, err: null };
+      const e = { file: f, name: f.name, size: f.size, type: f.type, mtime: f.lastModified, buf: null, pages: null, err: null, list: kind };
       const same = L.findIndex(x => x.name === f.name);
       if (same >= 0 && L[same].size === f.size && L[same].mtime === f.lastModified && !L[same].err) continue;   // 同じファイルを二度は入れない
       if (same >= 0) L[same] = e; else L.push(e);   // 同じ名前で中身が違えば、新しいほうに置き換える
@@ -275,6 +287,23 @@
   const removeAt = (kind, i) => { S.lists[kind].splice(i, 1); S.doneMsg = ''; refresh(); };
   const clearList = kind => { S.lists[kind] = []; S.doneMsg = ''; refresh(); };
   const total = kind => S.lists[kind].reduce((n, e) => n + (e.pages || 0), 0);
+  // 処理時間の目安(秒): 検証環境で1件ずつ測った時間(A4 1ページあたり。紙のスキャン 約13秒(旧版もあるとき 約10秒)、
+  //   スキャンでないPDF 約8秒、注釈を入れたPDF 約4秒、データ原稿・成果物 約0.5秒、旧版 約1.5秒)に合わせた見積もり。
+  //   パソコンの速さで変わるため、処理中は進み具合から見直す(progress)
+  const estimateSec = () => {
+    const A = e => e.area || 1, old = S.lists.old.length > 0;
+    let t = 2;
+    for (const e of S.lists.nw) t += 0.5 * (e.pages || 0) * A(e);
+    for (const e of S.lists.old) t += 1.5 * (e.pages || 0) * A(e);
+    for (const e of S.lists.marks) {
+      const n = e.pages || 0, scan = old ? 10 : 13;
+      if (PC.dataKind(e)) t += 0.5 * n + 1;
+      else if (!PC.isPdf(e)) t += scan * n;   // 画像(紙のスキャン)
+      else t += (e.mk === 'annot' ? 4 : e.mk === 'digital' ? 8 : scan) * A(e) * n;
+    }
+    return t;
+  };
+  const roughly = sec => (sec < 50 ? '1分以内' : `約${Math.max(1, Math.round(sec / 60))}分`);
   //   入れたファイルの組み合わせ(照合した時と比べて、変わったかを見る)
   const sigOf = () => Object.keys(KIND).map(k => S.lists[k].map(e => `${e.name}:${e.size}:${e.mtime}`).join('|')).join('/');
   // 新しい校正: 入れたファイルと結果を空にして、最初の状態に戻す(詳細設定・確認の記録(このブラウザに残るもの)はそのまま)
@@ -304,9 +333,9 @@
     Object.keys(KIND).forEach(renderFiles);
     const bad = all.some(e => e.err), busy = all.some(e => e.pages == null && !e.err);
     const ready = PC.libsReady && S.lists.nw.length && !bad && !busy;   // 原稿はなくてもよい(成果物だけをチェックする)
-    $('run').disabled = !ready;
-    //   新しい校正: 入れたファイルか結果があるときだけ出す。照合のあとでファイルを変えたら、前回の結果だと分かるように薄くする
-    $('reset').hidden = !(all.length || S.res);
+    $('run').disabled = !ready || !!S.running;
+    //   新しい校正: 入れたファイルか結果があるときだけ出す(照合中は代わりに「中止」)。照合のあとでファイルを変えたら、前回の結果だと分かるように薄くする
+    $('reset').hidden = !!S.running || !(all.length || S.res); $('stop').hidden = !S.running;
     $('results').classList.toggle('stale', !!S.res && !S.running && sigOf() !== S.runSig);
     const mode = modeOf();
     $('run').textContent = MODES[mode].run;
@@ -320,6 +349,7 @@
       else if (busy) msg = 'ファイルを読み込んでいます…';
       else if (!ready) msg = '成果物（PDF）を選んでください。原稿・旧版は、あれば入れてください';
       else msg = { new: `成果物 ${total('nw')}ページをチェックします`, marks: `原稿 ${total('marks')}ページと成果物 ${total('nw')}ページを照合します（対応するページは自動で探します）`, old: `成果物 ${total('nw')}ページを、旧版 ${total('old')}ページと比べます（対応するページは自動で探します）`, all: `原稿 ${total('marks')}ページ・成果物 ${total('nw')}ページ・旧版 ${total('old')}ページで照合します（対応するページは自動で探します）` }[modeOf()];
+      if (ready) msg += `（目安：${roughly(estimateSec())}）`;
       if (S.addMsg) msg += '　' + S.addMsg;
     }
     $('pmsg').textContent = msg;
@@ -334,15 +364,33 @@
   });
 
   // ---- 照合の実行 ----
-  const progress = (msg, frac) => { $('pmsg').textContent = msg; $('pbar').style.width = Math.round(frac * 100) + '%'; };
+  const ETA = { t0: 0, prior: 0, eta: null, at: 0, msg: '', frac: 0, timer: null };
+  const etaText = () => { if (ETA.eta == null || ETA.frac >= 1) return ''; const r = ETA.eta - (performance.now() - ETA.at) / 1000; return r < 20 ? '（まもなく終わります）' : `（あと${roughly(r)}）`; };
+  const progress = (msg, frac) => {
+    if (S.running && ETA.t0 && frac > 0 && frac < 1) {
+      const el = (performance.now() - ETA.t0) / 1000;
+      if (el > 2 && frac > 0.02) {
+        const ext = el * (1 - frac) / frac, pri = Math.max(0, ETA.prior - el), w = Math.min(1, frac / 0.5), est = w * ext + (1 - w) * pri;
+        const cur = ETA.eta == null ? null : ETA.eta - (performance.now() - ETA.at) / 1000;
+        ETA.eta = cur == null ? est : 0.6 * cur + 0.4 * est; ETA.at = performance.now();
+      }
+    }
+    ETA.msg = msg; ETA.frac = frac;
+    $('pmsg').textContent = msg + (S.running ? etaText() : ''); $('pbar').style.width = Math.round(frac * 100) + '%';
+  };
+  const ABORT = new Error('中止しました');
   async function run(f) {
-    S.running = true; $('run').disabled = true; $('err').textContent = ''; progress('ファイルを開いています', 0);
+    S.running = true; S.abort = false; $('run').disabled = true; $('reset').hidden = true; $('stop').hidden = false; $('stop').disabled = false;
+    $('err').textContent = ''; progress('ファイルを開いています', 0);
     const runSig = sigOf();   // 照合したファイルの組み合わせ(照合の途中でファイルを変えても、照合したほうを覚える)
+    Object.assign(ETA, { t0: performance.now(), prior: estimateSec(), eta: null, at: 0, frac: 0 });
+    ETA.eta = ETA.prior; ETA.at = ETA.t0;
+    clearInterval(ETA.timer); ETA.timer = setInterval(() => { if (S.running) $('pmsg').textContent = ETA.msg + etaText(); }, 1000);
     const mode = f.marks && f.marks.length ? (f.old && f.old.length ? 'all' : 'marks') : f.old && f.old.length ? 'old' : 'new';
     const t0 = performance.now();
     try {
       const marks = await PC.markSource(f.marks), newDoc = await PC.openPdfs(f.nw), oldDoc = f.old && f.old.length ? await PC.openPdfs(f.old) : null;
-      const res = await PC.analyze({ marks, newDoc, oldDoc, progress });
+      const res = await PC.analyze({ marks, newDoc, oldDoc, progress: (m, x) => { if (S.abort) throw ABORT; progress(m, x); } });
       res.seconds = (performance.now() - t0) / 1000; res.markParts = marks.parts; res.newParts = newDoc.parts; res.oldParts = oldDoc ? oldDoc.parts : null; res.mode = mode;
       S.key = 'pc:' + [...f.marks, ...f.nw, ...(f.old || [])].map(x => x.name + ':' + x.size).join('|');
       try { S.verdict = JSON.parse(localStorage.getItem(S.key) || '{}'); } catch (e) { S.verdict = {}; }
@@ -350,10 +398,12 @@
       S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1); S.runSig = runSig;
       return res;
     } catch (e) {
+      if (e === ABORT) { S.doneMsg = '中止しました（入れたファイルはそのままです。もう一度押すと、最初から照合します）'; $('pbar').style.width = '0'; return null; }
       console.error(e); $('err').textContent = '処理できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
       throw e;
-    } finally { S.running = false; refresh(); }
+    } finally { S.running = false; S.abort = false; clearInterval(ETA.timer); ETA.t0 = 0; refresh(); }
   }
+  $('stop').onclick = () => { if (!S.running) return; S.abort = true; $('stop').disabled = true; ETA.eta = null; ETA.msg = '中止しています…'; $('pmsg').textContent = ETA.msg; };
   $('run').onclick = () => run(files()).catch(() => {});
   $('reset').onclick = resetAll; $('reset2').onclick = resetAll;
 
@@ -375,7 +425,9 @@
     const nOff = res.findings.length - F.length;
     //   ページ数: 結果のページ(原稿のページごと)。成果物だけのチェックで項目がないときは、チェックした成果物のページ数
     const nNew = (res.newParts || []).reduce((n, x) => n + x.pages, 0);
-    $('sumNote').textContent = `${res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`}・${res.seconds.toFixed(1)}秒${ruleNote}` + (res.warn.length ? '／' + res.warn.join(' ') : '') + (optOff.size ? `／詳細設定で外した項目に当たる${nOff}件は出していません` : '');
+    $('sumNote').textContent = `${res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`}・${res.seconds.toFixed(1)}秒`;
+    const notes = [ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : ''].filter(Boolean);
+    $('notes').innerHTML = notes.map(t => `<li>${esc(t)}</li>`).join('');
     $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : MODES[S.runMode].note || MODES.new.note;
     const card = g => {
       const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && isLight(f)).length;
@@ -448,7 +500,7 @@
         <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
         ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
         <div class="crops">${f.old ? '<figure><canvas data-side="O" width="300" height="130"></canvas><figcaption>旧版</figcaption></figure>' : ''}${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
-        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"></div>
+        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"><span class="kh">キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目</span></div>
       </div>`;
     }).join('');
     // 切り抜きは画面に入ったものから描く
@@ -457,15 +509,54 @@
       observer.observe(el);
       const id = +el.dataset.id;
       el.onclick = ev => { if (ev.target.closest('.judge')) return; select(id, false); };
-      el.querySelectorAll('.judge button').forEach(b => b.onclick = () => {
-        const v = S.verdict[id] || {}; v.v = v.v === b.dataset.v ? '' : b.dataset.v; S.verdict[id] = v; save();
-        el.querySelectorAll('.judge button').forEach(x => x.classList.toggle('on', x.dataset.v === v.v));
-        // 「確認済み（OK）を隠す」がオンなら、OKにした項目をすぐ一覧から外す(ほかの項目の位置はそのまま)
-        if (v.v === 'ok' && $('hideDone').checked) { if (observer) observer.unobserve(el); el.remove(); if (S.sel === id) S.sel = null; if (!$('list').querySelector('.item')) $('list').innerHTML = '<div class="empty">表示する項目はありません</div>'; drawPage(); }
-      });
+      el.querySelectorAll('.judge button').forEach(b => b.onclick = () => judge(id, b.dataset.v));
       el.querySelector('.judge input').oninput = e => { const v = S.verdict[id] || {}; v.memo = e.target.value; S.verdict[id] = v; save(); };
     });
+    renderProgress();
   }
+  // 判定を付ける(同じものをもう一度押すと外す)。付けた判定を返す
+  function judge(id, val) {
+    const v = S.verdict[id] || {}; v.v = v.v === val ? '' : val; S.verdict[id] = v; save();
+    const el = document.querySelector(`.item[data-id="${id}"]`);
+    if (el) el.querySelectorAll('.judge button').forEach(x => x.classList.toggle('on', x.dataset.v === v.v));
+    // 「確認済み（OK）を隠す」がオンなら、OKにした項目をすぐ一覧から外す(ほかの項目の位置はそのまま)
+    if (el && v.v === 'ok' && $('hideDone').checked) { if (observer) observer.unobserve(el); el.remove(); if (S.sel === id) S.sel = null; if (!$('list').querySelector('.item')) $('list').innerHTML = '<div class="empty">表示する項目はありません</div>'; drawPage(); }
+    renderProgress();
+    return v.v;
+  }
+  // 確認の進み具合: 一覧に出す項目(参考を除く)のうち、OK・要修正・保留を付けたもの
+  function renderProgress() {
+    if (!S.res) return;
+    const T = S.res.findings.filter(f => enabled(f) && !groupOf(f).minor), V = T.map(f => (S.verdict[f.id] || {}).v || ''), n = T.length, done = V.filter(Boolean).length;
+    const fix = V.filter(v => v === 'fix').length, hold = V.filter(v => v === 'hold').length;
+    $('jprog').innerHTML = n ? `確認 ${done} / ${n}件<span class="bar"><i style="width:${Math.round(100 * done / n)}%"></i></span>${fix || hold ? `<span class="sub">要修正 ${fix}・保留 ${hold}</span>` : ''}` : '';
+    $('nextU').hidden = !n;
+  }
+  // 一覧の中を移る: 前・次の項目、まだ判定を付けていない次の項目
+  const shown = () => [...$('list').querySelectorAll('.item')];
+  function stepItem(d) {
+    const L = shown(); if (!L.length) return;
+    const i = L.findIndex(el => +el.dataset.id === S.sel), j = i < 0 ? (d > 0 ? 0 : L.length - 1) : Math.min(L.length - 1, Math.max(0, i + d));
+    select(+L[j].dataset.id, true);
+  }
+  function nextUnchecked() {
+    const L = shown(); if (!L.length) return;
+    const i = L.findIndex(el => +el.dataset.id === S.sel);
+    for (let k = 1; k <= L.length; k++) { const id = +L[(i + k + L.length) % L.length].dataset.id; if (!(S.verdict[id] || {}).v) { select(id, true); return; } }
+    $('jprog').insertAdjacentHTML('beforeend', '<span class="sub">（表示中の項目は、すべて確認しました）</span>');
+  }
+  $('nextU').onclick = nextUnchecked;
+  //   キー操作(一覧の項目を選んでいるとき): ↑↓ 前・次の項目、1 OK・2 要修正・3 保留(付けたら次の項目へ)。文字を入れる欄では使わない
+  document.addEventListener('keydown', ev => {
+    if (!S.res || S.sel == null || $('results').classList.contains('hidden') || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
+    if (ev.target && ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); stepItem(ev.key === 'ArrowDown' ? 1 : -1); return; }
+    const val = { 1: 'ok', 2: 'fix', 3: 'hold' }[ev.key];
+    if (!val) return;
+    ev.preventDefault();
+    const cur = S.sel, L = shown(), i = L.findIndex(el => +el.dataset.id === cur), next = i >= 0 && L[i + 1] ? +L[i + 1].dataset.id : null;
+    if (judge(cur, val) && next != null) select(next, true);
+  });
   const save = () => { try { localStorage.setItem(S.key, JSON.stringify(S.verdict)); } catch (e) { /* 保存できない環境でも動作は続ける */ } };
 
   // 枠: 違う字が分かっていればその位置だけ(最大4か所)、なければ変わった範囲
