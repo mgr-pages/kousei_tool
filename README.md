@@ -376,6 +376,7 @@ PDFの文字データは pdf.js で読みます。フォントに「文字番号
 | `test/office/` | データファイルの原稿と成果物の模擬データの作り方（`make.py`）・正解（`gt.json`）・採点（`evaluate.py`）、厳しい場合の模擬データと採点（`variants.py`） |
 | `test/layout/` | 書式の指示（太字・大きさ・色）の模擬データの作り方（`make.py`）・正解（`gt.json`）・採点（`evaluate.py`） |
 | `test/annot2/` | コメント（マーカー・付箋。返信つき）で指示を入れたPDF原稿の模擬データの作り方（`make.py`。正解の `truth.json` も作る）・採点（`evaluate.py`） |
+| `test/realcheck/` | 実物のPDFで汎用性を確かめる試験：誤りを無作為に入れた版と注釈で指示した原稿を作る（`mutate.py`）・採点（`evaluate.py`）・4通りを照合して採点する手順（`run.sh`）、位置を先に合わせる比べ方の試作（`posfirst.py`・`posfirst_browser.js`） |
 | `test/jcheck/` | 成果物だけで見るチェックの模擬データの作り方（`make.py`）・正解（`gt.json`）・採点（`evaluate.py`） |
 | `test/jcheck2/` | 価格・計算・番号のチェック（同じ品番の価格の食い違い・税込と税抜の計算・注記番号・丸数字の番号）の模擬データの作り方（`make.py`）・正解（`gt.json`。採点は `test/jcheck/evaluate.py`） |
 | `test/jinject/` | 価格・計算・番号の誤りを無作為に入れた模擬データの作り方（`make.py`）・採点（`evaluate.py`）・動かして採点する手順（`run.sh`） |
@@ -446,6 +447,7 @@ bash test/suite.sh testdata test-kit/tool/gt.json test-kit/tool/evaluate.py out
   - 模擬データは `python3 test/merge/make.py testdata/merge` と `python3 test/merge/make_id.py testdata/merge` で作り直せます（openpyxl・reportlab と IPAゴシック・Liberation Sans が要る）
 - 書式の指示の確認として、`testdata/layout`（注釈で太字・大きく・赤字にの指示を入れた原稿と、指示どおりに直した所・違う直し方をした所のある成果物）を照合します。正解表（`test/layout/gt.json`、6項目）で、指示どおりかの自動判定を採点します。模擬データは `python3 test/layout/make.py testdata/layout` で作り直せます（PyMuPDF と IPAゴシックが要る。太字は字の縁を太らせて描く）。
 - コメント（マーカー・付箋）で指示を入れたPDF原稿の確認として、`testdata/annot2`（架空の写真教室の案内1ページ。デザインのPDFに、置き換え・数字の置き換え・字のない所に注の行を足す・字の右に字を足す（やり方の説明つき）・素材のファイル名・語の途中に字を足す・行を消す・記号だけを消す・質問への返事・「、」1字だけ・「（以下同様）」の添え書きつきのマーカーと、返信つきの付箋のやり取りを入れた原稿と、指示どおりでない直し2か所と指示にない変化1か所のある成果物）を照合します。指示ごとに、自動の判定（指示どおり・指示どおりになっていない）か「人が判断」が正解どおりか、指示にない変化が出るか、余分な検出（直っていない・正解にない「指示どおりになっていない」・どの指示にも当たらない指示にない変更）がないかを採点します（`test/annot2/evaluate.py`、13項目）。模擬データは `python3 test/annot2/make.py testdata/annot2` で作り直せます（reportlab・PyMuPDF と IPAゴシックが要る）。
+- **実物のPDFで汎用性を確かめる試験**（`test/realcheck/`。正解を人が決めなくてよい。入れたPDFと出力はリポジトリに入れない）：どんなPDFでも、(1) 同じファイルを原稿と成果物に入れて照合の項目が0件になるか、(2) 字を無作為に置き換え・削除した「新しい版」と、その一部をマーカーの注釈で指示した「原稿」を作り、旧版＋成果物・注釈のないPDF原稿・注釈で指示した原稿の3通りで、入れた変化を見つけた数・余分な検出・判定（指示どおり・指示にない変更・直し間違い・直っていない）・注釈の数と結果に出た数が合うかを採点します。`bash test/realcheck/run.sh out/realcheck 1 12 手元の.pdf カタログ.pdf:1-4`（PyMuPDF と IPAゴシックが要る）。同じ位置の同じ字を先に「同じ」とする比べ方の試作（`posfirst.py`・`posfirst_browser.js`）も同じデータで採点できます。結果と、方式の見直しの検討は `results/2026-11-11_校正のやり方の抜本的な見直し.md`。
 - `testdata/old.pdf` は模擬の赤字原稿を作ったときの元の原稿です（照合には使いません）。作り直すときは `test-kit/tool/simulate.py` を使います。
 - 判定のしきい値を変えたときは、「重大な見逃し」が0件のままであることを必ず確かめてください。
 
