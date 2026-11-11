@@ -13,8 +13,7 @@
   --accent: #2f6fdb; --accent-d: #2459b8; --accent-soft: #ebf2fe; --accent-ink: #fff;
   --good: #1f8f4e; --good-soft: #e9f6ee; --bad: #d1343b; --bad-soft: #fff4f4;
   --r: 14px; --r-s: 10px; --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 2px 8px rgba(16, 24, 40, .05);
-  --c-A: #1f8f4e; --c-B: #d1343b; --c-B2: #e48a8e; --c-C1: #8a8600; --c-C: #d9730d; --c-D: #9b3fa0; --c-E: #1c7ed6; --c-F: #6b7280; --c-M: #1f8f4e;
-  --c-T: #d9730d; --c-K: #1f8f4e; --c-W: #c2185b; --c-V: #5b7cba; --c-I: #8a8f99; --c-J: #0f7b8a;
+  --c-need: #d1343b; --c-look: #0f7b8a; --c-ref: #8a8f99;   /* 色は3つ: 直す必要がありそう・確認だけ・参考 */
 }
 * { box-sizing: border-box }
 html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif; font-size: 14px; line-height: 1.6 }
@@ -72,13 +71,6 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .ftot { font-size: 12px; color: var(--sub); margin-top: 4px; display: flex; gap: 8px; align-items: center }
 .ftot:empty { display: none }
 .ftot button { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 12px }
-/* ---- チェックの仕方(入れたファイルで決まる) ---- */
-.modes { margin-top: 16px; padding: 12px 16px; border-radius: var(--r-s); background: #f7f9fc; border: 1px solid var(--line) }
-.modes-hd { font-size: 13px; font-weight: 700; display: flex; gap: 10px; align-items: center; flex-wrap: wrap }
-.chips { display: flex; gap: 6px; flex-wrap: wrap }
-.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 400; border: 1px solid var(--line2); border-radius: 99px; padding: 2px 12px; color: var(--sub); background: #fff; cursor: default }
-.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700 }
-#modeNote { margin-top: 6px; font-size: 13px; color: var(--ink) }
 /* ---- 実行 ---- */
 .runbar { display: flex; align-items: center; gap: 18px; margin-top: 16px; flex-wrap: wrap }
 /* 入れたファイルが照合のあとで変わったときの、前回の結果 */
@@ -121,26 +113,29 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .notes:empty { display: none }
 .notes li { position: relative; padding-left: 16px; margin: 2px 0 }
 .notes li::before { content: ''; position: absolute; left: 3px; top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--accent) }
-.notes li.warn::before { background: var(--c-C) }
-.summary { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px }
+.summary { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
 @media (max-width: 1000px) { .summary { grid-template-columns: 1fr } }
-.sumgrp { border-radius: 12px; padding: 14px; background: #f7f9fc; border: 1px solid var(--line) }
-.sumgrp.need { background: var(--bad-soft); border-color: #f5d5d7 }
-.sumgrp.clear { background: var(--good-soft); border-color: #cfe9d9 }
-.sumhd { font-size: 14px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap }
-.sumhd b { font-size: 22px }
-.sumgrp.need .sumhd b { color: var(--bad) }
+.sumgrp { border-radius: 12px; padding: 12px 14px; background: #f7f9fc; border: 1px solid var(--line); border-top: 4px solid var(--c, var(--line2)) }
+.sumgrp.need { background: var(--bad-soft); border-color: #f5d5d7; border-top-color: var(--c-need) }
+.sumgrp.clear { background: var(--good-soft); border-color: #cfe9d9; border-top-color: var(--good) }
+.sumhd { font-size: 15px; font-weight: 700; display: inline-flex; align-items: baseline; gap: 8px; background: none; border: 0; padding: 2px 8px 2px 0; margin: 0 0 8px; color: inherit; cursor: pointer; border-radius: 8px }
+.sumhd:disabled { cursor: default }
+.sumhd b { font-size: 26px; color: var(--c) }
 .sumgrp.clear .sumhd b { color: var(--good) }
+.sumhd:not(:disabled):hover { text-decoration: underline }
+.sumhd.on { background: var(--c); color: #fff; padding-left: 10px } .sumhd.on b { color: #fff }
 .clearmsg { display: flex; align-items: center; gap: 10px; color: #23633f; font-weight: 700 }
 .clearmsg i { width: 30px; height: 30px; border-radius: 50%; background: var(--good); color: #fff; display: grid; place-items: center; font-style: normal; font-size: 16px; flex: none }
-.sumcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px }
-.sum { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 10px; padding: 7px 10px; cursor: pointer; transition: box-shadow .12s, transform .12s, opacity .12s }
-.sum:hover { box-shadow: var(--shadow); transform: translateY(-1px) }
-.sum.zero { opacity: .55 }
-.sum.off { opacity: .35 }
-.sum .n { font-size: 24px; font-weight: 800; line-height: 1.25; color: var(--c) }
-.sum .l { font-size: 12px; color: var(--sub) }
+.fchips { display: flex; flex-wrap: wrap; gap: 6px }
+.fchip { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--line2); background: #fff; border-radius: 99px; padding: 3px 12px; font-size: 13px; cursor: pointer; color: var(--ink) }
+.fchip b { color: var(--c); font-size: 15px }
+.fchip small { color: var(--sub); font-size: 11px }
+.fchip:hover { border-color: var(--c) }
+.fchip.on { background: var(--c); border-color: var(--c); color: #fff } .fchip.on b, .fchip.on small { color: #fff }
+.summary.filtering .fchip:not(.on) { opacity: .6 }
 .sumtip { margin-top: 8px }
+.sumtip.all { grid-column: 1 / -1; margin-top: 0 }
+.fnote { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -4px 0 12px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); border: 1px solid #c9dafa; font-size: 13px; font-weight: 700 }
 /* ---- 一覧の上の切り替え ---- */
 .toolbar { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin: 2px 0 14px }
 .toolbar .sp { flex: 1 }
@@ -195,11 +190,16 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .judge button.on[data-v="ok"] { background: #e3f4ea; border-color: var(--good); color: #0f5132; font-weight: 700 }
 .judge button.on[data-v="ok"]::before { content: '✓' }
 .judge button.on[data-v="fix"] { background: #fde8e8; border-color: var(--bad); color: #8a1c21; font-weight: 700 }
-.judge button.on[data-v="hold"] { background: #fff4e0; border-color: var(--c-C); color: #7a4300; font-weight: 700 }
+.judge button.on[data-v="hold"] { background: #fff4e0; border-color: #d9730d; color: #7a4300; font-weight: 700 }
 .judge input { flex: 1; min-width: 120px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 99px; font-size: 12px }
 .judge input:focus { outline: 2px solid #bcd3fb; border-color: #9fbcef }
 .viewer { position: sticky; top: 12px; background: #fff; border: 1px solid var(--line); border-radius: var(--r); padding: 12px; box-shadow: var(--shadow) }
-.viewer .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; align-items: center }
+.viewer .vbar { display: flex; gap: 8px; align-items: center; margin-bottom: 6px }
+.viewer .tabs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; flex: 1 }
+.zoom { display: inline-flex; align-items: center; gap: 4px; flex: none }
+.zoom .btn { min-width: 32px; justify-content: center; font-size: 15px; padding: 0 8px; line-height: 24px }
+.zoom .btn:disabled { opacity: .35; cursor: default }
+#zLbl { min-width: 46px; text-align: center; font-size: 12px; color: var(--sub) }
 .viewer .tabs .btn { border-radius: 99px; min-width: 34px; justify-content: center; padding: 2px 10px }
 .viewer .tabs .btn.on { background: var(--accent); color: #fff; border-color: var(--accent) }
 #pinfo { margin-bottom: 6px }
@@ -207,6 +207,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .viewer .cap.one { grid-template-columns: 1fr }
 .viewer .scroll { max-height: calc(100vh - 130px); overflow: auto; border-radius: 10px; background: #eef1f6 }
 .viewer canvas { display: block; cursor: crosshair }
+.viewer canvas.zoomed { cursor: grab; touch-action: none } .viewer canvas.panning { cursor: grabbing }
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--sub); margin-top: 8px }
 .legend i { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--c); border-radius: 3px; margin-right: 3px; vertical-align: -1px }
 .empty { color: var(--sub); text-align: center; padding: 34px 20px; background: #fff; border: 1px dashed var(--line2); border-radius: 12px }
@@ -214,8 +215,8 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 @media print {
   header, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on), .judge .kh, .sumtip { display: none !important }
   body { background: #fff } main { padding: 0 } .work { display: block } .item { break-inside: avoid; box-shadow: none; margin-bottom: 4mm }
-  .card { box-shadow: none } .summary { grid-template-columns: 1.3fr 1fr } .sumcards { grid-template-columns: repeat(auto-fill, minmax(28mm, 1fr)) }
-  .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb }
+  .card { box-shadow: none } .summary { grid-template-columns: 1fr 1fr } .sumtip.all, .fnote { display: none !important }
+  .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb } .item.sel { outline: none }
 }
 </style>
 </head>
@@ -232,7 +233,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 <main>
   <section class="card" id="setup">
     <h2>チェックするファイルを入れてください</h2>
-    <p class="lead">成果物（PDF）は必ず入れます。原稿と旧版は、あれば入れてください。入れたファイルに合わせて、チェックの仕方が変わります。</p>
+    <p class="lead">成果物（PDF）は必ず入れます。原稿と旧版は、あれば入れてください。</p>
     <div class="steps">
       <div class="step" data-kind="marks">
         <div class="t"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></span>原稿<em class="badge opt">任意</em></div>
@@ -249,12 +250,6 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
         <div class="desc">前回の成果物。前回から変わった所も確かめます</div>
         <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fOld" accept=".pdf,application/pdf" multiple></label><span class="drop">またはここへドラッグ</span></div>
         <ol class="flist" id="lOld"></ol><div class="ftot" id="tOld"></div></div>
-    </div>
-    <div class="modes" id="modes">
-      <div class="modes-hd">チェックの仕方
-        <span class="chips"><span class="chip" data-m="new" title="成果物だけを入れたとき">成果物だけ</span><span class="chip" data-m="marks" title="原稿と成果物を入れたとき">原稿＋成果物</span><span class="chip" data-m="old" title="旧版と成果物を入れたとき">旧版＋成果物</span><span class="chip" data-m="all" title="原稿・成果物・旧版の3つを入れたとき">3つすべて</span></span>
-      </div>
-      <div id="modeNote"></div>
     </div>
     <div class="runbar">
       <button class="btn primary big" id="run" disabled>照合</button>
@@ -283,10 +278,11 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
       <button class="btn" id="print"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 9V3h10v6"/><rect x="4" y="9" width="16" height="8" rx="2"/><path d="M7 14h10v7H7z"/></svg>印刷・PDFで保存</button>
       <button class="btn" id="reset2" title="入れたファイルと結果を空にして、最初の状態に戻します（詳細設定はそのまま）">新しい校正を始める</button>
     </div>
+    <div class="fnote" id="fnote" hidden></div>
     <div class="work">
       <div class="list" id="list"></div>
       <div class="viewer" id="viewer">
-        <div class="tabs" id="tabs"></div>
+        <div class="vbar"><div class="tabs" id="tabs"></div><div class="zoom"><button class="btn small" id="zOut" title="縮小">－</button><span id="zLbl">全体</span><button class="btn small" id="zIn" title="拡大（Ctrl を押しながらホイールでも拡大・縮小。拡大中はドラッグ・ホイールで動かせます）">＋</button></div></div>
         <div class="hint" id="pinfo"></div>
         <div class="cap" id="vcap"><div>原稿</div><div>成果物</div></div>
         <div class="scroll" id="vscroll"><canvas id="vcanvas"></canvas></div>
@@ -7232,34 +7228,33 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 'use strict';
 (function () {
   const $ = id => document.getElementById(id), esc = PC.esc;
-  const COLOR = { A: 'A', A_IMG: 'A', M: 'M', B: 'B', B2: 'B2', C1: 'C1', C2: 'C', C3: 'C', D: 'D', E: 'E', F: 'F', F2: 'F', G: 'F', H: 'F', T: 'T', N: 'T', V: 'V', I: 'I', K: 'K', W: 'W', J: 'J' };
   const isLeak = f => f.cat === 'D' && (f.check.includes('漏れ') || f.check === '未統一');
   const isLight = f => f.cat === 'B2' || (f.how || '').includes('引き出し線の可能性');
   // 確認が必要なものほど上に出す。need: 直す必要がありそうなもの
   const GROUPS = [
     // 指示どおりかを自動で判定できたもの: 指示どおりでない可能性(NG)は先頭に、指示どおり(OK)は一覧から外して「参考」へ
-    { key: 'NG', label: '指示どおりになっていない', test: f => f.auto === 'ng', c: 'B', need: true },
-    { key: 'OK', label: '自動で確認済み（指示どおり）', test: f => f.auto === 'ok', c: 'A', minor: true, auto: true },
-    { key: 'OLD', label: '前回のまま（原稿のない部分）', test: f => f.oldSame, c: 'I', minor: true },
+    { key: 'NG', label: '指示どおりになっていない', test: f => f.auto === 'ng', need: true },
+    { key: 'OK', label: '自動で確認済み（指示どおり）', test: f => f.auto === 'ok', minor: true, auto: true },
+    { key: 'OLD', label: '前回のまま（原稿のない部分）', test: f => f.oldSame, minor: true },
     // 原稿がなく旧版と比べたとき: 前回の成果物から変わった所(指示がないので、意図した変更かを確かめるもの)
-    { key: 'P', label: '前回から変わった所', test: f => !!f.fromOld && S.runMode === 'old' && f.cat !== 'V', c: 'C' },
-    { key: 'B', label: '直っていない', test: f => f.cat === 'B', c: 'B', need: true },
+    { key: 'P', label: '前回から変わった所', test: f => !!f.fromOld && S.runMode === 'old' && f.cat !== 'V' },
+    { key: 'B', label: '直っていない', test: f => f.cat === 'B', need: true },
     // 文字データのない所(アウトライン・画像の文字)を OCR で読んだ字がかかわる違い(読み違いのこともあるので分けて示す)
-    { key: 'CO', label: '旧版と違う？（OCRで読んだ字）', test: f => f.cat === 'C2' && f.ocr, c: 'C', need: true },
-    { key: 'C', label: '指示にない変更', test: f => f.cat === 'C2' || f.cat === 'C3', c: 'C', need: true },
-    { key: 'TO', label: '原稿と違う？（OCRで読んだ字）', test: f => (f.cat === 'T' || f.cat === 'N') && f.ocr, c: 'T', need: true },
-    { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', c: 'T', need: true },
-    { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, c: 'D', need: true },
-    { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', c: 'E', need: true },
-    { key: 'J', label: '成果物だけで見つけた誤り（端の切れ端・かっこ・日付など）', test: f => f.cat === 'J' && f.level === 'need', c: 'J', need: true },
-    { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG', c: 'A' },
-    { key: 'K', label: '指示・書き込みの確認（人が判断）', test: f => f.cat === 'K' || f.cat === 'W', c: 'K' },
-    { key: 'F', label: '読み取れない赤字', test: f => f.cat === 'F', c: 'F' },
-    { key: 'C1', label: '全体・以下同様どおり', test: f => f.cat === 'C1', c: 'C1' },
-    { key: 'V', label: '全角・半角などの違い', test: f => f.cat === 'V', c: 'V' },
-    { key: 'I', label: '原稿が画像の部分（目で確認）', test: f => f.cat === 'I', c: 'I' },
-    { key: 'J2', label: '成果物だけで見つけた確認事項（表記ゆれなど）', test: f => f.cat === 'J', c: 'J' },
-    { key: 'minor', label: '参考', test: () => true, c: 'F', minor: true },
+    { key: 'CO', label: '旧版と違う？（OCRで読んだ字）', test: f => f.cat === 'C2' && f.ocr, need: true },
+    { key: 'C', label: '指示にない変更', test: f => f.cat === 'C2' || f.cat === 'C3', need: true },
+    { key: 'TO', label: '原稿と違う？（OCRで読んだ字）', test: f => (f.cat === 'T' || f.cat === 'N') && f.ocr, need: true },
+    { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', need: true },
+    { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, need: true },
+    { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', need: true },
+    { key: 'J', label: '成果物だけで見つけた誤り（端の切れ端・かっこ・日付など）', test: f => f.cat === 'J' && f.level === 'need', need: true },
+    { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG' },
+    { key: 'K', label: '指示・書き込みの確認（人が判断）', test: f => f.cat === 'K' || f.cat === 'W' },
+    { key: 'F', label: '読み取れない赤字', test: f => f.cat === 'F' },
+    { key: 'C1', label: '全体・以下同様どおり', test: f => f.cat === 'C1' },
+    { key: 'V', label: '全角・半角などの違い', test: f => f.cat === 'V' },
+    { key: 'I', label: '原稿が画像の部分（目で確認）', test: f => f.cat === 'I' },
+    { key: 'J2', label: '成果物だけで見つけた確認事項（表記ゆれなど）', test: f => f.cat === 'J' },
+    { key: 'minor', label: '参考', test: () => true, minor: true },
   ];
   const groupOf = f => GROUPS.find(g => g.test(f));
   // ---- 詳細設定: チェックする項目(校正の観点ごと。既定はすべて選ぶ) ----
@@ -7321,8 +7316,10 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   const optOff = (() => { try { const v = JSON.parse(localStorage.getItem(OPT_KEY) || '[]'); return new Set(Array.isArray(v) ? v : []); } catch (e) { return new Set(); } })();
   const optOf = f => OPT_ORDER.find(o => o[2](f));
   const enabled = f => { const o = optOf(f); return !o || !optOff.has(o[0]); };
-  // 項目の色: 分類(結果の概要のカード)の色にそろえる(参考の項目は、もとの種類の色)
-  const colorOf = f => { const g = groupOf(f); return g.minor && !g.auto ? COLOR[f.cat] : g.c; };
+  // 項目の色は3つだけ: 直す必要がありそう(赤)・確認だけ(青緑)・参考(灰)。種類は札の文字で見分ける
+  const LV = { need: '直す必要がありそう', look: '確認だけ', ref: '参考' };
+  const colorOf = f => { const g = groupOf(f); return g.need ? 'need' : g.minor ? 'ref' : 'look'; };
+  const short = s => s.replace(/（.*/, '');
   // 一言の結論と、何をすればよいか
   const JT = { edge: 'ページの端の文字', date: '日付の誤り', paren: 'かっこの閉じ忘れ', dup: '言葉の重なり', misuse: '誤用・誤字', okuri: '送りがなの誤り', particle: '助詞の続き方', phone: '電話番号の桁数', zip: '郵便番号の形', yure: '表記ゆれ', typo: '誤字？', spell: 'つづり？', article: '冠詞（a・an）？', ranuki: 'ら抜き言葉？', saire: 'さ入れ言葉？', tari: '「〜たり」', keigo: '敬語？', redund: '重複表現？', hankana: '半角カナ', tax: '税込・税抜の計算', price: '価格の食い違い？', tmpl: 'ほかのページと違う？', noteref: '注記の番号', listno: '番号の抜け？', style: '文体の混在？', gram: '文法？', colloq: '話し言葉？' };
   // ---- 入れたファイルの組み合わせ(成果物は必ず入れる)ごとのチェックの仕方 ----
@@ -7331,10 +7328,10 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   //   old: 旧版＋成果物 → 前回の成果物から変わった所(文字データのない所は OCR で読む)＋成果物のチェック
   //   all: 3つすべて → 原稿との照合＋原稿のない部分の前回からの変化＋成果物のチェック
   const MODES = {
-    new: { run: '成果物だけチェック', what: '成果物の文字・表記（日付・かっこ・誤字・表記ゆれ・ページの端の切れ端など）をチェックします', note: '原稿なし：成果物だけでチェックしました' },
-    marks: { run: '原稿と照合', what: '原稿どおりになっているかを照合し、成果物の文字・表記もチェックします', note: '' },
-    old: { run: '前回と比べる', what: '前回の成果物（旧版）から変わった所を一覧にし、成果物の文字・表記もチェックします', note: '原稿なし：前回の成果物（旧版）から変わった所と、成果物の文字・表記をチェックしました' },
-    all: { run: '原稿と照合・前回と比べる', what: '原稿どおりになっているかを照合し、原稿のない部分は前回の成果物（旧版）から変わった所を出します。成果物の文字・表記もチェックします', note: '' },
+    new: { run: '成果物だけチェック', note: '原稿なし：成果物だけでチェックしました' },
+    marks: { run: '原稿と照合', note: '' },
+    old: { run: '前回と比べる', note: '原稿なし：前回の成果物（旧版）から変わった所と、成果物の文字・表記をチェックしました' },
+    all: { run: '原稿と照合・前回と比べる', note: '' },
   };
   const modeOf = () => (S.lists.marks.length ? (S.lists.old.length ? 'all' : 'marks') : S.lists.old.length ? 'old' : 'new');
   function verdictOf(f) {
@@ -7461,7 +7458,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   };
 
   const geta = s => String(s ?? '').replace(/□/g, '〓');   // スキャンで読めなかった字は「〓」(ゲタ)で示す
-  const S = { res: null, imgs: [], sel: null, page: 0, off: new Set(), verdict: {}, key: '', lists: { marks: [], nw: [], old: [] }, loading: new Set() };
+  const S = { res: null, imgs: [], sel: null, page: 0, only: null, zoom: 1, vc: { L: null, R: null }, verdict: {}, key: '', lists: { marks: [], nw: [], old: [] }, loading: new Set() };
 
   // ---- 入力: 各欄に複数のファイル。選んだときに中身を読み込んでおき(あとで元のファイルが変わっても照合できるように)、ページ数を数える ----
   const KIND = { marks: { input: 'fMarks', list: 'lMarks', tot: 'tMarks' }, nw: { input: 'fNew', list: 'lNew', tot: 'tNew' }, old: { input: 'fOld', list: 'lOld', tot: 'tOld' } };
@@ -7567,11 +7564,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     //   新しい校正: 入れたファイルか結果があるときだけ出す(照合中は代わりに「中止」)。照合のあとでファイルを変えたら、前回の結果だと分かるように薄くする
     $('reset').hidden = !!S.running || !(all.length || S.res); $('stop').hidden = !S.running;
     $('results').classList.toggle('stale', !!S.res && !S.running && sigOf() !== S.runSig);
-    const mode = modeOf();
-    $('run').textContent = MODES[mode].run;
-    // チェックの仕方: 入れたファイルの組み合わせの印と、何をするか(成果物がまだなければ、どれにも印を付けない)
-    document.querySelectorAll('#modes .chip').forEach(c => c.classList.toggle('on', !!S.lists.nw.length && c.dataset.m === mode));
-    $('modeNote').textContent = S.lists.nw.length ? MODES[mode].what : '成果物（PDF）を入れると、入れたファイルの組み合わせでチェックの仕方が決まります';
+    $('run').textContent = MODES[modeOf()].run;   // ボタンの名前は、入れたファイルの組み合わせで変わる
     if (S.running) return;
     let msg = !PC.libsReady ? '準備中…' : S.doneMsg;
     if (!msg) {
@@ -7640,12 +7633,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // ---- 結果の表示 ----
   async function show(res) {
     S.res = res; S.sel = null; S.page = 0; S.runMode = res.mode || 'marks';
+    S.only = null; S.zoom = 1; S.vc = { L: null, R: null }; S.warned = false;   // 新しい結果は、絞り込み・拡大なしで出す
     S.imgs = res.pages.map(p => ({ L: null, R: null, Lurl: p.left ? p.left.url : null, Rurl: p.right ? p.right.url : null, lw: p.left ? p.left.w : 0, lh: p.left ? p.left.h : 0, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
     S.cache = new Map();
     if (S.imgs.length) await ensure(0);   // 成果物だけのチェックで項目がないときは、表示するページがない
     $('results').classList.remove('hidden');
     $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
-    $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; drawPage(); });
+    $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; S.vc = { L: null, R: null }; drawPage(); });
     renderAll();
   }
   const renderAll = () => { renderSummary(); renderList(); drawPage(); };
@@ -7659,22 +7653,22 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const notes = [ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : ''].filter(Boolean);
     $('notes').innerHTML = notes.map(t => `<li>${esc(t)}</li>`).join('');
     $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : MODES[S.runMode].note || MODES.new.note;
-    const card = g => {
-      const n = F.filter(f => groupOf(f) === g).length, light = F.filter(f => groupOf(f) === g && isLight(f)).length;
-      return `<div class="sum ${S.off.has(g.key) ? 'off' : ''} ${n ? '' : 'zero'}" data-g="${g.key}" style="--c: var(--c-${g.c})"><div class="n">${n}</div><div class="l">${esc(g.label)}${light ? `<br>（うち念のため ${light}）` : ''}</div></div>`;
-    };
-    const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nNeed = F.filter(f => groupOf(f).need).length;
-    // 件数のある種類だけをカードにする(どの種類もなければ「ありません」)
-    const cards = gs => { const xs = gs.filter(g => F.some(f => groupOf(f) === g)); return xs.length ? xs.map(card).join('') : '<div class="hint">ありません</div>'; };
-    const nAuto = F.filter(f => groupOf(f).auto).length, nLook = F.filter(f => look.includes(groupOf(f))).length;
-    //   直す必要がありそうなものがなければ、そのことをはっきり示す(確認だけの項目があれば、それも添える)
-    $('summary').innerHTML = (nNeed ? `<div class="sumgrp need"><div class="sumhd">直す必要がありそう <b>${nNeed}件</b></div><div class="sumcards">${cards(need)}</div><div class="hint sumtip">カードを押すと、その種類を一覧から外せます（もう一度押すと戻ります）</div></div>`
-      : `<div class="sumgrp clear"><div class="sumhd">直す必要がありそう <b>0件</b></div><div class="clearmsg"><i>✓</i>直す必要がありそうな所は見つかりませんでした</div>${nLook ? `<div class="hint sumtip">確認だけの項目が ${nLook}件あります。一覧で確かめてください</div>` : ''}</div>`) +
-      `<div class="sumgrp"><div class="sumhd">確認だけ <b>${nLook}件</b></div><div class="sumcards">${cards(look)}</div>` +
-      (nAuto ? `<div class="hint sumtip">ほかに、指示どおりと自動で確認できたもの ${nAuto}件（一覧には出していません。「参考も表示」で見られます）</div>` : '') + '</div>';
-    $('summary').querySelectorAll('.sum').forEach(el => el.onclick = () => { const k = el.dataset.g; S.off.has(k) ? S.off.delete(k) : S.off.add(k); el.classList.toggle('off'); renderList(); drawPage(); });
-    $('legend').innerHTML = GROUPS.filter(g => !g.minor && F.some(f => groupOf(f) === g)).map(g => `<span style="--c: var(--c-${g.c})"><i></i>${esc(g.label.replace(/（.*/, ''))}</span>`).join('');
+    //   2つのまとまり(直す必要がありそう・確認だけ)と、件数のある種類の札。見出しや札を押すと、それだけを一覧とページに出す(もう一度押すと全部に戻る)
+    const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nOf = g => F.filter(f => groupOf(f) === g).length;
+    const nNeed = F.filter(f => groupOf(f).need).length, nLook = F.filter(f => look.includes(groupOf(f))).length, nAuto = F.filter(f => groupOf(f).auto).length;
+    const chips = gs => gs.filter(nOf).map(g => { const light = F.filter(f => groupOf(f) === g && isLight(f)).length; return `<button class="fchip ${S.only === g.key ? 'on' : ''}" data-f="${g.key}" title="${esc(g.label)}">${esc(short(g.label))}<b>${nOf(g)}</b>${light ? `<small>うち念のため${light}</small>` : ''}</button>`; }).join('');
+    const head = (k, n) => `<button class="sumhd ${S.only === k ? 'on' : ''}" data-f="${k}" ${n ? '' : 'disabled'}>${LV[k]}<b>${n}件</b></button>`;
+    $('summary').classList.toggle('filtering', !!S.only);
+    $('summary').innerHTML = (nNeed ? `<div class="sumgrp need" style="--c: var(--c-need)">${head('need', nNeed)}<div class="fchips">${chips(need)}</div></div>`
+      : '<div class="sumgrp clear"><div class="sumhd" style="cursor:default">直す必要がありそう<b>0件</b></div><div class="clearmsg"><i>✓</i>直す必要がありそうな所は見つかりませんでした</div></div>') +
+      `<div class="sumgrp look" style="--c: var(--c-look)">${head('look', nLook)}<div class="fchips">${nLook ? chips(look) : '<span class="hint">ありません</span>'}</div>` +
+      (nAuto ? `<div class="hint sumtip">ほかに、指示どおりと自動で確認できたもの ${nAuto}件（一覧には出していません。「参考も表示」で見られます）</div>` : '') + '</div>' +
+      (nNeed + nLook ? '<div class="hint sumtip all">見出しや種類を押すと、それだけを表示します（もう一度押すと全部に戻ります）</div>' : '');
+    $('summary').querySelectorAll('[data-f]').forEach(el => el.onclick = () => setOnly(S.only === el.dataset.f ? null : el.dataset.f));
   }
+  //   絞り込み: need・look(まとまり)か、種類の key。null は全部
+  function setOnly(k) { S.only = k; renderSummary(); renderList(); drawPage(); }
+  const onlyLabel = k => LV[k] || short((GROUPS.find(g => g.key === k) || { label: '' }).label);
 
   // ページの画像は、表示するときに読み込む(大きなページが多いときに、一度に展開してメモリが足りなくならないように)
   const loadImg = url => { if (!url) return Promise.resolve(null); if (!S.cache.has(url)) { const im = new Image(); im.src = url; S.cache.set(url, im.decode().then(() => im)); } return S.cache.get(url); };
@@ -7713,7 +7707,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     if (!enabled(f)) return false;
     const g = groupOf(f);
     if (g.minor && !$('showMinor').checked) return false;
-    if (S.off.has(g.key)) return false;
+    if (S.only && !(S.only === 'need' ? g.need : S.only === 'look' ? !g.need && !g.minor : g.key === S.only)) return false;
     if ($('hideDone').checked && (S.verdict[f.id] || {}).v === 'ok') return false;
     return true;
   };
@@ -7723,6 +7717,11 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   function renderList() {
     const F = S.res.findings.filter(visible).sort(cmp), list = $('list');
     if (observer) observer.disconnect();
+    //   絞り込み中は、そのことを一覧の上に示す(見落とさないように)。ページの枠の色の説明は、出ている色だけ
+    $('fnote').hidden = !S.only;
+    if (S.only) { $('fnote').innerHTML = `「${esc(onlyLabel(S.only))}」だけを表示しています <button class="btn small" id="fAll">全部を表示</button>`; $('fAll').onclick = () => setOnly(null); }
+    $('legend').innerHTML = Object.keys(LV).filter(l => F.some(f => f.cat !== 'F2' && colorOf(f) === l)).map(l => `<span style="--c: var(--c-${l})"><i></i>${LV[l]}</span>`).join('');
+    renderProgress();
     if (!F.length) { list.innerHTML = '<div class="empty">表示する項目はありません</div>'; return; }
     list.innerHTML = F.map(f => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
@@ -7742,7 +7741,6 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       el.querySelectorAll('.judge button').forEach(b => b.onclick = () => judge(id, b.dataset.v));
       el.querySelector('.judge input').oninput = e => { const v = S.verdict[id] || {}; v.memo = e.target.value; S.verdict[id] = v; save(); };
     });
-    renderProgress();
   }
   // 判定を付ける(同じものをもう一度押すと外す)。付けた判定を返す
   function judge(id, val) {
@@ -7837,15 +7835,24 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     });
   }
 
-  function select(id, fromViewer) {
+  function select(id, fromViewer, keepView) {
     S.sel = id; const f = S.res.findings[id];
     document.querySelectorAll('.item').forEach(el => el.classList.toggle('sel', +el.dataset.id === id));
     if (fromViewer) { const el = document.querySelector(`.item[data-id="${id}"]`); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
-    S.page = f.page - 1; drawPage(true);
+    if (S.page !== f.page - 1) S.vc = { L: null, R: null };
+    S.page = f.page - 1;
+    if (S.zoom > 1 && !keepView) centerOn(f);
+    drawPage(true);
   }
+  //   拡大したときの中心(ページの画素): 項目の枠の真ん中。片側に枠がなければ、もう片側と同じ所
+  const mid = bs => { const b = PC.union(bs); return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; };
+  function centerOn(f) { const L = marks(f, 'L'), R = marks(f, 'R'), cl = L.length ? mid(L) : null, cr = R.length ? mid(R) : null; S.vc = { L: cl || cr, R: cr || cl }; }
 
   // ページ表示: 左に原稿、右に成果物(それぞれ半分の幅に合わせる)。判定の枠を重ね、内容で照合したページは対応する範囲を点線で示す
+  //   拡大(＋・－、Ctrl＋ホイール): 原稿と成果物の同じ所を並べて大きく出す。ドラッグ・ホイールで動かすと両方が一緒に動き、項目を選ぶとその所へ寄る
+  const ZL = [1, 1.5, 2, 3, 4, 6];
   let geo = null;
+  const viewMaxH = () => { const v = parseFloat(getComputedStyle($('vscroll')).maxHeight); return isFinite(v) && v > 100 ? v : Math.max(300, window.innerHeight - 130); };
   function drawPage(scrollToSel) {
     if (!S.res) return;
     if (!S.imgs.length) { $('pinfo').textContent = '表示するページはありません'; const c = $('vcanvas'); c.width = c.height = 0; c.style.height = '0px'; geo = null; return; }
@@ -7855,38 +7862,124 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     //   原稿の画像がないページ(成果物だけ・旧版との比べ合わせ)は、成果物を幅いっぱいに出す
     const im = S.imgs[S.page], one = !im.L && !!im.R, gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = one ? cw : (cw - gap) / 2;
     $('vcap').classList.toggle('one', one); $('vcap').innerHTML = one ? '<div>成果物</div>' : '<div>原稿</div><div>成果物</div>';
-    const sR = im.R ? half / im.rw : 1, sL = im.L ? half / im.lw : sR, ox = one ? 0 : half + gap, H = Math.max(im.L ? im.lh * sL : 60, im.R ? im.rh * sR : 0);
+    const sR0 = im.R ? half / im.rw : 1, sL0 = im.L ? half / im.lw : sR0, ox = one ? 0 : half + gap, Z = S.zoom;
+    const fitH = Math.max(im.L ? im.lh * sL0 : 60, im.R ? im.rh * sR0 : 0), H = Z > 1 ? Math.min(viewMaxH(), fitH * Z) : fitH;
+    //   片側の見える範囲: ページの画素で (x0, y0) から、倍率 s。拡大していないときはページ全体
+    const view = (k, w, h, s0, x) => {
+      const s = s0 * Z, vw = half / s, vh = H / s; let x0 = 0, y0 = 0;
+      if (Z > 1) {
+        const c = S.vc[k] || [w / 2, vh / 2];
+        x0 = w <= vw ? (w - vw) / 2 : Math.min(Math.max(0, c[0] - vw / 2), w - vw);
+        y0 = h <= vh ? (h - vh) / 2 : Math.min(Math.max(0, c[1] - vh / 2), h - vh);
+        S.vc[k] = [x0 + vw / 2, y0 + vh / 2];   // 端で止まった所を中心として覚える(ドラッグで戻すときに遅れないように)
+      }
+      return { k, s, x0, y0, ox: x, w: half };
+    };
+    const VL = im.L ? view('L', im.lw, im.lh, sL0, 0) : null, VR = im.R ? view('R', im.rw, im.rh, sR0, ox) : null;
     const c = $('vcanvas'), ctx = c.getContext('2d');
+    c.classList.toggle('zoomed', Z > 1);
     c.style.width = cw + 'px'; c.style.height = Math.round(H) + 'px'; c.width = Math.round(cw * dpr); c.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#eef1f6'; ctx.fillRect(0, 0, cw, H);
-    if (im.L) ctx.drawImage(im.L, 0, 0, im.lw * sL, im.lh * sL);
-    else if (!one) { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('原稿なし（成果物だけを確認）', half / 2, 40); ctx.textAlign = 'start'; }
-    if (im.R) ctx.drawImage(im.R, ox, 0, im.rw * sR, im.rh * sR);
-    else { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('対応する成果物のページなし', ox + half / 2, 40); ctx.textAlign = 'start'; }
+    const clip = (V, fn) => { ctx.save(); ctx.beginPath(); ctx.rect(V.ox, 0, V.w, H); ctx.clip(); fn(); ctx.restore(); };
+    const rectOf = (V, b) => [V.ox + (b[0] - V.x0) * V.s - 3, (b[1] - V.y0) * V.s - 3, (b[2] - b[0]) * V.s + 6, (b[3] - b[1]) * V.s + 6];
+    const label = (t, x) => { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(t, x, 40); ctx.textAlign = 'start'; };
+    if (VL) clip(VL, () => ctx.drawImage(im.L, VL.ox - VL.x0 * VL.s, -VL.y0 * VL.s, im.lw * VL.s, im.lh * VL.s));
+    else if (!one) label('原稿なし（成果物だけを確認）', half / 2);
+    if (VR) clip(VR, () => ctx.drawImage(im.R, VR.ox - VR.x0 * VR.s, -VR.y0 * VR.s, im.rw * VR.s, im.rh * VR.s));
+    else label('対応する成果物のページなし', ox + half / 2);
     const css = getComputedStyle(document.documentElement), boxes = [];
-    if (im.region) { ctx.setLineDash([6, 4]); ctx.strokeStyle = css.getPropertyValue('--accent'); ctx.lineWidth = 1.5; const r = im.region; ctx.strokeRect(ox + r[0] * sR, r[1] * sR, (r[2] - r[0]) * sR, (r[3] - r[1]) * sR); ctx.setLineDash([]); }
+    if (im.region && VR) clip(VR, () => { ctx.setLineDash([6, 4]); ctx.strokeStyle = css.getPropertyValue('--accent'); ctx.lineWidth = 1.5; const r = rectOf(VR, im.region); ctx.strokeRect(r[0] + 3, r[1] + 3, r[2] - 6, r[3] - 6); ctx.setLineDash([]); });
+    //   枠を描き、押せる範囲(見えている部分だけ)を覚える
+    const put = (V, id, b) => { const r = rectOf(V, b); ctx.strokeRect(...r); const x0 = Math.max(r[0], V.ox), x1 = Math.min(r[0] + r[2], V.ox + V.w), y0 = Math.max(r[1], 0), y1 = Math.min(r[1] + r[3], H); if (x1 > x0 && y1 > y0) boxes.push([id, x0, y0, x1, y1]); };
     for (const f of S.res.findings) {
       if (f.page !== S.page + 1 || !visible(f) || f.cat === 'F2') continue;
       const sel = f.id === S.sel; ctx.strokeStyle = css.getPropertyValue('--c-' + colorOf(f)); ctx.lineWidth = sel ? 3 : 1.5;
-      if (im.L) for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) { const r = [b[0] * sL - 3, b[1] * sL - 3, (b[2] - b[0]) * sL + 6, (b[3] - b[1]) * sL + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
-      if (im.R) for (const n of [...marks(f, 'R'), ...(f.moreNboxes || [])]) { const r = [ox + n[0] * sR - 3, n[1] * sR - 3, (n[2] - n[0]) * sR + 6, (n[3] - n[1]) * sR + 6]; ctx.strokeRect(...r); boxes.push([f.id, r[0], r[1], r[0] + r[2], r[1] + r[3]]); }
+      if (VL) clip(VL, () => { for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) put(VL, f.id, b); });
+      if (VR) clip(VR, () => { for (const n of [...marks(f, 'R'), ...(f.moreNboxes || [])]) put(VR, f.id, n); });
     }
-    geo = { boxes };
-    if (scrollToSel && S.sel !== null) { const f = S.res.findings[S.sel]; $('vscroll').scrollTo({ top: Math.max(0, f.box[1] * sL - 150), behavior: 'smooth' }); }
+    geo = { boxes, VL, VR, H };
+    if (Z > 1) $('vscroll').scrollTop = 0;
+    else if (scrollToSel && S.sel !== null) { const f = S.res.findings[S.sel]; $('vscroll').scrollTo({ top: Math.max(0, f.box[1] * sL0 - 150), behavior: 'smooth' }); }
+    $('zLbl').textContent = Z > 1 ? Math.round(Z * 100) + '%' : '全体'; $('zOut').disabled = Z <= 1; $('zIn').disabled = Z >= ZL[ZL.length - 1];
   }
-  $('vcanvas').addEventListener('click', ev => {
+  //   拡大・縮小。at: Ctrl＋ホイールのときのポインタの位置(その下の所を動かさない)
+  function setZoom(z, at) {
+    if (!S.res || !S.imgs.length || !geo) return;
+    z = Math.min(ZL[ZL.length - 1], Math.max(1, z));
+    if (z === S.zoom) return;
+    if (S.zoom === 1) {   // 拡大を始めるとき: 選んだ項目がこのページにあればそこ、なければ今見えている所を中心にする
+      const f = S.sel != null ? S.res.findings[S.sel] : null;
+      if (f && f.page === S.page + 1 && !at) centerOn(f);
+      else { const st = $('vscroll').scrollTop, vh = Math.min($('vscroll').clientHeight || geo.H, geo.H); for (const V of [geo.VL, geo.VR]) if (V) S.vc[V.k] = [V.x0 + V.w / V.s / 2, (st + vh / 2) / V.s]; }
+    }
+    if (at) for (const V of [geo.VL, geo.VR]) {
+      if (!V || !S.vc[V.k]) continue;
+      const px = V.x0 + (at.x - at.ox) / V.s, py = V.y0 + at.y / V.s, c = S.vc[V.k];
+      S.vc[V.k] = [px + (c[0] - px) * S.zoom / z, py + (c[1] - py) * S.zoom / z];
+    }
+    S.zoom = z; drawPage();
+  }
+  const zstep = d => { const i = ZL.indexOf(S.zoom); return ZL[Math.min(ZL.length - 1, Math.max(0, (i < 0 ? 0 : i) + d))]; };
+  $('zIn').onclick = () => setZoom(zstep(1));
+  $('zOut').onclick = () => setZoom(zstep(-1));
+  const cv = $('vcanvas'); let pan = null;
+  cv.addEventListener('click', ev => {
     if (!geo) return;
+    if (S.dragged) { S.dragged = false; return; }   // 動かしたあとは、枠を押したことにしない
     const r = ev.target.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
     const hit = geo.boxes.filter(b => x >= b[1] && x <= b[3] && y >= b[2] && y <= b[4]).sort((p, q) => (p[3] - p[1]) * (p[4] - p[2]) - (q[3] - q[1]) * (q[4] - q[2]))[0];
-    if (hit) select(hit[0], true);
+    if (hit) select(hit[0], true, true);
   });
+  //   拡大中のドラッグ: 原稿と成果物を一緒に動かす
+  cv.addEventListener('pointerdown', ev => {
+    if (S.zoom <= 1 || !geo || ev.button !== 0) return;
+    pan = { x: ev.clientX, y: ev.clientY, vc: { L: S.vc.L && [...S.vc.L], R: S.vc.R && [...S.vc.R] }, moved: false };
+    cv.setPointerCapture(ev.pointerId);
+  });
+  cv.addEventListener('pointermove', ev => {
+    if (!pan) return;
+    const dx = ev.clientX - pan.x, dy = ev.clientY - pan.y;
+    if (!pan.moved && Math.hypot(dx, dy) < 4) return;
+    pan.moved = true; cv.classList.add('panning');
+    for (const V of [geo.VL, geo.VR]) if (V && pan.vc[V.k]) S.vc[V.k] = [pan.vc[V.k][0] - dx / V.s, pan.vc[V.k][1] - dy / V.s];
+    if (!S.raf) S.raf = requestAnimationFrame(() => { S.raf = 0; drawPage(); });
+  });
+  const endPan = () => { if (!pan) return; S.dragged = pan.moved; cv.classList.remove('panning'); pan = null; };
+  cv.addEventListener('pointerup', endPan); cv.addEventListener('pointercancel', endPan);
+  //   ホイール: Ctrl を押しながらで拡大・縮小、拡大中は動かす(拡大していないときは、ふつうにスクロール)
+  cv.addEventListener('wheel', ev => {
+    if (!geo || !S.imgs.length) return;
+    const k = ev.deltaMode === 1 ? 16 : 1;
+    if (ev.ctrlKey) {
+      ev.preventDefault();
+      const now = performance.now(); if (now - (S.zt || 0) < 180) return; S.zt = now;   // タッチパッドで一度に何段も変わらないように
+      const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+      const V = [geo.VL, geo.VR].find(V => V && x >= V.ox && x <= V.ox + V.w) || geo.VR || geo.VL;
+      setZoom(zstep(ev.deltaY < 0 ? 1 : -1), { x, y, ox: V.ox });
+      return;
+    }
+    if (S.zoom <= 1) return;
+    ev.preventDefault();
+    const dx = (ev.shiftKey ? ev.deltaY : ev.deltaX) * k, dy = (ev.shiftKey ? 0 : ev.deltaY) * k;
+    for (const V of [geo.VL, geo.VR]) if (V && S.vc[V.k]) S.vc[V.k] = [S.vc[V.k][0] + dx / V.s, S.vc[V.k][1] + dy / V.s];
+    drawPage();
+  }, { passive: false });
   window.addEventListener('resize', () => drawPage());
   $('hideDone').onchange = () => { renderList(); drawPage(); };
   $('showMinor').onchange = () => { renderList(); drawPage(); };
 
   // ---- 出力 ----
+  const okToExport = what => {
+    if (S.warned) return true;
+    const n = S.res.findings.filter(f => enabled(f) && !groupOf(f).minor && !(S.verdict[f.id] || {}).v).length;
+    if (!n) return true;
+    const ok = confirm(`まだ OK・要修正・保留を付けていない項目が ${n}件あります。\nこのまま${what}しますか？`);
+    if (ok) S.warned = true;
+    return ok;
+  };
   $('csv').onclick = () => {
+    if (!okToExport('CSVで保存')) return;
     const V = { ok: 'OK', fix: '要修正', hold: '保留' }, q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
     const rows = [['No.', 'ページ', '原稿のファイル', '原稿のページ', '成果物のファイル', '成果物のページ', '区分', '結論', 'すること', '違い（原稿→成果物）', '指示', '自動確認', '確認', 'メモ', '補足', '位置（原稿・200dpi）']];
     S.res.findings.filter(f => f.cat !== 'F2' && enabled(f)).sort(cmp).forEach((f, i) => {
@@ -7896,7 +7989,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '校正結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  $('print').onclick = async () => { for (let i = 0; i < S.imgs.length; i++) await ensure(i); document.querySelectorAll('.item').forEach(drawCrops); window.print(); };
+  $('print').onclick = async () => { if (!okToExport('印刷')) return; if (S.only) setOnly(null); for (let i = 0; i < S.imgs.length; i++) await ensure(i); document.querySelectorAll('.item').forEach(drawCrops); window.print(); };
 
   // ---- 詳細設定の画面 ----
   function renderOpts() {
