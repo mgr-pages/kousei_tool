@@ -256,9 +256,10 @@
     if (!PC.isPdf(e)) { e.pages = 1; return; }
     if (!PC.libsReady) return;   // 部品の準備ができたら数える
     try {
-      const d = await PC.openPdf(e.buf.slice(0)); e.pages = d.numPages;
+      const d = await PC.openPdf(e.buf.slice(0)), n = d.numPages;
       //   処理時間の目安に使う: 1ページ目の大きさ(A4 を 1)。原稿は、照合と同じ見分け方で1ページ目の種類を決める
       //   (注釈と文字データがある → 注釈を入れたPDF、ページを覆う画像がない → スキャンでないPDF、それ以外 → 紙のスキャン)
+      //   ページ数は、種類を決めてから入れる(それまでは「読み込み中」。決まる前の目安を出さないように)
       try {
         const pg = await d.getPage(1), vp = pg.getViewport({ scale: 1 }); e.area = Math.max(0.2, (vp.width * vp.height) / (595 * 842));
         if (e.list === 'marks') {
@@ -266,7 +267,7 @@
           e.mk = an && tx ? 'annot' : (await PC.isDigitalPage(d, 0)) ? 'digital' : 'scan';
         }
       } catch (err) { /* 目安に使うだけなので、読めなくてもよい */ }
-      d.destroy();
+      d.destroy(); e.pages = n;
     }
     catch (err) { e.err = 'PDFとして開けません（' + (err && err.message || err) + '）。パスワード付き・壊れたPDFは使えません。'; }
   }
