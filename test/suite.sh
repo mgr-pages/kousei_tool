@@ -9,6 +9,9 @@
 #   差し込み印刷(名刺・社員証)は、testdata/merge を照合し、test/merge/evaluate.py で採点する
 #   紙の赤字原稿＋旧版＋成果物は testdata/scan3 と test/scan3/evaluate.py、文法・話し言葉は testdata/jcheck3 と test/jcheck3/gt.json で採点する
 #   コメント(マーカー・付箋と返信)で指示を入れたPDF原稿は、testdata/annot2 を照合し、test/annot2/evaluate.py で採点する
+#   性質の試験(正解を決めなくても成り立つはずのこと。test/props/check.py): 同じPDFを原稿と成果物・旧版と成果物に入れたら照合の項目は0件、
+#   注釈で指示した原稿と直していない成果物では変化の項目は0件、注釈の数＝結果に指示として出た数。あわせて、架空のPDFに誤りを無作為に
+#   入れる試験(test/realcheck)の成績を出す
 #   bash test/suite.sh テストデータのフォルダ 正解表(gt.json) 採点スクリプト(evaluate.py) 出力フォルダ
 set -u
 DATA=$1; GT=$2; EVAL=$3; OUT=$4
@@ -85,6 +88,21 @@ R=$DATA/redtext
 run "$R/genko.pdf" "$R/base.pdf" redtext_keep &
 run "$R/genko.pdf" "$R/applied.pdf" redtext_applied &
 wait
+# 性質の試験: 同じPDFを原稿と成果物に入れる(same)・旧版と成果物に入れる(oldsame)。デザインの多い架空のチラシとカタログ(test/props/make.py)を含む
+mkdir -p "$OUT/props"
+PROPS="new.pdf props/design.pdf annot2/seika.pdf content/final.pdf records/catalog.pdf merge/seika.pdf redtext/base.pdf charts/final.pdf"
+k=0
+for f in $PROPS; do
+  n=$(echo "$f" | tr '/.' '__')
+  run "$DATA/$f" "$DATA/$f" props/same_$n &
+  OLD="$DATA/$f" run - "$DATA/$f" props/oldsame_$n &
+  k=$((k + 1)); [ $((k % 3)) -eq 0 ] && wait
+done
+#   注釈で指示した原稿と、直していない成果物(注釈PDFの模擬データの元の原稿)
+run "$DATA/T1_digital.pdf" "$DATA/old.pdf" props/unchanged_digital &
+wait
+#   架空のPDFに誤りを無作為に入れる試験(成績を出す。採点は test/realcheck/evaluate.py)
+JOBS=4 bash test/realcheck/run.sh "$OUT/realcheck" 1 12 "$DATA/new.pdf" "$DATA/props/design.pdf" > "$OUT/realcheck.txt" 2>&1
 for s in 1 2 3 4 5 6 7 8; do
   echo "紙 s$s: $(head1 "$OUT/paper_s$s.log" 60) | $(python3 "$EVAL" "$GT" "$OUT/paper_s$s.json" --csv "$OUT/paper_s$s.csv" | sed -n 1p)"
   python3 "$EVAL" "$GT" "$OUT/paper_s$s.json" | tail -n +2
@@ -128,3 +146,11 @@ echo "文法・話し言葉のチェック: $(head1 "$OUT/jcheck3.log" 12) | $(p
 python3 test/jcheck/evaluate.py test/jcheck3/gt.json "$OUT/jcheck3.json" | tail -n +2
 echo "コメントで指示したPDF原稿: $(head1 "$OUT/annot2.log" 12) | $(python3 test/annot2/evaluate.py "$DATA/annot2/truth.json" "$OUT/annot2.json" | sed -n 1p)"
 python3 test/annot2/evaluate.py "$DATA/annot2/truth.json" "$OUT/annot2.json" | tail -n +2
+echo "性質の試験: $(python3 test/props/check.py same "$OUT"/props/same_*.json "$OUT"/props/oldsame_*.json | sed -n 1p)"
+python3 test/props/check.py same "$OUT"/props/same_*.json "$OUT"/props/oldsame_*.json | tail -n +2
+python3 test/props/check.py unchanged "$OUT/props/unchanged_digital.json" | sed 's/^/性質の試験: /'
+python3 test/props/check.py notes "$DATA/T1_digital.pdf" "$OUT/digital.json" | sed 's/^/性質の試験: /'
+python3 test/props/check.py notes "$DATA/annot2/genko.pdf" "$OUT/annot2.json" | sed 's/^/性質の試験: /'
+python3 test/props/check.py notes "$DATA/layout/genko.pdf" "$OUT/layout.json" | sed 's/^/性質の試験: /'
+echo "誤りの無作為挿入（架空のPDF 2組）:"
+sed 's/^/   /' "$OUT/realcheck.txt"

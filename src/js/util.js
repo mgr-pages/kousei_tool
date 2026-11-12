@@ -68,6 +68,34 @@ PC.morph = (m, w, h, op, kw, kh) => {
   return out;
 };
 
+// ---- デジタルどうしの描画の違い(確かな証拠) ----
+//   同じ大きさで、ずれなく重なる2つの描画(スキャンでないPDFどうし)の、色が違う画素を調べる。
+//   同じ内容は同じ画素に描かれるので、描画がまったく同じ所には、変化も赤字の書き込みもない。
+//   字形の比べ方・赤の取り出しのような推定より先に、この証拠を使う(同じPDFどうしで項目を出さないため)
+//   tol: どれかの色の差がこれを超えたら「違う」(目に見えない程度の差は違いとしない)
+//   返り値: null(大きさが違う)。{ m: 違う画素=1, count: その数, same: 違う画素のまわり2画素を除いた「確かに同じ」画素=1,
+//           has(box, margin): 枠(margin 画素広げる)の中に違う画素があるか }
+PC.pixelDiff = (a, b, tol = 8) => {
+  if (!a || !b || a.w !== b.w || a.h !== b.h) return null;
+  const w = a.w, h = a.h, n = w * h, m = new Uint8Array(n), da = a.d, db = b.d;
+  let count = 0;
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    if (Math.abs(da[j] - db[j]) > tol || Math.abs(da[j + 1] - db[j + 1]) > tol || Math.abs(da[j + 2] - db[j + 2]) > tol) { m[i] = 1; count++; }
+  }
+  //   枠の中の違う画素の数を、すぐ求められるようにする(左上からの合計)
+  const W1 = w + 1, sum = new Int32Array(W1 * (h + 1));
+  for (let y = 0; y < h; y++) { let row = 0; for (let x = 0; x < w; x++) { row += m[y * w + x]; sum[(y + 1) * W1 + x + 1] = sum[y * W1 + x + 1] + row; } }
+  const has = (box, margin = 0) => {
+    const x0 = Math.max(0, Math.floor(box[0] - margin)), y0 = Math.max(0, Math.floor(box[1] - margin)), x1 = Math.min(w, Math.ceil(box[2] + margin)), y1 = Math.min(h, Math.ceil(box[3] + margin));
+    if (x1 <= x0 || y1 <= y0) return false;
+    return sum[y1 * W1 + x1] - sum[y0 * W1 + x1] - sum[y1 * W1 + x0] + sum[y0 * W1 + x0] > 0;
+  };
+  let same = null;
+  if (count) { const near = PC.morph(m, w, h, 'dilate', 5, 5); same = new Uint8Array(n); for (let i = 0; i < n; i++) same[i] = near[i] ? 0 : 1; }
+  else same = new Uint8Array(n).fill(1);
+  return { m, w, h, count, same, has };
+};
+
 // ---- 連結成分(8近傍)。OpenCVと同じく、ラスタ順に最初に現れた順で番号を振る ----
 PC.cc = (m, w, h) => {
   const lab = new Int32Array(w * h), parent = [0];

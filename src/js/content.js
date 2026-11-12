@@ -60,9 +60,16 @@
       let ws = '';
       chs.forEach((ch, i) => { if (!ch.trim()) { ws += ch; return; } chars.push({ c: ch, k: PC.fold(ch), box: rects[i], it: idx, brk: wide || /\u3000|\s{2,}/.test(ws), sp: spc || !!ws }); ws = ''; wide = false; spc = false; });
     }
-    // 少しずらして重ねて描いた文字(影・縁取り)で、ほかの文字列の一部だけが重なって描かれたものも除く
+    // 少しずらして重ねて描いた文字(影・縁取り)で、ほかの文字列の一部だけが重なって描かれたものも除く。
+    //   重なる相手の文字列の、その所の字(前後に字1つ分の余裕)に同じ字の並びがあるときだけ除く。行の枠に重なるだけの別の字
+    //   (行の中に上書きで入れた字・注記の番号・ルビなど。相手の文字列のどこかに同じ字があっても、その所の字でなければ別の字)は残す
     const key = s => s.replace(/\s/g, '');
-    const drop = items.map((it, k) => { const t = key(it.s); return !!t && items.some((o, j) => j !== k && key(o.s).length > t.length && key(o.s).includes(t) && inter(o.box, it.box) >= 0.6 * Math.min(area(o.box), area(it.box))); });
+    const byIt = new Map(); chars.forEach(c => { let l = byIt.get(c.it); if (!l) byIt.set(c.it, l = []); l.push(c); });
+    const there = (j, it) => {   // まとまり j の字のうち、枠 it.box の所(字1つ分広げる)にある字の並び
+      const m = it.vert ? 0 : it.size, n = it.vert ? it.size : 0, b = [it.box[0] - m, it.box[1] - n, it.box[2] + m, it.box[3] + n];
+      return (byIt.get(j) || []).filter(c => { const [x, y] = PC.center(c.box); return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }).map(c => c.c).join('');
+    };
+    const drop = items.map((it, k) => { const t = key(it.s); return !!t && items.some((o, j) => j !== k && key(o.s).length > t.length && key(o.s).includes(t) && inter(o.box, it.box) >= 0.6 * Math.min(area(o.box), area(it.box)) && there(j, it).includes(t)); });
     // 仕上がりの範囲(trim)・裁ち落としの範囲(bleed)。PDFに書かれていなければ null
     const bx = page.pcBoxes, vr = r => { const p = vp.convertToViewportRectangle(r); return [Math.min(p[0], p[2]), Math.min(p[1], p[3]), Math.max(p[0], p[2]), Math.max(p[1], p[3])]; };
     const trim = bx && bx.TrimBox ? vr(bx.TrimBox) : null, bleed = bx && bx.BleedBox ? vr(bx.BleedBox) : null;

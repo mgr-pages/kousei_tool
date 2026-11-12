@@ -163,8 +163,11 @@
     return out;
   }
   // 赤字(修正後にも印刷されている赤以外の赤)を紙の色で消し、まわりの赤の跡と小さな点も消す
-  PC.cleanScan = (w, ref) => {
+  //   same: 原稿(スキャンでないPDF)と修正後の描画がまったく同じ画素の印(PC.pixelDiff の same)。その所の赤は、修正後にも同じに
+  //   印刷されている赤なので、赤字(書き込み)ではない(デザインの赤い写真・グラデーションなどを赤字と読まないため)
+  PC.cleanScan = (w, ref, same = null) => {
     const W = w.w, H = w.h, n = W * H, d = w.d, hsv = PC.redMask(w), pr = printedRed(w, ref), core = new Uint8Array(n);
+    if (same) for (let i = 0; i < n; i++) if (same[i]) pr[i] = 1;
     for (let i = 0, j = 0; i < n; i++, j += 4) core[i] = (reddish(d[j], d[j + 1], d[j + 2]) || hsv[i]) && !pr[i] ? 1 : 0;
     const near = morph(core, W, H, 'dilate', 7, 7), g = PC.gray(w), ink = PC.inkMask(w);
     const bg = [0, 1, 2].map(c => { const hist = new Float64Array(256); let m = 0; for (let i = 0; i < n; i++) if (!ink[i]) { hist[d[i * 4 + c]]++; m++; } return m ? Math.trunc(pctHist(hist, m, 50)) : 255; });
@@ -406,6 +409,7 @@
   //   W: 修正後に重ねたスキャン(RGBA)、N: 修正後の描画(RGBA)。どちらも200dpi・同じ大きさ
   //   opt.digital: 原稿がスキャンでないPDF(成果物と同じように描いたもの)。スキャンのぼけに寄せる代わりに、原稿と修正後の両方に
   //   同じ弱いぼかし(DSG)をかけて比べる(文字を線にした所(アウトライン)の描き方のわずかな違いで、同じ字を違うとしないように)
+  //   opt.exact: 原稿と修正後の描画の違い(PC.pixelDiff。ずれなく重なるスキャンでないPDFのとき)。描画がまったく同じ所の赤は赤字としない
   PC.DIGITAL_SG = 0.7;
   PC.ScanPage = class {
     constructor(W, N, opt = {}) {
@@ -417,7 +421,7 @@
     async init(step = () => {}) {
       const { W, N, w, h } = this;
       step('赤字を除いています', 0.05); await PC.tick();
-      const { O, core, pen, pr } = PC.cleanScan(W, N);
+      const { O, core, pen, pr } = PC.cleanScan(W, N, this.exact ? this.exact.same : null);
       this.O = O; this.core = core; this.pen = pen; this.zone = morph(core, w, h, 'dilate', 11, 11);
       // 赤ペンのにじみが届く範囲(印刷の赤のまわりは除く)
       const far = morph(core, w, h, 'dilate', 21, 21), prd = morph(pr, w, h, 'dilate', 7, 7);

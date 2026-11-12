@@ -255,6 +255,9 @@
     }
     merged.push(...layoutChanges(ot, ol, nt, nl, pairs));
     const im = PC.imageChanges(old, nw, ob, nb); im.forEach(imageShow);
+    //   注釈を消した原稿の描画と成果物の描画がまったく同じ所の、字形・図版の変化は出さない(同じ大きさのときだけ)
+    const pd = PC.pixelDiff(old, nw);
+    dropUnchanged(pd, merged, im);
     step('赤字を読み取り', 0.7); await PC.tick();
     const notes0 = await PC.annotations(doc, i), withA = await PC.renderPage(doc, i, PC.DPI, true);
     const { rm, shown } = PC.fromAnnots(withA, old, notes0);
@@ -301,6 +304,10 @@
     //   文字のない字形の変化(図・模様など)で、原稿側の位置(読み順で決めた入る位置)が成果物側と大きく離れるものは、同じレイアウトなので成果物側と同じ所とする
     for (const c of merged) if (c.kind === 'text' && c.tag !== 'layout' && !c.before && !c.after && c.obox && c.nbox && PC.gap(c.obox, c.nbox) > 30 * PC.S) c.obox = c.nbox.slice();
     for (const c of merged) if (c.obox && c.nbox) c.sty = { o: styleOf(old, c.obox), n: styleOf(nw, c.nbox) };   // 書式の指示の確認用
+    //   指示の所(まわり 3pt)の描画が、原稿と成果物でまったく同じ指示に印を付ける(still。その所は変わっていない)。あとで、文字データの裏づけのない変化
+    //   (ページ全体が1つの図とみなされた変化・大きな字形のまとまりの変化など、違う画素がほかの所にあるもの)を、その指示の「直った」に数えない。
+    //   指示の範囲の中がまったく同じ(stillIn)なら、画像・図版の変化は、その指示の「直った」に数えない(となりの字が動いただけの所など)
+    if (pd) for (const a of an) { const qs = a.quads && a.quads.length ? a.quads : [a.box]; a.still = !qs.some(q => pd.has(q, 3 * PC.S + 2)); a.stillIn = !qs.some(q => pd.has(q, 1)); }
     return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, tx, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, w: old.w };
   }
 
@@ -338,6 +345,18 @@
       else if (!paired) out.push(['□', t.box]);
     });
     return out;
+  }
+  // デジタルどうし(スキャンでないPDFの原稿と成果物)で、描画がまったく同じ所の変化を外す。
+  //   exact: 原稿と成果物の描画の違い(PC.pixelDiff。使えないときは null)。ch: 字の変化、im: 画像・図版の変化(どちらも書き換える)
+  //   原稿側の枠にも成果物側の枠にも(まわりを含めて)違う画素がない変化は、字形の切り分け・比べ方の揺れによるもの(同じ内容は同じ画素に描かれる)。
+  //   文字データの比べ合わせから出た違い・文字データの違いにつながった変化(見た目が同じで文字データだけが違う字を含む)は、文字データが証拠なので残す
+  //   (文字データの違いの枠は、消えた所の細い印など、変わった字の形そのものに重ならないことがある)
+  function dropUnchanged(exact, ch, im) {
+    if (!exact) return;
+    const near = b => b && exact.has(b, Math.max(4, Math.min(16, 0.5 * (b[3] - b[1]))));   // まわり: 枠の高さの半分(4〜16画素)
+    const still = c => !near(c.obox) && !near(c.nbox);
+    for (let k = ch.length - 1; k >= 0; k--) if (!ch[k].fromText && !ch[k].txt && still(ch[k])) ch.splice(k, 1);
+    for (let k = im.length - 1; k >= 0; k--) if (still(im[k])) im.splice(k, 1);
   }
   // 紙の赤字原稿(スキャン)のページ: スキャンを修正後に重ねて字形を比べる。修正前の文字は、修正後の文字から推定する
   // スキャンでないPDFの原稿(同じレイアウト): 字の形に加えて、原稿と成果物の文字データどうしも比べ、字の形の違いとして出ていない違いを足す
@@ -508,7 +527,7 @@
       if (!hits.length) continue;
       if (hits.length === 1 && G.filter(x => hitsOf.get(x).includes(hits[0])).length === 1) {
         const r = hits[0]; used.add(r);
-        Object.assign(c, { before: r.before, after: r.after, show: r.show, nbox: r.nbox, diff: r.diff, why: c.why || r.why });
+        Object.assign(c, { before: r.before, after: r.after, show: r.show, nbox: r.nbox, diff: r.diff, why: c.why || r.why, txt: true });   // txt: 文字データの違いにつながった変化
         //   注釈PDFのページ: 字形の変化が文字データの違いを大きく含むとき(字形のまとまりが表ごと・枠ごとになったもの)だけ、原稿側の枠も文字データのものにする
         //   (表の中で文字データの並びが違い、別の行の字に対応づいたときに、正しい字形の枠を動かさないように)
         const area_ = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]), within_ = (b, o) => b[0] >= o[0] - 2 && b[1] >= o[1] - 2 && b[2] <= o[2] + 2 && b[3] <= o[3] + 2;
@@ -550,8 +569,17 @@
     step('スキャンを読み込み', 0.02); await PC.tick();
     const { img, dpi, digital } = await src.image(p);
     step('位置を合わせています', 0.05); await PC.tick();
-    const { W, matched, A, s } = PC.registerScan(img, nw, dpi);
-    const sp = await new PC.ScanPage(W, nw, { digital: !!digital }).init((s, f) => step(s, 0.08 + 0.77 * f));
+    let { W, matched, A, s } = PC.registerScan(img, nw, dpi);
+    //   スキャンでないPDFの原稿が、成果物と同じ大きさで、ずれなく重なるとき: 原稿の描画をそのまま使い(重ね直しの補間をしない)、
+    //   原稿と成果物の描画の違い(PC.pixelDiff)を確かな証拠として使う。描画がまったく同じ所には、変化も赤字の書き込みもない
+    //   (同じPDFどうし・変わっていない所で、字形の切り分けや赤の取り出しの揺れを項目にしないため)
+    let exact = null;
+    if (digital && img.w === nw.w && img.h === nw.h) {
+      const still = Math.abs(A[0] - 1) < 2e-3 && Math.abs(A[4] - 1) < 2e-3 && Math.abs(A[1]) < 2e-3 && Math.abs(A[3]) < 2e-3 && Math.abs(A[2]) < 1 && Math.abs(A[5]) < 1;
+      const pd = PC.pixelDiff(img, nw);
+      if (pd && (still || pd.count <= 0.02 * img.w * img.h)) { exact = pd; W = img; A = [1, 0, 0, 0, 1, 0]; }
+    }
+    const sp = await new PC.ScanPage(W, nw, { digital: !!digital, exact }).init((s, f) => step(s, 0.08 + 0.77 * f));
     //   スキャンでないPDFの原稿: 原稿の文字データの字(位置は重ね合わせと同じに移す)。字の位置は、全角・半角の幅を考えて割り振り、
     //   描画した字の形に合わせる(PC.textCharsSnapped。原稿は PC.DPI で描いてある)
     let own = null;
@@ -584,6 +612,7 @@
     ch.push(...layoutChanges(sp.ot, sp.ol, sp.nt, sp.nl, pairs));
     step('写真・図版を比べています', 0.86); await PC.tick();
     const im = sp.imageChanges(); im.forEach(imageShow);
+    dropUnchanged(exact, ch, im);
     step('赤字を読み取り', 0.9); await PC.tick();
     const { w, h } = nw, rm = PC.morph(sp.pen, w, h, 'open', 2, 2);
     // 赤以外の書き込みだけの行は、赤字の指す先にしない(書き込みに重ねた赤字は「読み取れない赤字」になる)
@@ -1379,6 +1408,19 @@
       return { chk: P_.text.length || P_.ask.length || P_.file.length ? '削除を確認。ほかの指示は人が確認' : '削除を確認（自動確認OK）' };
     }
     if (P_.text.length) {
+      //   マーカーの下の字が、まるごと別の字に置き換わったとき(文字データの違いの「消えた字」＝マーカーの下の字)は、近くにその字があるかでなく、
+      //   その所の字そのものと指示の字を比べる:
+      //     置き換わったあとの字(文字データの違いの「入った字」)か、成果物のマーカーの位置にある字が、指示の字とちょうど同じ → 指示どおり(1字の指示でも確か)
+      //     指示が1〜2字で、入った字に指示の字が含まれない → 指示どおりでない(近くにたまたま同じ字があっても、置き換わった字は違う)
+      //   それ以外(入った字が文字データで対応づいていない・指示が長く、入った字が何個かの違いに分かれているかもしれない)は、下の探し方で決める
+      const segs = (c.fromText || c.txt) && c.diff && c.diff.segs, cat = t => (segs || []).filter(g => g[0] === t).map(g => g[1]).join('').replace(/\s/g, '');
+      if (segs && P_.text.length === 1 && !P_.ask.length && !P_.file.length && a.under && cat('-') && fk(cat('-')) === fk(String(a.under).replace(/\s/g, ''))) {
+        const w = P_.text[0], plus = cat('+'), qs = a.quads && a.quads.length ? a.quads : a.box ? [a.box] : [];
+        const inQ = d.nc.filter(([, b]) => { const x = (b[0] + b[2]) / 2, y = (b[1] + b[3]) / 2; return qs.some(q => x >= q[0] - 1 && x <= q[2] + 1 && y >= q[1] - 1 && y <= q[3] + 1); })
+          .sort((p, q) => (p[1][0] - q[1][0]) || (p[1][1] - q[1][1])).map(x => x[0]).join('').replace(/\s/g, '');
+        if (fk(plus) === fk(w) || fk(inQ) === fk(w)) return { chk: '指示文が修正後にある（自動確認OK）', want: w, sure: true };
+        if ([...w].length <= 2 && plus && !fk(plus).includes(fk(w))) return { chk: '指示文が修正後に見当たらない（要確認）', want: w };
+      }
       const has = w => (fk(ctxOf(w)) + '\u0000' + fk(atMark(w))).includes(fk(w)), miss = P_.text.filter(w => !has(w));   // 載るはずの文字は、行ごとにすべてあるか
       if (!P_.ask.length && !P_.file.length) return miss.length ? { chk: '指示文が修正後に見当たらない（要確認）', want: miss[0] } : { chk: '指示文が修正後にある（自動確認OK）', want: P_.text.join('') };
       return { chk: miss.length ? '指示の内容を確認（人が判断）' : '指示の文字は修正後にある。ほかの指示は人が確認' };
@@ -1742,6 +1784,9 @@
           else if (c.kind !== 'text' && a.kind === 'image') m = ov(c.obox, a.box, 5);
           else if (c.kind === 'text' && a.kind === 'image' && d.kind === 'annot' && (c.fromText || (!c.before && !c.after))) m = nearA(a, c);   // 画像の上のマーカー: 字の入れ替え・文字のない字形の変化
           else if (a.kind === 'area' && c.tag !== 'layout') m = nearA(a, c);
+          //   指示の所の描画がまったく同じ(a.still)なら、その指示はその所では反映されていない。文字データの裏づけのない変化は結びつけない
+          if (m && a.still && !c.fromText && !c.txt) m = false;
+          if (m && a.stillIn && c.kind !== 'text') m = false;
           if (m && a.printedLike) { a.hit.push(c); continue; }
           if (m) { c.status = c.kind === 'text' ? 'A' : 'A_IMG'; c.anchor = a; c.anchors.push(a); a.hit.push(c); }
         }
@@ -1870,7 +1915,7 @@
       }
       for (const c of [...d.ch, ...d.im]) for (const a0 of (c.anchors && c.anchors.length ? c.anchors : [c.anchor || null])) {
         const st = c.hw ? 'H' : c.status || (c.kind === 'text' ? (c.look === 'color' ? 'C3' : c.variant ? 'V' : c.lookAlike ? 'E' : 'C2') : 'C3'), a = a0 || {};
-        let chk = '', wantUsed = '';
+        let chk = '', wantUsed = '', sure = false;   // sure: 置き換わった字そのものが指示の字と同じと確かめた
         if (a.note && c.kind === 'text' && c.tag === 'layout') {   // 改行・追い込みの指示: 段落の始まりが指示どおりに変わったか
           const t = a.note.replace(/\s/g, '');
           if (/改行|改段|段落/.test(t)) chk = (c.show || '').includes('追加') ? '改行を確認（自動確認OK）' : '改行の指示どおりになっていない可能性（要確認）';
@@ -1895,12 +1940,12 @@
             chk = sc ? (any ? '書式の指示どおり（自動確認OK）' : sc) : '書式・組みの指示（人が確認）';
           }
           else if (/^(トル|トルツメ|トルママ|削除)$/.test(want)) chk = c.tag === 'delete' || !c.after ? '削除を確認（自動確認OK）' : '削除されていない可能性（要確認）';
-          else { const r = noteCheck(d, c, a, ctxOf); chk = r.chk; wantUsed = r.want || ''; }
+          else { const r = noteCheck(d, c, a, ctxOf); chk = r.chk; wantUsed = r.want || ''; sure = !!r.sure; }
         }
         add(p + 1, st, c.obox, c.show + (c.look === 'color' ? '（色のみ）' : ''), a.how || c.why || '', a.note || '', chk, c.nbox);
         const f = F[F.length - 1];
         // 指示どおりかを自動で判定できたもの(1字だけの指示は、変わった字がその字そのものでなければ、たまたまある字と見分けられないので人が確認)
-        if (st === 'A' && chk) { const v = autoOf(chk); if (v && !(v === 'ok' && wantUsed && [...wantUsed].length < 2 && (c.after || '').replace(/\s/g, '') !== wantUsed)) f.auto = v; }
+        if (st === 'A' && chk) { const v = autoOf(chk); if (v && !(v === 'ok' && !sure && wantUsed && [...wantUsed].length < 2 && (c.after || '').replace(/\s/g, '') !== wantUsed)) f.auto = v; }
         if (a0) Object.defineProperty(f, 'anchorRef', { value: a0, enumerable: false });
         if (c.textSame && !a0) f.textSame = true;   // 文字データに違いのない字形の変化(字形のまとまり方・位置が変わっただけ。参考)
         if (c.diff) Object.assign(f, { segs: c.diff.segs, same: c.diff.same, pboxes: c.diff.ob, pnboxes: c.diff.nb });

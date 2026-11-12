@@ -3,6 +3,7 @@
 //   ファイルが複数あるときは , でつなぐ(画面と同じく、名前の順に並べて追加される)。旧版(任意)は環境変数 OLD=旧版.pdf で渡す
 //   出力.pages.json に、原稿の各ページが成果物のどのページ・範囲に当たったかを書き出す
 //   環境変数 DEBUG=1 で、ページごとの字形の数・差分の数なども 出力.json と同じ場所に書き出す
+//   環境変数 HTML=別の版のHTML で、ビルドした版の代わりにそのHTMLを使う(直す前の版と比べるとき)
 'use strict';
 const { chromium } = require('playwright'), path = require('path'), fs = require('fs');
 (async () => {
@@ -11,7 +12,7 @@ const { chromium } = require('playwright'), path = require('path'), fs = require
   const logs = [];
   p.on('console', m => { if (m.type() === 'error') logs.push(m.text()); });
   p.on('pageerror', e => logs.push('pageerror: ' + e.message));
-  await p.goto('file://' + path.resolve(__dirname, '../dist/校正ツール.html'));
+  await p.goto('file://' + path.resolve(process.env.HTML || path.resolve(__dirname, '../dist/校正ツール.html')));   // 環境変数 HTML で、別の版のHTML(直す前の版など)を使える
   await p.waitForFunction(() => window.PC && PC.libsReady, null, { timeout: 120000 });
   const many = s => s.split(',').map(x => path.resolve(x));
   if (marks !== '-') await p.setInputFiles('#fMarks', many(marks));   // 「-」は原稿なし(成果物だけをチェック)
