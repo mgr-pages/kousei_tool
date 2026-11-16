@@ -181,6 +181,114 @@
     return out;
   };
 
+  // ---- ページに図形として塗られた部品の範囲(pt): 描画命令をたどり、塗りつぶすパスの、ひと続きの輪郭ごとの範囲を写す ----
+  //   文字をアウトライン化すると、字は図形(塗りつぶすパス)になり、字の輪郭がひと続きずつ並ぶ。四角形(罫・地の色・棒グラフ)と、切り抜き用・線だけのパスは数えない。
+  //   範囲の配列に、塗りの色(col)を付けて返す。「文字データのない文字」を見つけるのに使う(PC.vectorSpots)
+  PC.vectorParts = async (doc, pno) => {
+    const page = await doc.getPage(pno + 1), vp = page.getViewport({ scale: 1 }), ol = await page.getOperatorList(), O = pdfjsLib.OPS;
+    const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+    const FILL = new Set([O.fill, O.eoFill, O.fillStroke, O.eoFillStroke, O.closeFillStroke, O.closeEOFillStroke].filter(x => x !== undefined));
+    const NPT = new Map([[O.moveTo, 1], [O.lineTo, 1], [O.curveTo, 3], [O.curveTo2, 2], [O.curveTo3, 2], [O.closePath, 0], [O.rectangle, 2]]);
+    const out = [], stack = [];
+    let m = [1, 0, 0, 1, 0, 0], col = '0,0,0';
+    for (let k = 0; k < ol.fnArray.length; k++) {
+      const fn = ol.fnArray[k], args = ol.argsArray[k];
+      if (fn === O.save) stack.push([m, col]);
+      else if (fn === O.restore) [m, col] = stack.pop() || [[1, 0, 0, 1, 0, 0], '0,0,0'];
+      else if (fn === O.transform) m = mul(m, args);
+      else if (fn === O.paintFormXObjectBegin) { stack.push([m, col]); if (args && args[0]) m = mul(m, args[0]); }
+      else if (fn === O.paintFormXObjectEnd) [m, col] = stack.pop() || [[1, 0, 0, 1, 0, 0], '0,0,0'];
+      else if (fn === O.setFillRGBColor) col = args && typeof args[0] === 'number' ? Array.from(args).join(',') : String(args);
+      else if (fn === O.setFillColorN || fn === O.setFillTransparent) col = 'p' + k;   // 模様・グラデーション・透明: 塗りごとに別の色とみなす
+      else if (fn === O.constructPath && args && Array.isArray(args[0])) {
+        let j = k + 1; while (j < ol.fnArray.length && (ol.fnArray[j] === O.clip || ol.fnArray[j] === O.eoClip)) j++;
+        if (!FILL.has(ol.fnArray[j])) continue;   // 線だけのパス・切り抜き用のパス
+        const ops = args[0], cs = args[1]; let c = 0, cur = null;
+        const flush = () => { if (cur && cur[2] > cur[0] && cur[3] > cur[1]) { cur.col = col; out.push(cur); } cur = null; };
+        for (const op of ops) {
+          const n = NPT.get(op); if (n === undefined) break;   // 知らない命令: このパスはここまで
+          if (op === O.rectangle) { flush(); c += 4; continue; }
+          if (op === O.moveTo) flush();
+          for (let t = 0; t < n; t++, c += 2) {
+            const p = vp.convertToViewportPoint(m[0] * cs[c] + m[2] * cs[c + 1] + m[4], m[1] * cs[c] + m[3] * cs[c + 1] + m[5]);
+            if (!cur) cur = [p[0], p[1], p[0], p[1]];
+            else { if (p[0] < cur[0]) cur[0] = p[0]; if (p[0] > cur[2]) cur[2] = p[0]; if (p[1] < cur[1]) cur[1] = p[1]; if (p[1] > cur[3]) cur[3] = p[1]; }
+          }
+        }
+        flush();
+      }
+    }
+    return out;
+  };
+
+  // ---- 文字データのない文字(図形として描かれた文字・マーク)のある所(pt)。「文字として確かめていない所」の一覧に使う ----
+  //   B: ページの文字データ(PC.pageText)。返り値: [{ box, n(字の数), size(字の大きさ pt) }]
+  //   1) 図形の部品(PC.vectorParts)のうち、文字データの字の下にあるもの(文字データのある字の飾り・同じ字を図形でも描いたもの)を除く
+  //   2) 地(中に部品を2つ以上含み、それらより3倍以上大きい図形: 囲み・地の丸など)を除く
+  //   3) 重なる・とても近い部品を1字にまとめる(漢字の偏とつくり・点・字の穴)
+  //   4) 同じ色で、高さ(縦組みは幅)の近い字が、字の大きさほどの間で並ぶものを行にする。小さな字(「ー」「、」など)は、となりの字の高さの中にあればつなぐ。
+  //      3字以上で、同じ形だけが並ぶもの(点線・模様・同じ印の列)でない行を残す(色をそろえるのは、色の多いイラストの面を行にしないため)
+  //   5) 字の大きさほどの間で重なって並ぶ行を、1つの所(段落・ロゴ)にまとめる
+  //   写真などの画像の中の文字は対象にしない(画像の中の文字は、ここでは分からない)
+  PC.vectorSpots = async (doc, pno, B) => {
+    const size = b => Math.max(b[2] - b[0], b[3] - b[1]), W = b => b[2] - b[0], H = b => b[3] - b[1], cen = b => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+    let P = (await PC.vectorParts(doc, pno)).filter(b => size(b) >= 1 && size(b) <= 90);
+    if (P.length < 3) return [];
+    const G = 30, idx = (grid, b, k) => { for (let gx = Math.floor(b[0] / G); gx <= Math.floor(b[2] / G); gx++) for (let gy = Math.floor(b[1] / G); gy <= Math.floor(b[3] / G); gy++) { const key = gx + '|' + gy; if (!grid.has(key)) grid.set(key, []); grid.get(key).push(k); } };
+    const near = (grid, b, m = 0) => { const s = new Set(); for (let gx = Math.floor((b[0] - m) / G); gx <= Math.floor((b[2] + m) / G); gx++) for (let gy = Math.floor((b[1] - m) / G); gy <= Math.floor((b[3] + m) / G); gy++) for (const j of grid.get(gx + '|' + gy) || []) s.add(j); return s; };
+    // 1)
+    const TB = [...B.chars.filter(c => !c.ocr).map(c => c.box), ...B.items.filter(it => it.box && !it.ocr && it.s && it.s.trim()).map(it => it.box)], tg = new Map();
+    TB.forEach((b, k) => idx(tg, b, k));
+    const covered = b => { const [x, y] = cen(b); for (const j of near(tg, b)) { const t = TB[j], m = 0.15 * Math.min(W(t), H(t)) + 0.5; if (x >= t[0] - m && x <= t[2] + m && y >= t[1] - m && y <= t[3] + m) return true; } return false; };
+    P = P.filter(b => !covered(b));
+    // 2)
+    let pg = new Map(); P.forEach((b, k) => idx(pg, b, k));
+    const inside = (b, o) => b[0] >= o[0] - 0.3 && b[2] <= o[2] + 0.3 && b[1] >= o[1] - 0.3 && b[3] <= o[3] + 0.3;
+    P = P.filter((o, k) => { const ks = [...near(pg, o)].filter(j => j !== k && inside(P[j], o) && size(P[j]) < size(o)); return !(ks.length >= 2 && size(o) >= 3 * Math.max(...ks.map(j => size(P[j])))); });
+    // 3)
+    pg = new Map(); P.forEach((b, k) => idx(pg, b, k));
+    const par = P.map((_, k) => k), find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+    P.forEach((b, k) => { const s = size(b); for (const j of near(pg, b, 0.25 * s)) { if (j <= k) continue; const o = P[j], g = 0.12 * Math.max(s, size(o)) + 0.3; if (Math.max(b[0], o[0]) - Math.min(b[2], o[2]) <= g && Math.max(b[1], o[1]) - Math.min(b[3], o[3]) <= g) par[find(j)] = find(k); } });
+    const gm = new Map(); P.forEach((b, k) => { const r = find(k); if (!gm.has(r)) gm.set(r, []); gm.get(r).push(b); });
+    const glyphs = [...gm.values()].map(g => { const big = g.reduce((x, y) => (W(y) * H(y) > W(x) * H(x) ? y : x)); return { box: PC.union(g), n: g.length, col: big.col }; }).filter(g => size(g.box) >= 1.5 && size(g.box) <= 80);
+    // 4)
+    pg = new Map(); glyphs.forEach((g, k) => idx(pg, g.box, k));
+    const p2 = glyphs.map((_, k) => k), f2 = x => { while (p2[x] !== x) { p2[x] = p2[p2[x]]; x = p2[x]; } return x; };
+    const link = (a, b) => {
+      const ha = H(a), hb = H(b), wa = W(a), wb = W(b), hh = Math.max(ha, hb), ww = Math.max(wa, wb);
+      const oy = Math.min(a[3], b[3]) - Math.max(a[1], b[1]), ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+      const tall = ha >= hb ? a : b, low = ha >= hb ? b : a, wide = wa >= wb ? a : b, thin = wa >= wb ? b : a;
+      if (-ox <= 0.8 * hh && hh >= 2.5) {   // 横組み
+        if (oy >= 0.5 * Math.min(ha, hb) && Math.min(ha, hb) >= 0.25 * hh) return true;
+        if (H(low) < 0.25 * hh && low[1] >= tall[1] - 0.2 * hh && low[3] <= tall[3] + 0.2 * hh) return true;
+      }
+      if (-oy <= 0.8 * ww && ww >= 2.5) {   // 縦組み
+        if (ox >= 0.5 * Math.min(wa, wb) && Math.min(wa, wb) >= 0.25 * ww) return true;
+        if (W(thin) < 0.25 * ww && thin[0] >= wide[0] - 0.2 * ww && thin[2] <= wide[2] + 0.2 * ww) return true;
+      }
+      return false;
+    };
+    glyphs.forEach((g, k) => { const s = size(g.box); for (const j of near(pg, g.box, s)) if (j > k && glyphs[j].col === g.col && link(g.box, glyphs[j].box)) p2[f2(j)] = f2(k); });
+    const lm = new Map(); glyphs.forEach((g, k) => { const r = f2(k); if (!lm.has(r)) lm.set(r, []); lm.get(r).push(g); });
+    const out = [];
+    for (const L of lm.values()) {
+      if (L.length < 3) continue;
+      if (new Set(L.map(g => Math.round(W(g.box) * 4) + 'x' + Math.round(H(g.box) * 4) + 'x' + g.n)).size < Math.min(3, L.length)) continue;
+      const hs = L.map(g => size(g.box)).sort((a, b) => a - b);
+      out.push({ box: PC.union(L.map(g => g.box)), n: L.length, size: hs[hs.length >> 1] });
+    }
+    // 5) (行がとても多いページは、時間がかかるため、まとめずに行ごとの所にする)
+    for (let again = out.length <= 400; again;) {
+      again = false;
+      for (let i = 0; i < out.length && !again; i++) for (let j = i + 1; j < out.length; j++) {
+        const a = out[i].box, b = out[j].box, s = Math.max(out[i].size, out[j].size);
+        const ox = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), oy = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+        if ((ox > 0 && -oy <= 0.8 * s) || (oy > 0 && -ox <= 0.8 * s)) { out[i] = { box: PC.union([a, b]), n: out[i].n + out[j].n, size: s }; out.splice(j, 1); again = true; break; }
+      }
+    }
+    return out;
+  };
+
   // ---- 長く一致する文字列(対応づけの手がかり): {i, j, n} = A[i..i+n) と B[j..j+n) が同じ ----
   //   位置の手がかりにも使うため、どちらかで行(縦組みは列)が変わる所・離れた所で区切って返す
   //   (区切りは字の位置で見る。PDFの文字のまとまり(item)は、書体が替わるたびに1字ずつに分かれることがあるので使わない)

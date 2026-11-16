@@ -10,6 +10,7 @@
     F: '指示箇所に結びつかない赤字（人が読む）', F2: '引き出し線・注記（指示箇所に付随）', G: '全体指示として読み取った注記',
     M: 'ママ・イキ（変更しない指示）どおり変更なし', H: '赤以外の書き込み（鉛筆・黒など）',
     T: '原稿と違う文字', V: '書き方だけの違い（全角・半角など）', N: '原稿にない文字', I: '原稿が画像の部分（文字では比べられない）', J: '成果物だけで見つけた所（原稿とは比べない）',
+    U: '文字として確かめていない所（文字が図形で、文字データがない）',
     K: '原稿の指示（書き込み・コメント）', W: '成果物の書き込み（アタリ・確認事項）',
   };
   const KEEP = /ママ|イキ/;
@@ -1164,8 +1165,50 @@
   }
   const norm = s => [...String(s).replace(/\s/g, '')].map(PC.fold).join('').replace(/(?<=\d)[,，](?=\d)/g, '');
 
+  // ---- 位置を先に(旧版と成果物が同じレイアウトのとき): 字の並びで対応づけた結果(blocks の ops)を、同じ位置の同じ字で直す ----
+  //   字の並びだけでは、同じ字の並びがページに2回あるとき、どちらが消えた(入った)かを取り違えることがある。
+  //   ・「消えた」とした旧版の字 i と同じ字が、成果物の同じ位置(写した位置から字の大きさの半分以内)にあれば、i とその字 j を対応づける。
+  //     j が別の旧版の字 i2(j と同じ位置にない字)に対応づいていたら、i2 を「消えた」にする(i2 も同じ位置の字を探す)。j が「入った」なら、それを取り消す
+  //   ・「入った」とした成果物の字 j と同じ字が、旧版の同じ位置にあり、その旧版の字が別の位置の成果物の字 j2 に対応づいていたら、入れ替える(j2 を「入った」にする)
+  //   T: 旧版のページ → 成果物のページ(pt)。used: 成果物の字のうち対応づいたもの、snap: 前の旧版のページで使った字(動かさない)
+  function posFirst(A, B, blocks, T, used, snap) {
+    const G = 12, cen = b => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], sz = b => Math.max(1, Math.min(b[2] - b[0], b[3] - b[1]) || Math.max(b[2] - b[0], b[3] - b[1]));
+    const index = (n, at) => { const g = new Map(); for (let k = 0; k < n; k++) { const [x, y] = at(k), key = Math.floor(x / G) + '|' + Math.floor(y / G); if (!g.has(key)) g.set(key, []); g.get(key).push(k); } return g; };
+    const pA = A.chars.map(c => { const [x, y] = cen(c.box); return PC.applyT(T, x, y); }), pB = B.chars.map(c => cen(c.box));
+    const gB = index(B.chars.length, k => pB[k]), gA = index(A.chars.length, k => pA[k]);
+    const look = (g, [x, y]) => { const out = []; for (let gx = Math.floor(x / G) - 1; gx <= Math.floor(x / G) + 1; gx++) for (let gy = Math.floor(y / G) - 1; gy <= Math.floor(y / G) + 1; gy++) for (const k of g.get(gx + '|' + gy) || []) out.push(k); return out; };
+    const near = (i, j) => { const s = 0.5 * sz(B.chars[j].box); return Math.abs(pA[i][0] - pB[j][0]) <= s && Math.abs(pA[i][1] - pB[j][1]) <= s; };
+    //   ops の場所: 旧版の字 i → [まとまり, 番号]、成果物の字 j → [まとまり, 番号]
+    const atI = new Map(), atJ = new Map();
+    blocks.forEach((b, bi) => b.ops.forEach((o, k) => { if (o[0] === '|') return; if (o[0] === '-') atI.set(b.s + o[1], [bi, k]); else if (o[0] === '+') atJ.set(o[1], [bi, k]); else { atI.set(b.s + o[1], [bi, k]); atJ.set(o[2], [bi, k]); } }));
+    const opAt = x => blocks[x[0]].ops[x[1]], setOp = (x, o) => { blocks[x[0]].ops[x[1]] = o; };
+    const qi = [...atI.keys()].filter(i => opAt(atI.get(i))[0] === '-'), qj = [...atJ.keys()].filter(j => opAt(atJ.get(j))[0] === '+');
+    let guard = 0;
+    while ((qi.length || qj.length) && guard++ < 20000) {
+      if (qi.length) {   // 消えたとした旧版の字
+        const i = qi.shift(), xi = atI.get(i); if (!xi || opAt(xi)[0] !== '-') continue;
+        const j = look(gB, pA[i]).find(j => B.chars[j].c === A.chars[i].c && near(i, j) && !snap[j]); if (j === undefined) continue;
+        const xj = atJ.get(j);
+        if (xj) {
+          const o = opAt(xj);
+          if (o[0] === '+') setOp(xj, ['drop']);
+          else { const i2 = blocks[xj[0]].s + o[1]; if (i2 === i || near(i2, j)) continue; setOp(xj, ['-', o[1]]); atI.set(i2, xj); qi.push(i2); }
+        } else if (used[j]) continue;
+        setOp(xi, ['=', opAt(xi)[1], j]); atJ.set(j, xi); used[j] = 1;
+        continue;
+      }
+      const j = qj.shift(), xj = atJ.get(j); if (!xj || opAt(xj)[0] !== '+' || snap[j]) continue;   // 入ったとした成果物の字
+      const i = look(gA, pB[j]).find(i => A.chars[i].c === B.chars[j].c && near(i, j)); if (i === undefined) continue;
+      const xi = atI.get(i); if (!xi) continue;
+      const o = opAt(xi); if (o[0] === '-') { qi.push(i); continue; }
+      const j2 = o[2]; if (j2 === j || near(i, j2) || snap[j2]) continue;
+      setOp(xi, ['=', o[1], j]); setOp(xj, ['+', j2]); atJ.set(j, xi); atJ.set(j2, xj); qj.push(j2);
+    }
+    for (const b of blocks) if (b.ops.some(o => o[0] === 'drop')) b.ops = b.ops.filter(o => o[0] !== 'drop');
+  }
+
   // ---- 旧版(前回の成果物)との比べ合わせ ----
-  //   旧版の各ページが成果物のどのページ・範囲に当たるかを求め、字の並びで対応づける
+  //   旧版の各ページが成果物のどのページ・範囲に当たるかを求め、字の並びで対応づける(同じレイアウトなら、同じ位置の同じ字で直す: posFirst)
   //   返り値: 成果物のページ → { B, st: 字ごとに 0=旧版にない・1=旧版と同じ・2=旧版の別の字から変わった, gone: 旧版から消えた字の続き, maps }
   async function oldDiff(oldDoc, newDoc, NQ, prog, JP) {
     const src = { numPages: oldDoc.numPages, page: p => ({ doc: oldDoc, i: p }), label: () => null, image: async p => ({ img: await PC.renderPage(oldDoc, p, 300, false), dpi: 300 }) };
@@ -1196,6 +1239,7 @@
           blocks = PC.collatePage(A, o.B, opt, o.used, new Set());
         }
       }
+      if (pr.same && pr.T) posFirst(A, o.B, blocks, pr.T, o.used, snap);   // 同じレイアウト: 同じ位置の同じ字を、並びより先に対応づける
       for (const b of blocks) {
         let run = [];
         for (const op of [...b.ops, ['|']]) {
@@ -1203,7 +1247,7 @@
           if (op.length === 3) { o.st[op[2]] = op[0] === '=' ? 1 : op[0] === '~' ? 3 : 2; if (op[0] !== '=') o.oc[op[2]] = A.chars[b.s + op[1]].c; }
           if (op[0] === '-') { run.push(b.s + op[1]); continue; }
           //   at: 消えた字の直後の成果物の字(旧版にない字が続くときはその字。数字のまとまりの中で消えた字を、同じ件に入れるため)
-          if (run.length) o.gone.push({ p, cs: run.map(i => A.chars[i]), T: pr.T, near: op.length === 3 ? o.B.chars[op[2]].box : null, at: op.length === 3 ? op[2] : op[0] === '+' ? op[1] : -1 });
+          if (run.length) o.gone.push({ p, cs: run.map(i => A.chars[i]), T: pr.T, vert: !!(A.items[A.chars[run[0]].it] || {}).vert, near: op.length === 3 ? o.B.chars[op[2]].box : null, at: op.length === 3 ? op[2] : op[0] === '+' ? op[1] : -1 });
           run = [];
         }
       }
@@ -1259,6 +1303,52 @@
     }
     return out;
   }
+  // ---- 文字データのない文字(図形として描かれた文字・ロゴ)の所: 文字としては確かめていない所の一覧(PC.vectorSpots) ----
+  //   見た目で比べたページ(同じレイアウトの原稿・紙の赤字原稿)は、その所の見た目の違いを比べてあるので出さない。
+  //   原稿と文字で比べたページ(データ・ラフの原稿)と、原稿の当たらない所で、文字データのない文字のある所を、ページごとに1件(d.unread)にする。
+  //   原稿の当たらない所は、旧版のページと大きさ・位置がそろっていれば、その所を旧版と成果物で描いて画素で比べる:
+  //   同じなら出さない(前回のまま)。違えば「旧版から見た目が変わった所」(d.shapes。文字データがないので、文字では比べられない変化)
+  async function shapeSpots(P, newDoc, JP, OLD, step) {
+    const VIS = new Set(['annot', 'scan', 'scan3']), k = PC.S, odoc = OLD && OLD.doc;
+    const exactT = T => T && Math.abs(T[0] - 1) < 1e-3 && Math.abs(T[1]) < 1e-3 && Math.abs(T[2]) < 0.2 && Math.abs(T[3]) < 0.2 && Math.abs((T.length > 4 ? T[4] : T[0]) - 1) < 1e-3;
+    //   旧版と成果物の同じ所を描いて比べる(150dpi・色の小さな揺れは許す)。違う画素が4つ以上なら、違う画素を囲む範囲(pt)を返す(同じなら null)
+    const differs = async (p, q, b) => {
+      const box = [b[0] - 1, b[1] - 1, b[2] + 1, b[3] + 1], K = 150 / 72, A = await PC.renderRegion(odoc, p, box, 150), Bc = await PC.renderRegion(newDoc, q, box, 150);
+      if (A.width !== Bc.width || A.height !== Bc.height) return b;
+      const w = A.width, a = A.getContext('2d').getImageData(0, 0, w, A.height).data, c = Bc.getContext('2d').getImageData(0, 0, w, A.height).data;
+      let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (let i = 0, j = 0; i < a.length; i += 4, j++) if (Math.abs(a[i] - c[i]) > 24 || Math.abs(a[i + 1] - c[i + 1]) > 24 || Math.abs(a[i + 2] - c[i + 2]) > 24) { n++; const x = j % w, y = (j / w) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      return n >= 4 ? [box[0] + x0 / K - 1, box[1] + y0 / K - 1, box[0] + (x1 + 1) / K + 1, box[1] + (y1 + 1) / K + 1] : null;
+    };
+    let total = 0, changed = 0;
+    for (let q = 0; q < newDoc.numPages; q++) {
+      if (P.some(d => d.q === q && VIS.has(d.kind) && !d.crop)) continue;   // ページ全体を見た目で比べてある(探さない)
+      const B = JP[q] ? JP[q].B : await PC.pageText(newDoc, q), S = await PC.vectorSpots(newDoc, q, B);
+      if (!S.length) continue;
+      step(q / newDoc.numPages);
+      const ds = P.filter(d => d.q === q && d.kind !== 'none'), op = OLD ? OLD.pairs.findIndex(x => x.q === q && x.same && exactT(x.T)) : -1;
+      for (const sp of S) {
+        const [x, y] = PC.center(sp.box), inR = R => !R || (x >= R[0] && x <= R[2] && y >= R[1] && y <= R[3]);
+        const d0 = ds.find(d => d.kind !== 'newonly' && inR(d.kind === 'content' ? d.pr.region : d.kind === 'records' ? d.cov : d.crop));
+        if (d0 && VIS.has(d0.kind)) continue;   // 見た目で比べてある
+        const inSp = c => { const [cx, cy] = PC.center(c.box); return cx >= sp.box[0] && cx <= sp.box[2] && cy >= sp.box[1] && cy <= sp.box[3]; };
+        if (B.chars.some(c => c.ocr && inSp(c))) continue;   // OCRで読んで比べてある
+        let why = d0 ? 'src' : OLD ? 'old' : 'none', diff = null;
+        if (!d0 && op >= 0) { diff = await differs(op, q, sp.box); if (!diff) continue; }   // 旧版と同じ見た目(前回のまま)
+        //   項目を付ける結果のページ: 原稿と文字で比べたページ、なければ成果物のそのページを表示しているページ、なければ「成果物だけ」のページを足す
+        let d = d0 || ds.find(d => d.kind === 'newonly') || ds.find(d => !d.crop || inR(d.crop));
+        if (!d) {
+          d = { kind: 'newonly', q, src: null, label: null, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], thumbs: { left: null, right: await toThumb(await PC.renderPage(newDoc, q, PC.DPI, false)) } };
+          P.push(d); ds.push(d);
+        }
+        const o = d.crop ? [d.crop[0], d.crop[1]] : [0, 0], px = b => [(b[0] - o[0]) * k, (b[1] - o[1]) * k, (b[2] - o[0]) * k, (b[3] - o[1]) * k];
+        if (diff) { (d.shapes || (d.shapes = [])).push({ nbox: px(diff), old: { p: op, box: diff.map(v => v * k) } }); changed++; continue; }
+        (d.unread || (d.unread = { why, boxes: [] })).boxes.push(px(sp.box)); total++;
+      }
+    }
+    return { total, changed };
+  }
+
   // 旧版から変わった所のうち、どの原稿も当たらない部分のもの(指示にない変更)を、結果のページに付ける
   //   成果物に字がある変化(旧版にない字)は、原稿のあるページでは「原稿にない文字」として出ているので、ここでは
   //   旧版から消えた字と、原稿がまったく当たらないページの旧版にない字を出す
@@ -1277,7 +1367,14 @@
         if (g.taken) continue;   // 原稿のない部分の数字の件に入れたもの(leftovers)
         const ob = PC.union(g.cs.map(c => c.box)), text = g.cs.map(c => c.c).join('');   // 記号だけが消えたもの(「※」など)も出す
         if (noContent && g.at >= 0 && [...text].every(c => PC.NUMC.test(c)) && spanAt(g.at) >= 0) { goneIn.set(g.at, (goneIn.get(g.at) || '') + text); continue; }
-        const nb = g.near ? [g.near[0] - 1, g.near[1], g.near[0] + 1, g.near[3]] : PC.mapBox(g.T, ob);
+        //   消えた字の位置(並びより位置を先に使う):
+        //   ・旧版と成果物でページの大きさ・位置がそろっている(写し方がずれなし)なら、旧版でその字があった所(mb)
+        //   ・そろっていなければ、成果物で続く字(near)の前。ただし near が、mb と同じ行(縦組みは同じ列)の近くにないとき
+        //     (行の終わりで消えた字の続きが、次の行の頭の字に対応づいたときなど)は mb
+        const T = g.T, mb = T ? PC.mapBox(T, ob) : null, along = (a, b) => (g.vert ? [a[1], a[3], b[1], b[3], a[0], a[2], b[0], b[2]] : [a[0], a[2], b[0], b[2], a[1], a[3], b[1], b[3]]);
+        const ident = T && Math.abs(T[0] - 1) < 0.01 && Math.abs(T[1]) < 0.01 && Math.abs(T[2]) < 3 && Math.abs(T[3]) < 3 && Math.abs((T.length > 4 ? T[4] : T[0]) - 1) < 0.01;
+        const nearOk = n => { if (!mb) return true; if (ident) return false; const [a0, a1, b0, b1, c0, c1, d0, d1] = along(n, mb), h = Math.max(1, Math.min(c1 - c0, d1 - d0)); return Math.min(c1, d1) - Math.max(c0, d0) >= 0.5 * h && Math.max(a0 - b1, b0 - a1) <= 2 * Math.max(c1 - c0, d1 - d0); };
+        const nb = g.near && nearOk(g.near) ? [g.near[0] - 1, g.near[1], g.near[0] + 1, g.near[3]] : mb || PC.mapBox(T, ob);
         if (covered(nb)) continue;
         items.push({ kind: 'del', text, segs: [['-', text]], nbox: nb, old: { p: g.p, box: px(ob) }, ocr: g.cs.some(c => c.ocr) });
       }
@@ -1731,6 +1828,10 @@
     if (OLD) for (const d of P) if (d.kind === 'content' && OLD.byQ.has(d.q)) d.oldSt = OLD.byQ.get(d.q).st;
     leftovers(P, NQ, OLD && OLD.byQ);
     if (OLD) await oldChanges(P, OLD, newDoc);
+    //   文字データのない文字(図形の文字・ロゴ)の所: 文字としては確かめていない所・旧版から見た目が変わった所
+    prog('文字データのない文字の所を調べています', 0.975); await PC.tick();
+    const SH = await shapeSpots(P, newDoc, JP, OLD ? { ...OLD, doc: opts.oldDoc } : null, f => prog('文字データのない文字の所を調べています', 0.975 + 0.008 * f));
+    if (SH.total) warn.push(`文字が図形になっていて文字データのない所が ${SH.total}か所あり、文字としては確かめていません（一覧の「文字として確かめていない所」。見た目で比べたページは除く）`);
     const none = P.map(d => (d.kind === 'none' && !d.label ? d.src + 1 : 0)).filter(Boolean), noneV = P.filter(d => d.kind === 'none' && d.label).map(d => d.label);
     if (none.length) warn.push(`原稿の${spans(none)}ページ目は、対応する成果物のページが見つかりませんでした（照合していません）`);
     if (noneV.length) warn.push(`${noneV.join('、')}は、成果物に載っている所が見つかりませんでした（照合していません）`);
@@ -1908,6 +2009,15 @@
         const f = add(p + 1, x.variant ? 'V' : 'C2', x.nbox, x.text, x.variant ? '旧版から書き方だけ変わった所（全角・半角など）' : '旧版から変わった所（原稿のない部分）', '', '', x.nbox);
         Object.assign(f, { onNew: true, newOnly: true, fromOld: x.kind, segs: x.segs, same: false, pnboxes: [x.nbox], old: x.old });
         if (x.ocr) f.ocr = true;
+      }
+      if (d.unread) {   // 文字データのない文字(図形の文字・ロゴ)の所: 文字としては確かめていない所。ページごとに1件(大きい所から)
+        const bs = d.unread.boxes.slice().sort((x, y) => (y[2] - y[0]) * (y[3] - y[1]) - (x[2] - x[0]) * (x[3] - x[1]));
+        const f = add(p + 1, 'U', bs[0], '', '', '', '', bs[0]);
+        Object.assign(f, { onNew: true, newOnly: true, why: d.unread.why, spotN: bs.length, moreNboxes: bs.slice(1), pnboxes: [bs[0]] });
+      }
+      for (const x of d.shapes || []) {   // 旧版から見た目が変わった所(文字データのない文字・ロゴ。文字では比べられない変化)
+        const f = add(p + 1, 'C3', x.nbox, '', '旧版から見た目が変わった所（文字データのない文字・ロゴ）', '', '', x.nbox);
+        Object.assign(f, { onNew: true, newOnly: true, fromOld: 'shape', shape: true, pnboxes: [x.nbox], old: x.old });
       }
       for (const x of d.jf || []) {   // 成果物だけで見た問題
         const f = add(p + 1, 'J', x.nbox, x.show, '', '', '', x.nbox);

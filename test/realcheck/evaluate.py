@@ -7,7 +7,7 @@
 #     same.json   同じファイルどうし(base.pdf を原稿と成果物に入れたもの)。照合の項目が0件になるはず
 #   見つけた: 成果物だけのチェック(J)以外の項目の枠が、誤りの枠(字の大きさの半分だけ広げたもの)に重なる
 #   余分な検出: どの誤りの枠(字の大きさだけ広げたもの)にも重ならない項目(成果物だけのチェックは数えない)
-#     成果物だけで見る項目(J と、見た目が同じで文字データが違う字の指摘)は外す。全体指示・以下同様の推定から出た項目(D・C1)は別に数える
+#     成果物だけで見る項目(J と、見た目が同じで文字データが違う字の指摘)と、文字として確かめていない所(U)は外す。全体指示・以下同様の推定から出た項目(D・C1)は別に数える
 #     誤りを入れた副作用で見た目が変わった所(truth.json の side。字を取り除いたあと、同じ行の後ろの字が少し動いた所など)に出た項目も別に数える
 #   注釈つきの原稿では、役割ごとに判定が正しいかも見る:
 #     指示どおり(ok)        → 赤字どおり変わった・自動で確認済み(自動OK)。「人が判断」は別に数える
@@ -32,7 +32,7 @@ def boxes(f):
 def load(d, mode):
     rp = os.path.join(d, mode + '.json')
     if not os.path.exists(rp): return None
-    F = [f for f in json.load(open(rp, encoding='utf-8')) if f['cat'] != 'J' and not f.get('lint')]
+    F = [f for f in json.load(open(rp, encoding='utf-8')) if f['cat'] not in ('J', 'U') and not f.get('lint')]   # U: 文字として確かめていない所(変化の項目ではない)
     pages = json.load(open(os.path.join(d, mode + '.pages.json'), encoding='utf-8'))
     q = lambda f: pages[f['page'] - 1]['q'] if 0 < f['page'] <= len(pages) and pages[f['page'] - 1].get('q') is not None else f['page'] - 1
     return F, q

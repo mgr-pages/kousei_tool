@@ -2,11 +2,12 @@
 #   python3 test/props/check.py same 結果.json...            同じPDFを原稿と成果物(または旧版と成果物)に入れた結果: 照合の項目が0件か
 #   python3 test/props/check.py unchanged 結果.json...       注釈で指示した原稿と、直していない成果物の結果: 変化の項目が0件か
 #   python3 test/props/check.py notes 原稿.pdf 結果.json     注釈の数＝結果に指示として出た数か(返信は返信先にまとめる)。PyMuPDF が要る
-#   照合の項目: 成果物だけで見る項目(J と、見た目が同じで文字データが違う字の指摘)を除いたもの
+#   照合の項目: 成果物だけで見る項目(J と、見た目が同じで文字データが違う字の指摘)と、文字として確かめていない所(U)を除いたもの
 #   変化の項目: 指示にない変更(C2・C3)・赤字どおり変わった(A・A_IMG)・文字だけ違う(E)・書き方だけの違い(V)・全体指示どおり(C1)・原稿と違う(T・N)
 import json, sys, os
 mode, args = sys.argv[1], sys.argv[2:]
-load = lambda p: [f for f in json.load(open(p, encoding='utf-8')) if f['cat'] != 'J' and not f.get('lint')]
+if mode != 'notes': args = [a for a in args if not a.endswith('.pages.json')]   # 結果.pages.json(ページの対応)は、結果のファイルの名前の並び(same_*.json など)に入っても使わない
+load =lambda p: [f for f in json.load(open(p, encoding='utf-8')) if f['cat'] not in ('J', 'U') and not f.get('lint')]   # U: 文字として確かめていない所(変化の項目ではない)
 name = lambda p: os.path.basename(p).replace('.json', '')
 if mode == 'same':
     bad = [(name(p), F) for p in args for F in [load(p)] if F]

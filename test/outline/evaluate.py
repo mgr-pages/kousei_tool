@@ -14,7 +14,7 @@ for e in gt['expect']:
     k = hit[0]; used.add(k); f = res[k]
     segs = f.get('segs') or []
     old = ''.join(s[1] for s in segs if s[0] == '-'); new = ''.join(s[1] for s in segs if s[0] == '+')
-    good = e['old'] in old and (not need_new or e['new'] in new)
+    good = (e['old'] in old and (not need_new or e['new'] in new)) or (gt.get('look') and f.get('shape'))   # look: 文字では比べられない所なので、見た目の違いとして出れば合格
     ok += good
     if not good: lines.append(f"   不合格 {e['what']}（出た違い：{old or '（なし）'}→{new or '（なし）'}）")
 extra = [f for k, f in enumerate(res) if k not in used]

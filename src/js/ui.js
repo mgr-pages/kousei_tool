@@ -27,6 +27,8 @@
     { key: 'C1', label: '全体・以下同様どおり', test: f => f.cat === 'C1' },
     { key: 'V', label: '全角・半角などの違い', test: f => f.cat === 'V' },
     { key: 'I', label: '原稿が画像の部分（目で確認）', test: f => f.cat === 'I' },
+    // 文字が図形になっていて文字データのない所(ロゴなど): 文字としては確かめていない所(見た目で比べたページは除く)
+    { key: 'U', label: '文字として確かめていない所（文字が図形）', test: f => f.cat === 'U' },
     { key: 'J2', label: '成果物だけで見つけた確認事項（表記ゆれなど）', test: f => f.cat === 'J' },
     { key: 'minor', label: '参考', test: () => true, minor: true },
   ];
@@ -52,6 +54,7 @@
       ['note', '原稿の指示・コメント、成果物の書き込み（アタリなど）', f => f.cat === 'K' || f.cat === 'W'],
       ['unread', '読み取れない赤字・注記', f => ['F', 'F2', 'G', 'H'].includes(f.cat)],
       ['image', '原稿が画像の部分・原稿のない部分', f => f.cat === 'I'],
+      ['shape', '文字が図形の所（文字として確かめていない所）', f => f.cat === 'U'],
       ['ocr', '文字データのない所（OCRで読んだ字）の違い', f => !!f.ocr],
     ]],
     ['旧版と比べる', [
@@ -126,6 +129,8 @@
     }
     if (f.oldSame) return ['前回のまま', '原稿のない部分ですが、旧版と同じです'];
     if (f.ocr) return [f.fromOld ? (S.runMode === 'old' ? '前回から変わった？（OCR）' : '旧版と違う？（OCR）') : '原稿と違う？（OCR）', '文字データのない所（アウトライン化・画像の文字）をOCRで読んで比べました。読み違いのこともあるので、切り抜きで確かめてください'];
+    if (f.shape) return [S.runMode === 'old' ? '前回から変わった（図形の文字）' : '旧版から変わった（図形の文字）', '文字が図形になっていて文字データのない所（ロゴなど）の見た目が変わっています。文字では比べられないので、切り抜きで確認'];
+    if (f.cat === 'U') return ['文字として確かめていない', UWHY[f.why] || UWHY.none];
     if (f.fromOld && f.cat === 'V') return ['書き方だけ変わった', `${S.runMode === 'old' ? '前回の成果物' : '旧版'}から、全角・半角などの書き方だけが変わっています。意図した変更か確認`];
     if (f.fromOld && S.runMode === 'old') return ['前回から変わった', f.fromOld === 'del' ? '前回の成果物にあった文字がなくなっています。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '前回の成果物から変わっています。意図した変更か確認' : '前回の成果物にない文字があります。意図した追加か確認'];
     if (f.fromOld) return ['指示にない変更（旧版から）', f.fromOld === 'del' ? '旧版にあった文字がなくなっています（原稿のない部分）。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '旧版から変わっています（原稿のない部分）。意図した変更か確認' : '旧版にない文字があります（原稿のない部分）。意図した変更か確認'];
@@ -188,6 +193,8 @@
     }
     return `<div class="rows"><span class="lb">${from}</span><span class="tx">${o}</span><span class="lb">成果物</span><span class="tx">${n}</span></div>`;
   }
+  //   文字として確かめていない理由(項目の why)
+  const UWHY = { src: '文字が図形になっていて文字データがないため、原稿とは文字で比べていません。目で確認', old: '文字が図形になっていて文字データがないため、成果物だけのチェックをしていません。旧版とはページの大きさ・位置がそろわず、見た目でも比べていません。目で確認', none: '文字が図形になっていて文字データがないため、成果物だけのチェック（表記・日付など）をしていません。目で確認' };
   // 項目の中身: 何が違うか(どの種類でも、なるべく短く)
   function whatHtml(f) {
     const q = s => `「${esc(clipMid(s || ''))}」`;
@@ -212,6 +219,8 @@
     if (f.cat === 'K') return '';   // 指示文は下の行に出す
     if (f.cat === 'W') return `<div class="what">${q(f.show)}</div>`;
     if (f.cat === 'I') return `<div class="what">成果物の文字：${esc(longCut(f.show))}</div>`;
+    if (f.cat === 'U') return `<div class="what">このページで、文字が図形になっている所 ${+f.spotN || 1}か所（ページの表示で枠を確認）</div>`;
+    if (f.shape) return '<div class="what">見た目が変わっています（文字データがないため、切り抜きで確認）</div>';
     if (f.kind === 'layout' || f.kind === 'image') return `<div class="what">${esc(f.show.replace(/[（）]/g, ''))}</div>`;
     if (f.cat === 'C2' || f.cat === 'A' || f.cat === 'C1') return '<div class="what">見た目が変わっています（文字データがないため、切り抜きで確認）</div>';
     return f.show ? `<div class="what">${esc(clipMid(geta(f.show)))}</div>` : '';
@@ -220,6 +229,8 @@
   function diffText(f) {
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
     if (f.textSame) return '文字データは同じ（字形・位置の違い）';
+    if (f.cat === 'U') return `文字が図形の所 ${+f.spotN || 1}か所（文字として確かめていない）`;
+    if (f.shape) return '見た目の変化（文字データのない文字・ロゴ）';
     if (f.cat === 'J') return `${f.j.ctx[0]}【${f.show}】${f.j.ctx[1]}：${f.j.msg}${f.j.want ? `（候補「${f.j.want}」）` : ''}`;
     if (f.segs && !f.same) return groupsOf(PC.numberSegs(f.segs)).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
     if (f.same) return '見た目だけの違い';
@@ -817,7 +828,9 @@
       const f = f0 && typeof f0 === 'object' ? f0 : {}, g = { ...f, id: i, page: Math.min(P, Math.max(1, Math.round(num(f.page)) || 1)), cat: str(f.cat), label: str(f.label), box: box4(f.box) || [0, 0, 0, 0], nbox: box4(f.nbox), show: str(f.show), how: str(f.how), note: str(f.note), check: str(f.check) };
       for (const k of ['pboxes', 'pnboxes', 'moreBoxes', 'moreNboxes']) if (k in f) g[k] = Array.isArray(f[k]) ? f[k].map(box4).filter(Boolean) : [];
       for (const k of ['frm', 'to', 'byInstr', 'ref', 'dropText']) if (k in f) g[k] = str(f[k]);
-      for (const k of ['more', 'goneN']) if (k in f) g[k] = num(f[k]);
+      for (const k of ['more', 'goneN', 'spotN']) if (k in f) g[k] = num(f[k]);
+      if ('why' in f) g.why = str(f.why);
+      if ('shape' in f) g.shape = !!f.shape;
       if ('noteBox' in f) g.noteBox = box4(f.noteBox);
       if ('segs' in f) g.segs = Array.isArray(f.segs) ? f.segs.filter(x => Array.isArray(x) && ['=', '-', '+'].includes(x[0])).map(x => [x[0], str(x[1])]) : [];
       if ('refs' in f) g.refs = Array.isArray(f.refs) ? f.refs.map(str) : [];
