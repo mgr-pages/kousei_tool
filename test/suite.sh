@@ -58,6 +58,9 @@ run "$DATA/outline/genko.txt" "$DATA/outline/seika_ng.pdf" outline_text_ng &
 OLD="$DATA/outline/old.pdf" run - "$DATA/outline/seika_ng.pdf" outline_old_ng &
 #   旧版も成果物もアウトライン化した所の違い(文字データがどちらにもないので、その所を描いて見た目で比べる)
 OLD="$DATA/outline/seika.pdf" run - "$DATA/outline/seika_ng.pdf" outline_old_shape &
+#   小さな字(8pt・6pt)をアウトライン化した旧版と成果物: 数字を1字ずつ変えたもの・字を 0.06pt ずらしただけのもの(test/outline/make_small.py)
+OLD="$DATA/outline/small.pdf" run - "$DATA/outline/small_ng.pdf" outline_old_small &
+OLD="$DATA/outline/small.pdf" run - "$DATA/outline/small_shift.pdf" outline_old_small_shift &
 # グラフを含むデータファイルの原稿(Excel・PowerPoint・Word)と、グラフを載せた成果物(test/charts/make.py で作った模擬データ)
 run "$DATA/charts/chart.xlsx,$DATA/charts/chart.pptx,$DATA/charts/chart.docx" "$DATA/charts/final.pdf" charts &
 # 商品マスタの一部の列を載せたカタログ・ページの端の切れ端(test/records/make.py で作った模擬データ)。ページの辞書を圧縮したPDFでも同じか
@@ -127,7 +130,7 @@ echo "価格・計算・番号のチェック: $(head1 "$OUT/jcheck2.log" 30) | 
 python3 test/jcheck/evaluate.py test/jcheck2/gt.json "$OUT/jcheck2.json" | tail -n +2
 echo "書式の指示: $(head1 "$OUT/layout.log" 30) | $(python3 test/layout/evaluate.py test/layout/gt.json "$OUT/layout.json" | sed -n 1p)"
 python3 test/layout/evaluate.py test/layout/gt.json "$OUT/layout.json" | tail -n +2
-for k in same ng plain text_same text_ng old_ng old_shape; do nn=$([ "${k%_ng}" != "$k" ] && [ "$k" != ng ] && echo --need-new); echo "アウトライン（$k）: $(head1 "$OUT/outline_$k.log" 24) | $(python3 test/outline/evaluate.py test/outline/gt.json $k "$OUT/outline_$k.json" $nn | sed -n 1p)"; python3 test/outline/evaluate.py test/outline/gt.json $k "$OUT/outline_$k.json" $nn | tail -n +2; done
+for k in same ng plain text_same text_ng old_ng old_shape old_small old_small_shift; do nn=$([ "${k%_ng}" != "$k" ] && [ "$k" != ng ] && echo --need-new); echo "アウトライン（$k）: $(head1 "$OUT/outline_$k.log" 24) | $(python3 test/outline/evaluate.py test/outline/gt.json $k "$OUT/outline_$k.json" $nn | sed -n 1p)"; python3 test/outline/evaluate.py test/outline/gt.json $k "$OUT/outline_$k.json" $nn | tail -n +2; done
 echo "グラフ: $(head1 "$OUT/charts.log" 24) | $(python3 test/charts/evaluate.py test/charts/gt.json "$OUT/charts.json" | sed -n 1p)"; python3 test/charts/evaluate.py test/charts/gt.json "$OUT/charts.json" | tail -n +2
 echo "複数ファイル（紙）: 1ファイルのときと$(same "$OUT/split_scan.json" "$OUT/paper_s1.json")"
 echo "複数ファイル（注釈）: 1ファイルのときと$(same "$OUT/split_digital.json" "$OUT/digital.json")"

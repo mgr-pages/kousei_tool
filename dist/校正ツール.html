@@ -6848,19 +6848,33 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // ---- 文字データのない文字(図形として描かれた文字・ロゴ)の所: 文字としては確かめていない所の一覧(PC.vectorSpots) ----
   //   見た目で比べたページ(同じレイアウトの原稿・紙の赤字原稿)は、その所の見た目の違いを比べてあるので出さない。
   //   原稿と文字で比べたページ(データ・ラフの原稿)と、原稿の当たらない所で、文字データのない文字のある所を、ページごとに1件(d.unread)にする。
-  //   原稿の当たらない所は、旧版のページと大きさ・位置がそろっていれば、その所を旧版と成果物で描いて画素で比べる:
+  //   原稿の当たらない所は、旧版のページと大きさ・位置がそろっていれば、その所の図形(輪郭と塗りの色)を旧版と成果物で突き合わせる:
   //   同じなら出さない(前回のまま)。違えば「旧版から見た目が変わった所」(d.shapes。文字データがないので、文字では比べられない変化)
   async function shapeSpots(P, newDoc, JP, OLD, step) {
     const VIS = new Set(['annot', 'scan', 'scan3']), k = PC.S, odoc = OLD && OLD.doc;
     const exactT = T => T && Math.abs(T[0] - 1) < 1e-3 && Math.abs(T[1]) < 1e-3 && Math.abs(T[2]) < 0.2 && Math.abs(T[3]) < 0.2 && Math.abs((T.length > 4 ? T[4] : T[0]) - 1) < 1e-3;
-    //   旧版と成果物の同じ所を描いて比べる(150dpi・色の小さな揺れは許す)。違う画素が4つ以上なら、違う画素を囲む範囲(pt)を返す(同じなら null)
-    const differs = async (p, q, b) => {
-      const box = [b[0] - 1, b[1] - 1, b[2] + 1, b[3] + 1], K = 150 / 72, A = await PC.renderRegion(odoc, p, box, 150), Bc = await PC.renderRegion(newDoc, q, box, 150);
-      if (A.width !== Bc.width || A.height !== Bc.height) return b;
-      const w = A.width, a = A.getContext('2d').getImageData(0, 0, w, A.height).data, c = Bc.getContext('2d').getImageData(0, 0, w, A.height).data;
-      let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
-      for (let i = 0, j = 0; i < a.length; i += 4, j++) if (Math.abs(a[i] - c[i]) > 24 || Math.abs(a[i + 1] - c[i + 1]) > 24 || Math.abs(a[i + 2] - c[i + 2]) > 24) { n++; const x = j % w, y = (j / w) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-      return n >= 4 ? [box[0] + x0 / K - 1, box[1] + y0 / K - 1, box[0] + (x1 + 1) / K + 1, box[1] + (y1 + 1) / K + 1] : null;
+    //   旧版と成果物の同じ所の図形の部品(輪郭ごとの範囲と塗りの色。PC.vectorParts)を突き合わせる。返り値: 変わった所(pt)の一覧(同じなら空)
+    //   範囲が 0.25pt 以内でそろい、塗りの色(RGB)が 8 以内でそろう部品どうしを同じとし、相手のない部品を近いもの(3pt 以内)どうしでまとめて、変わった所にする。
+    //   (描いた画素で比べると、書き出し直しで図形がわずかにずれた所や、透明の重なりの描き方がわずかに違う所も違いになり、小さな字の変化と
+    //    見分けられなかった(実データのカタログ)。図形そのものを比べれば、その揺れは入らない。図形の後ろの写真などの画像は比べない)
+    const partsOf = new Map(), parts = async (doc, pg, key) => { if (!partsOf.has(key)) partsOf.set(key, await PC.vectorParts(doc, pg)); return partsOf.get(key); };
+    const colOk = (a, c) => { if (a === c || (a[0] === 'p' && c[0] === 'p')) return true; const u = a.split(','), v = c.split(','); return u.length === 3 && v.length === 3 && u.every((x, i) => Math.abs(+x - +v[i]) <= 8); };
+    const differs = async (p, q, b, T) => {
+      //   どの辺も 0.3pt に満たない部品(グラデーションを細い帯で描いた所の、見えない切れ端など)は比べない(6pt の字の点でも 0.5pt ほどある)
+      const A = [b[0] - 1, b[1] - 1, b[2] + 1, b[3] + 1], inA = r => { const x = (r[0] + r[2]) / 2, y = (r[1] + r[3]) / 2; return Math.max(r[2] - r[0], r[3] - r[1]) >= 0.3 && x >= A[0] && x <= A[2] && y >= A[1] && y <= A[3]; };
+      const O = (await parts(odoc, p, 'o' + p)).map(r => { const m = PC.mapBox(T, r); m.col = r.col; return m; }).filter(inA), N = (await parts(newDoc, q, 'n' + q)).filter(inA);
+      const used = new Uint8Array(O.length), lone = [], E = 0.25;
+      for (const r of N) {
+        let hit = -1;
+        for (let i = 0; i < O.length; i++) { const o = O[i]; if (!used[i] && Math.abs(o[0] - r[0]) <= E && Math.abs(o[1] - r[1]) <= E && Math.abs(o[2] - r[2]) <= E && Math.abs(o[3] - r[3]) <= E && colOk(o.col, r.col)) { hit = i; break; } }
+        if (hit >= 0) used[hit] = 1; else lone.push(r);
+      }
+      O.forEach((r, i) => { if (!used[i]) lone.push(r); });
+      if (!lone.length) return [];
+      const par = lone.map((_, k) => k), find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
+      for (let i = 0; i < lone.length; i++) for (let j = i + 1; j < lone.length; j++) { const u = lone[i], v = lone[j]; if (Math.max(u[0], v[0]) - Math.min(u[2], v[2]) <= 3 && Math.max(u[1], v[1]) - Math.min(u[3], v[3]) <= 3) par[find(j)] = find(i); }
+      const g = new Map(); lone.forEach((r, k) => { const x = find(k); if (!g.has(x)) g.set(x, []); g.get(x).push(r); });
+      return [...g.values()].map(rs => { const u = PC.union(rs); return [u[0] - 1, u[1] - 1, u[2] + 1, u[3] + 1]; });
     };
     let total = 0, changed = 0;
     for (let q = 0; q < newDoc.numPages; q++) {
@@ -6876,7 +6890,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         const inSp = c => { const [cx, cy] = PC.center(c.box); return cx >= sp.box[0] && cx <= sp.box[2] && cy >= sp.box[1] && cy <= sp.box[3]; };
         if (B.chars.some(c => c.ocr && inSp(c))) continue;   // OCRで読んで比べてある
         let why = d0 ? 'src' : OLD ? 'old' : 'none', diff = null;
-        if (!d0 && op >= 0) { diff = await differs(op, q, sp.box); if (!diff) continue; }   // 旧版と同じ見た目(前回のまま)
+        if (!d0 && op >= 0) { diff = await differs(op, q, sp.box, OLD.pairs[op].T); if (!diff.length) continue; }   // 旧版と同じ図形(前回のまま)
         //   項目を付ける結果のページ: 原稿と文字で比べたページ、なければ成果物のそのページを表示しているページ、なければ「成果物だけ」のページを足す
         let d = d0 || ds.find(d => d.kind === 'newonly') || ds.find(d => !d.crop || inR(d.crop));
         if (!d) {
@@ -6884,7 +6898,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
           P.push(d); ds.push(d);
         }
         const o = d.crop ? [d.crop[0], d.crop[1]] : [0, 0], px = b => [(b[0] - o[0]) * k, (b[1] - o[1]) * k, (b[2] - o[0]) * k, (b[3] - o[1]) * k];
-        if (diff) { (d.shapes || (d.shapes = [])).push({ nbox: px(diff), old: { p: op, box: diff.map(v => v * k) } }); changed++; continue; }
+        if (diff) { for (const db of diff) { (d.shapes || (d.shapes = [])).push({ nbox: px(db), old: { p: op, box: db.map(v => v * k) } }); changed++; } continue; }
         (d.unread || (d.unread = { why, boxes: [] })).boxes.push(px(sp.box)); total++;
       }
     }
