@@ -2859,7 +2859,11 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // ---- 字の枠を、描画した画像の字の形(インク)に合わせる(表示の枠がずれないように) ----
   //   字と字の境目を、近くのインクのない(少ない)列へ寄せ、枠を字の形まで縮める。地の色と違う色をインクとみなす(白抜きの字・色地の上の字も)
   //   写真の上の字など、地の色が一様でないまとまりは、そのままにする。img: ページの描画、k: pt → 画素の倍率
-  PC.snapChars = (T, img, k) => {
+  //   欧文書体 Helvetica の字の幅(1000分の1 em。ASCII の 0x20〜0x7e。Adobe の Helvetica の字の幅の表 AFM の値)
+  const HELV = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
+    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
+    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584];
+  PC.snapChars = (T, img, k, gw = null) => {
     const { w, h, d } = img, byItem = new Map();
     T.chars.forEach(c => { let l = byItem.get(c.it); if (!l) byItem.set(c.it, l = []); l.push(c); });
     for (const [idx, cs] of byItem) {
@@ -2879,6 +2883,31 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         if (dd > 60) { ink[(y - y0) * W + x - x0] = 1; col[x - x0]++; }
       }
       if (plain < 0.5 * W * H) continue;
+      // 英数字だけの文字列(欧文)は、字の幅の割り振りを、描いた字のすき間に合うものにする(文字データにはまとまりの幅しかないため。
+      //   欧文は字ごとに幅が違い、字の間に空きを足した書体もあるので、後ろの字ほど位置がずれ、マーカーの下の字を取り違えることがある):
+      //   いまの割り振り(半角0.55・空白0.3)、すべて同じ幅、欧文書体(Helvetica)の字の幅の割合＋字の間の空き(まとまりの幅に合わせる)のうち、
+      //   続く2字の境目の列のインクの量(前後1画素でいちばん少ない列)の合計がいちばん少ないもの(同じなら前のもの。字が接している所でも、
+      //   字の切れ目は細いので見分けられる)
+      const S = [...it.s], nS = S.length, solid = S.filter(ch => ch.trim()).length, G = gw && gw[idx];
+      //   描画の命令から字の実際の送り幅(書体の字の幅と字の間の詰め・空け)が取れた、英数字を含む文字列は、その幅の割合で割り振る
+      //   (字の間に一様に足した空きは、まとまりの幅に合わせて1字ずつに分ける)。確かな情報なので、下の見積もりより先に使う
+      if (G && G.length === nS && nS >= 2 && solid === cs.length && /[0-9A-Za-z]/.test(it.s) && it.box[3] - it.box[1] < 1.8 * it.size) {
+        const X0 = it.box[0], Wd = it.box[2] - it.box[0], adv = G.map(v => (Math.max(0, v) / 1000) * it.size), tr = (Wd - adv.reduce((a, b) => a + b, 0)) / nS;
+        let x = X0, q = 0; for (let i = 0; i < nS; i++) { const a0 = x; x += adv[i] + tr; if (S[i].trim()) { const c = cs[q++]; c.box = [a0, c.box[1], x, c.box[3]]; } }
+      } else if (nS >= 2 && solid === cs.length && /^[ -~]+$/.test(it.s) && it.box[3] - it.box[1] < 1.8 * it.size) {
+        const X0 = it.box[0], Wd = it.box[2] - it.box[0], wt = S.map(ch => (ch.trim() ? 0.55 : 0.3)), sw = wt.reduce((a, b) => a + b, 0);
+        const pw = S.map(ch => HELV[ch.charCodeAt(0) - 32] / 1000), tr = (Wd - pw.reduce((a, b) => a + b, 0) * it.size) / nS;
+        const models = [wt.map(v => (v / sw) * Wd), S.map(() => Wd / nS), pw.map(p => p * it.size + tr)];
+        const inkAt = xp => { const x = Math.round(xp * k) - x0; let m = Infinity; for (let t = x - 1; t <= x + 1; t++) if (t >= 0 && t < W && col[t] < m) m = col[t]; return m === Infinity ? H : m; };
+        let best = models[0], bs = Infinity;
+        for (const adv of models) {
+          let x = X0, s = 0;
+          for (let i = 0; i + 1 < nS; i++) { x += adv[i]; if (S[i].trim() && S[i + 1].trim()) s += inkAt(x); }
+          if (s < bs) { bs = s; best = adv; }
+        }
+        if (typeof window !== 'undefined' && window.__pcDebug) (PC._snap = PC._snap || []).push({ s: it.s, box: it.box, costs: models.map(adv => { let x = X0, c = 0; for (let i = 0; i + 1 < nS; i++) { x += adv[i]; if (S[i].trim() && S[i + 1].trim()) c += inkAt(x); } return c; }), pick: models.indexOf(best) });   // 調べるとき(作業用)
+        if (best !== models[0]) { let x = X0, q = 0; for (let i = 0; i < nS; i++) { const a0 = x; x += best[i]; if (S[i].trim()) { const c = cs[q++]; c.box = [a0, c.box[1], x, c.box[3]]; } } }
+      }
       // 隣り合う字の境目を、前後0.4字の範囲でいちばんインクの少ない列(同じなら推定に近い列)へ
       for (let i = 0; i + 1 < cs.length; i++) {
         const a = cs[i].box, b = cs[i + 1].box;
@@ -2901,9 +2930,34 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   // ---- 字形で比べるページの字と位置(画素): 全角・半角の幅を考えて割り振り(PC.pageText)、描画した字の形に合わせる ----
   //   img: そのページを PC.DPI で描画したもの。返り値 [[字, 枠], ...](枠は PC.DPI の画素)
   //   ocr: 文字データのない所を OCR で読んだ字も加える(字形で比べたあとの、違う字の表示に使う)
+  // ---- 字の実際の送り幅: 描画の命令(showText)の字ごとの幅(1000分の1 em)と、字の間の詰め・空け(TJ の数)を、文字列(T.items)ごとに対応づける ----
+  //   命令の字を順につないだ並びの中で、文字列を前から順に探し、見つかった所の幅を使う(見つからない文字列は null)。合字(fi など)の幅は字数で等分
+  PC.glyphWidths = async (doc, pno, T) => {
+    try {
+      const page = await doc.getPage(pno + 1), ops = await page.getOperatorList(), OPS = pdfjsLib.OPS, G = [], W = [];
+      for (let i = 0; i < ops.fnArray.length; i++) {
+        if (ops.fnArray[i] !== OPS.showText) continue;
+        for (const g of ops.argsArray[i][0] || []) {
+          if (typeof g === 'number') { if (W.length) W[W.length - 1] -= g; continue; }
+          if (!g || g.unicode == null) continue;
+          const u = [...String(g.unicode)]; if (!u.length) continue;
+          for (const ch of u) { G.push(ch); W.push((g.width || 0) / u.length); }
+        }
+      }
+      const out = new Array(T.items.length).fill(null); let pos = 0;
+      T.items.forEach((it, idx) => {
+        const s = [...it.s], n = s.length; if (!n) return;
+        for (let p = pos; p + n <= G.length && p - pos <= 4000; p++) {
+          let ok = true; for (let t = 0; t < n && ok; t++) ok = G[p + t] === s[t];
+          if (ok) { out[idx] = W.slice(p, p + n); pos = p + n; return; }
+        }
+      });
+      return out;
+    } catch (e) { return null; }
+  };
   PC.textCharsSnapped = async (doc, pno, img, ocr = false) => {
     const T = await PC.pageText(doc, pno), k = PC.DPI / 72;
-    PC.snapChars(T, img, k);
+    PC.snapChars(T, img, k, await PC.glyphWidths(doc, pno, T));
     if (ocr && PC.ocrAugment) await PC.ocrAugment(doc, pno, T, img);
     return T.chars.map(c => (c.ocr ? [c.c, c.box.map(v => v * k), 'ocr'] : [c.c, c.box.map(v => v * k)]));
   };
