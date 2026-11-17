@@ -452,6 +452,7 @@
       });
     }
     for (const b of blocks) b.ops = b.ops.filter(o => !(o[0] === '+' && took[o[1]]));
+    if (window.__pcDebug) (PC._tx = PC._tx || []).push({ At, Bt, T, before: blocks.map(b => ({ s: b.s, e: b.e, ops: b.ops.slice() })) });   // 調べるとき(作業用)の記録
     //   文字データが合わないページ(文字化け・アウトライン化など)では使わない: 原稿の字の8割以上が成果物の字と同じであること
     //   (注釈PDFのページは6割以上。同じデザインのファイルから書き出した原稿と成果物なので文字データはそろいやすく、
     //    小さいページで行や文をまとめて消す指示があっても使えるように)
@@ -1239,8 +1240,42 @@
     //   ops の場所: 旧版の字 i → [まとまり, 番号]、成果物の字 j → [まとまり, 番号]
     const atI = new Map(), atJ = new Map();
     blocks.forEach((b, bi) => b.ops.forEach((o, k) => { if (o[0] === '|') return; if (o[0] === '-') atI.set(b.s + o[1], [bi, k]); else if (o[0] === '+') atJ.set(o[1], [bi, k]); else { atI.set(b.s + o[1], [bi, k]); atJ.set(o[2], [bi, k]); } }));
-    const opAt = x => blocks[x[0]].ops[x[1]], setOp = (x, o) => { blocks[x[0]].ops[x[1]] = o; };
+    const touched = new Set(), opAt = x => blocks[x[0]].ops[x[1]], setOp = (x, o) => { blocks[x[0]].ops[x[1]] = o; touched.add(x[0]); };
     const qi = [...atI.keys()].filter(i => opAt(atI.get(i))[0] === '-'), qj = [...atJ.keys()].filter(j => opAt(atJ.get(j))[0] === '+');
+    //   mono のとき、まず、同じ位置に同じ字が3字以上続けて並ぶ所(旧版・原稿の続く字が、成果物の続く字とそれぞれ同じ位置で同じ字)は、
+    //   その並びどうしを組む(表の各列に同じ文が並ぶ所で、句ごと隣の列・別の段の同じ文と組んだ取り違え。前後の対応も一緒にずれているので、
+    //   1字ずつの直し方では並びの順の条件で直らない。3字以上が同じ位置にそろうのは、たまたまではない)。押し出された字は、下で組み直す
+    let forced = false;
+    if (mono) {
+      const j0 = new Int32Array(A.chars.length).fill(-1);
+      for (const i of atI.keys()) { const j = look(gB, pA[i]).find(j => A.chars[i].c === B.chars[j].c && near(i, j) && !snap[j]); if (j !== undefined) j0[i] = j; }
+      //   組み直すのは、その並びのうち、いまはそろって同じ動き(字の大きさの半分以内)でずれた所に組まれている字が3字以上続く所だけ
+      //   (段落の途中を消して後ろの文が詰まり、「。」と次の文の頭の字がたまたま消した文の頭と同じ位置に来た所は、組まれ方がそろって
+      //   ずれていない(消えた・同じ位置)ので組み直さない)
+      const force = [], moved = t => { const x = atI.get(t), o = x && opAt(x); return o && o.length === 3 && o[2] !== j0[t] && !near(t, o[2]) ? o[2] : -1; };
+      for (let i = 0; i < A.chars.length;) {
+        if (j0[i] < 0) { i++; continue; }
+        let e = i + 1; while (e < A.chars.length && j0[e] === j0[e - 1] + 1 && blk[e] === blk[i]) e++;
+        for (let s = i; s < e;) {
+          const js = moved(s); if (js < 0) { s++; continue; }
+          const D = [pB[js][0] - pA[s][0], pB[js][1] - pA[s][1]], tol = 0.5 * sz(B.chars[js].box);
+          let t = s + 1;
+          for (; t < e; t++) { const jt = moved(t); if (jt < 0 || Math.abs(pB[jt][0] - pA[t][0] - D[0]) > tol || Math.abs(pB[jt][1] - pA[t][1] - D[1]) > tol) break; }
+          if (t - s >= 3) for (let u = s; u < t; u++) force.push(u);
+          s = t;
+        }
+        i = e;
+      }
+      forced = force.length > 0;
+      for (const i of force) {
+        const xi = atI.get(i), o = opAt(xi), j = j0[i], xj = atJ.get(j);
+        if (xj) { const p = opAt(xj); if (p[0] === '+') setOp(xj, ['drop']); else if (p.length === 3) { const i2 = blocks[xj[0]].s + p[1]; setOp(xj, ['-', p[1]]); atI.set(i2, xj); mapA[i2] = -1; qi.push(i2); } }
+        if (o.length === 3) {   // 前に組んでいた成果物の字は、どれにも組まれていない字にする(下で、同じ位置の同じ字を探す)
+          const b = blocks[xi[0]]; b.ops.push(['+', o[2]]); atJ.set(o[2], [xi[0], b.ops.length - 1]); used[o[2]] = 0; qj.push(o[2]);
+        }
+        setOp(xi, ['=', o[1], j]); atJ.set(j, xi); used[j] = 1; mapA[i] = j;
+      }
+    }
     let guard = 0;
     while ((qi.length || qj.length) && guard++ < 20000) {
       if (qi.length) {   // 消えたとした旧版の字
@@ -1263,6 +1298,21 @@
       setOp(xi, ['=', o[1], j]); setOp(xj, ['+', j2]); atJ.set(j, xi); atJ.set(j2, xj); mapA[i] = j; qj.push(j2);
     }
     for (const b of blocks) if (b.ops.some(o => o[0] === 'drop')) b.ops = b.ops.filter(o => o[0] !== 'drop');
+    //   mono で並びを組み直したまとまりは、ops を字の順に並べ直す(組み直した字の op は、もとの op の場所に入るので、並びの順が乱れる。
+    //   消えた字の文などを、字の順に示すため): 旧版・原稿の字のある op はその字の番号の順、成果物の字だけの op('+')は、その字より前で
+    //   いちばん近い、組まれた成果物の字の、組んだ旧版の字のすぐ後ろ。区間の切れ目('|')は、続く op の前
+    if (mono && forced) for (const bi of touched) {
+      const b = blocks[bi], oldOfJ = new Map();
+      b.ops.forEach(o => { if (o.length === 3) oldOfJ.set(o[2], o[1]); });
+      const key = b.ops.map(o => {
+        if (o[0] === '|') return null;
+        if (o[0] !== '+') return [o[1], -1];
+        for (let j = o[1] - 1; j >= Math.max(0, o[1] - 400); j--) if (oldOfJ.has(j)) return [oldOfJ.get(j) + 0.5, o[1]];
+        return [-0.5, o[1]];
+      });
+      for (let k = key.length - 1, next = [Infinity, 0]; k >= 0; k--) { if (key[k]) next = key[k]; else key[k] = [next[0] - 1e-6, next[1]]; }
+      b.ops = b.ops.map((o, k) => [key[k], k, o]).sort((x, y) => x[0][0] - y[0][0] || x[0][1] - y[0][1] || x[1] - y[1]).map(x => x[2]);
+    }
   }
 
   // ---- 旧版(前回の成果物)との比べ合わせ ----
