@@ -14,6 +14,7 @@
   --good: #1f8f4e; --good-soft: #e9f6ee; --bad: #d1343b; --bad-soft: #fff4f4;
   --r: 14px; --r-s: 10px; --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 2px 8px rgba(16, 24, 40, .05);
   --c-need: #d1343b; --c-look: #0f7b8a; --c-ref: #8a8f99;   /* 色は3つ: 直す必要がありそう・確認だけ・参考 */
+  --sel: #e66a00; --sel-soft: #fff6ec;   /* 選んだ項目と、それにかかわる枠(ページの表示・切り抜き)の色 */
 }
 * { box-sizing: border-box }
 html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif; font-size: 14px; line-height: 1.6 }
@@ -169,7 +170,9 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .list { display: flex; flex-direction: column; gap: 10px }
 .item { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 12px; padding: 12px 14px; cursor: pointer; box-shadow: var(--shadow); transition: box-shadow .12s }
 .item:hover { box-shadow: 0 2px 4px rgba(16, 24, 40, .06), 0 4px 14px rgba(16, 24, 40, .07) }
-.item.sel { outline: 2px solid var(--accent); outline-offset: 1px }
+.item.sel { outline: 3px solid var(--sel); outline-offset: 2px; background: var(--sel-soft); box-shadow: 0 4px 16px rgba(230, 106, 0, .18) }
+.item .selmark { display: none; font-size: 11.5px; font-weight: 700; color: #fff; background: var(--sel); border-radius: 99px; padding: 0 9px; white-space: nowrap }
+.item.sel .selmark { display: inline }
 .item .hd { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
 .item.light { border-left-style: dashed }
 .tag { font-size: 12.5px; font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 11%, #fff); border: 1px solid color-mix(in srgb, var(--c) 32%, #fff); border-radius: 99px; padding: 0 10px }
@@ -218,16 +221,30 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .viewer .cap.one { grid-template-columns: 1fr }
 .viewer .scroll { max-height: calc(100vh - 130px); overflow: auto; border-radius: 10px; background: #eef1f6 }
 .viewer canvas { display: block; cursor: crosshair }
-.viewer canvas.zoomed { cursor: grab; touch-action: none } .viewer canvas.panning { cursor: grabbing }
+.viewer canvas.zoomed { cursor: grab; touch-action: none } .viewer canvas.onbox { cursor: pointer } .viewer canvas.panning { cursor: grabbing }
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--sub); margin-top: 8px }
 .legend i { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--c); border-radius: 3px; margin-right: 3px; vertical-align: -1px }
+.legend .selk { color: var(--ink); font-weight: 700 } .legend .selk i { border-width: 3px; background: color-mix(in srgb, var(--sel) 18%, #fff) }
+/* パタパタ表示(旧版・原稿と成果物を同じ所で交互に出す) */
+#flipBtn { flex: none; font-weight: 700 }
+#flipBtn.on { background: var(--accent); color: #fff; border-color: var(--accent) }
+.flipcap { display: inline-flex; gap: 8px; align-items: center; justify-content: center; color: var(--sub) }
+.flipcap span { padding: 0 10px; border-radius: 99px; border: 1px solid var(--line2); color: var(--sub) }
+.flipcap span.on { background: #5b6475; border-color: #5b6475; color: #fff; font-weight: 700 }
+.flipcap span.on:last-child { background: var(--accent); border-color: var(--accent) }
+.flipbar { display: none; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px }
+.item.sel .flipbar { display: flex }
+.flipbar .flipb { font-weight: 700 }
+.crops.flipping figure:not(.flipfig):not(.note) { display: none }
+.crops figure.flipfig { grid-column: 1 / -1 }
 .empty { color: var(--sub); text-align: center; padding: 34px 20px; background: #fff; border: 1px dashed var(--line2); border-radius: 12px }
 .hidden, [hidden] { display: none !important }
 @media print {
   header, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on), .judge .kh, .sumtip { display: none !important }
   body { background: #fff } main { padding: 0 } .work { display: block } .item { break-inside: avoid; box-shadow: none; margin-bottom: 4mm }
   .card { box-shadow: none } .summary { grid-template-columns: 1fr 1fr } .sumtip.all, .fnote { display: none !important }
-  .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb } .item.sel { outline: none }
+  .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb } .item.sel { outline: none; background: #fff } .item .selmark { display: none !important }
+  .flipbar { display: none !important } .crops.flipping figure { display: block !important } .crops figure.flipfig { display: none !important }
 }
 </style>
 </head>
@@ -299,7 +316,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
     <div class="work">
       <div class="list" id="list"></div>
       <div class="viewer" id="viewer">
-        <div class="vbar"><div class="tabs" id="tabs"></div><div class="zoom"><button class="btn small" id="zOut" title="縮小">－</button><span id="zLbl">全体</span><button class="btn small" id="zIn" title="拡大（Ctrl を押しながらホイールでも拡大・縮小。拡大中はドラッグ・ホイールで動かせます）">＋</button></div></div>
+        <div class="vbar"><div class="tabs" id="tabs"></div><button class="btn small" id="flipBtn" title="旧版（なければ原稿）と成果物を同じ所に重ねて、交互に表示します（あおり照合。キー：P）。変わった所だけが動いて見えます">パタパタ</button><div class="zoom"><button class="btn small" id="zOut" title="縮小">－</button><span id="zLbl">全体</span><button class="btn small" id="zIn" title="拡大（Ctrl を押しながらホイールでも拡大・縮小。拡大中はドラッグ・ホイールで動かせます）">＋</button></div></div>
         <div class="hint" id="pinfo"></div>
         <div class="cap" id="vcap"><div>原稿</div><div>成果物</div></div>
         <div class="scroll" id="vscroll"><canvas id="vcanvas"></canvas></div>

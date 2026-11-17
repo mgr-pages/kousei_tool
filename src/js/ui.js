@@ -249,7 +249,7 @@
   };
 
   const geta = s => String(s ?? '').replace(/□/g, '〓');   // スキャンで読めなかった字は「〓」(ゲタ)で示す
-  const S = { res: null, imgs: [], sel: null, page: 0, only: null, zoom: 1, vc: { L: null, R: null }, verdict: {}, key: '', lists: { marks: [], nw: [], old: [] }, loading: new Set() };
+  const S = { res: null, imgs: [], sel: null, page: 0, only: null, zoom: 1, vc: { L: null, R: null }, verdict: {}, key: '', lists: { marks: [], nw: [], old: [] }, loading: new Set(), flip: false, phase: 1 };
 
   // ---- 入力: 各欄に複数のファイル。選んだときに中身を読み込んでおき(あとで元のファイルが変わっても照合できるように)、ページ数を数える ----
   const KIND = { marks: { input: 'fMarks', list: 'lMarks', tot: 'tMarks' }, nw: { input: 'fNew', list: 'lNew', tot: 'tNew' }, old: { input: 'fOld', list: 'lOld', tot: 'tOld' } };
@@ -331,6 +331,7 @@
   function resetAll() {
     if (S.running) return;
     for (const k of Object.keys(KIND)) S.lists[k] = [];
+    if (S.flip) setFlip(false);
     dropRes(); S.sel = null; S.doneMsg = ''; S.addMsg = ''; S.runSig = ''; S.opened = null;
     $('err').textContent = ''; $('pbar').style.width = '0';
     $('results').classList.add('hidden');
@@ -426,18 +427,21 @@
   $('reset').onclick = resetAll; $('reset2').onclick = resetAll;
 
   // ---- 結果の表示 ----
-  const urlsOf = r => r ? [...(r.pages || []).flatMap(p => [p.left && p.left.url, p.right && p.right.url]), ...Array.from(r.oldPages || [], o => o && o.url)].filter(Boolean) : [];
+  const urlsOf = r => r ? [...(r.pages || []).flatMap(p => [p.left && p.left.url, p.right && p.right.url, p.base && p.base.url]), ...Array.from(r.oldPages || [], o => o && o.url)].filter(Boolean) : [];
   const dropRes = () => { for (const u of urlsOf(S.res)) URL.revokeObjectURL(u); S.res = null; };
   async function show(res) {
     if (S.res && S.res !== res) dropRes();
     S.res = res; S.sel = null; S.page = 0; S.runMode = res.mode || 'marks';
     S.only = null; S.zoom = 1; S.vc = { L: null, R: null }; S.warned = false;   // 新しい結果は、絞り込み・拡大なしで出す
-    S.imgs = res.pages.map(p => ({ L: null, R: null, Lurl: p.left ? p.left.url : null, Rurl: p.right ? p.right.url : null, lw: p.left ? p.left.w : 0, lh: p.left ? p.left.h : 0, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
+    S.imgs = res.pages.map(p => ({ L: null, R: null, A: null, Lurl: p.left ? p.left.url : null, Rurl: p.right ? p.right.url : null, lw: p.left ? p.left.w : 0, lh: p.left ? p.left.h : 0, rw: p.right ? p.right.w : 0, rh: p.right ? p.right.h : 0, region: p.region }));
     S.cache = new Map();
     if (S.imgs.length) await ensure(0);   // 成果物だけのチェックで項目がないときは、表示するページがない
     $('results').classList.remove('hidden');
     $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
     $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; S.vc = { L: null, R: null }; drawPage(); });
+    //   パタパタ表示: 重ねて比べる相手(同じレイアウトの旧版・原稿)のあるページ・項目がなければ、ボタンを出さない
+    const canFlip = res.pages.some((_, i) => pageFlip(i)) || res.findings.some(f => itemFlip(f));
+    $('flipBtn').hidden = !canFlip; if (!canFlip && S.flip) setFlip(false);
     renderAll();
   }
   const renderAll = () => { renderSummary(); renderList(); drawPage(); };
@@ -470,8 +474,82 @@
 
   // ページの画像は、表示するときに読み込む(大きなページが多いときに、一度に展開してメモリが足りなくならないように)
   const loadImg = url => { if (!url) return Promise.resolve(null); if (!S.cache.has(url)) { const im = new Image(); im.src = url; S.cache.set(url, im.decode().then(() => im)); } return S.cache.get(url); };
-  async function ensure(i) { const im = S.imgs[i]; if (im.Lurl && !im.L) im.L = await loadImg(im.Lurl); if (im.Rurl && !im.R) im.R = await loadImg(im.Rurl); }
-  const ready = i => { const im = S.imgs[i]; return (!im.Lurl || im.L) && (!im.Rurl || im.R); };
+  //   A: パタパタ表示で成果物と交互に出す画像(旧版・原稿)。パタパタ表示のときだけ読み込む
+  async function ensure(i) { const im = S.imgs[i], fl = S.flip && pageFlip(i); if (im.Lurl && !im.L) im.L = await loadImg(im.Lurl); if (im.Rurl && !im.R) im.R = await loadImg(im.Rurl); if (fl && !im.A) im.A = await loadImg(fl.url); }
+  const ready = i => { const im = S.imgs[i]; return (!im.Lurl || im.L) && (!im.Rurl || im.R) && (!S.flip || im.A || !pageFlip(i)); };
+
+  // ---- パタパタ表示(あおり): 旧版(なければ原稿)と成果物を、同じ所に重ねて交互に出す。変わった所だけが動いて見える ----
+  //   ページの相手: 同じレイアウトの旧版のページ(M: 旧版の画素 → 成果物の画素)か、成果物に重ねて比べた原稿(注釈を消した描画。位置は同じ)
+  const pageFlip = i => {
+    const pg = S.res && S.res.pages[i], fl = pg && pg.flip; if (!fl) return null;
+    if (fl.old != null) { const o = (S.res.oldPages || [])[fl.old]; return o && fl.M ? { url: o.url, w: o.w, h: o.h, M: fl.M, label: '旧版' } : null; }
+    const im = pg.base || pg.left; return fl.src && im ? { url: im.url, w: im.w, h: im.h, M: null, label: '原稿' } : null;
+  };
+  //   項目の相手: 項目に旧版の所があればその旧版のページ、なければページの相手
+  const itemFlip = f => {
+    if (f.old && f.old.M) { const o = (S.res.oldPages || [])[f.old.p]; if (o) return { url: o.url, w: o.w, h: o.h, M: f.old.M, label: '旧版' }; }
+    return pageFlip(f.page - 1);
+  };
+  //   相手(旧版・原稿)の側の枠を、成果物の画素で: 旧版の所があれば位置合わせで写したもの、原稿と成果物の位置が同じページなら原稿の枠、
+  //   どちらでもなければ成果物の枠(パタパタ表示で、旧版・原稿の場面には、その側の変わった所を囲む)
+  const aBoxes = (f, A) => {
+    if (f.old && f.old.box && f.old.M) return [PC.mapBox(f.old.M, f.old.box)];
+    if (!A.M && !f.onNew && !f.newOnly) return [...marks(f, 'L'), ...(f.moreBoxes || [])];
+    return [...marks(f, 'R'), ...(f.moreNboxes || [])];
+  };
+  //   相手の画像を、成果物の画素 (x, y) が画面の (ox + (x - x0) * s, oy + (y - y0) * s) に来るように描く
+  const drawAligned = (ctx, img, A, s, x0, y0, ox, oy) => {
+    const M = A.M || [1, 0, 0, 0, 1];
+    ctx.save(); ctx.transform(s * M[0], s * M[1], -s * M[1], s * M[4], ox + s * (M[2] - x0), oy + s * (M[3] - y0)); ctx.drawImage(img, 0, 0, A.w, A.h); ctx.restore();
+  };
+  //   いま出している画像の札(左上。灰＝旧版・原稿、青＝成果物)
+  const flipBadge = (ctx, x, y, isA, label) => {
+    ctx.save(); ctx.font = 'bold 13px sans-serif';
+    const t = isA ? label : '成果物', w = ctx.measureText(t).width + 18;
+    ctx.fillStyle = isA ? '#5b6475' : '#2f6fdb'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, 22, 11) : ctx.rect(x, y, w, 22); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(t, x + 9, y + 11.5); ctx.restore();
+  };
+  const FLIP_MS = 650;
+  function setFlip(on) {
+    S.flip = !!on; S.phase = 1; clearInterval(S.flipT);
+    if (S.flip) S.flipT = setInterval(() => { if (document.hidden || !S.res) return; S.phase ^= 1; flipTick(); }, FLIP_MS);
+    $('flipBtn').classList.toggle('on', S.flip); $('flipBtn').textContent = S.flip ? 'パタパタを止める' : 'パタパタ';
+    document.querySelectorAll('.item').forEach(updFlipFig);
+    drawPage();
+  }
+  function flipTick() {
+    if ($('results').classList.contains('hidden')) return;
+    if (pageFlip(S.page)) drawPage();
+    const c = S.sel != null && document.querySelector('.item.sel .flipfig canvas'); if (c) drawFlip(c, S.res.findings[S.sel]);
+  }
+  //   選んだ項目の切り抜き: パタパタ表示のときは、旧版(原稿)と成果物の切り抜きの代わりに、交互に出す1枚にする
+  function updFlipFig(el) {
+    if (!S.res) return;
+    const f = S.res.findings[+el.dataset.id], crops = el.querySelector('.crops'), on = S.flip && el.classList.contains('sel') && !!itemFlip(f);
+    let fig = crops.querySelector('.flipfig');
+    if (on && !fig) { crops.insertAdjacentHTML('afterbegin', `<figure class="flipfig"><canvas data-side="F" width="560" height="200"></canvas><figcaption>パタパタ：${esc(itemFlip(f).label)}と成果物を同じ所で交互に表示しています（動いて見える所が変わった所）</figcaption></figure>`); fig = crops.querySelector('.flipfig'); drawFlip(fig.querySelector('canvas'), f); }
+    if (!on && fig) fig.remove();
+    crops.classList.toggle('flipping', on);
+    const b = el.querySelector('.flipb'); if (b) b.textContent = S.flip ? 'パタパタを止める' : 'パタパタで見る';
+  }
+  function drawFlip(c, f) {
+    const A = itemFlip(f); if (!A || !ready(f.page - 1)) return;
+    loadImg(A.url).then(img => {
+      //   切り抜く範囲: 両方の側の変わった所を含む所(場面が変わっても動かさない)
+      const rb = marks(f, 'R').length ? marks(f, 'R') : [f.nbox || f.box], ab = aBoxes(f, A);
+      const im = S.imgs[f.page - 1], [x0, y0, x1, y1] = cropOf([...rb, ...ab]), w = x1 - x0, h = y1 - y0, ctx = c.getContext('2d');
+      const W = c.width = 560, H = c.height = Math.max(90, Math.min(300, Math.round(W * h / w))), s = Math.min(W / w, H / h), ox = (W - w * s) / 2, oy = (H - h * s) / 2;
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+      ctx.save(); ctx.beginPath(); ctx.rect(ox, oy, w * s, h * s); ctx.clip();
+      if (S.phase === 0) drawAligned(ctx, img, A, s, x0, y0, ox, oy);
+      else if (im.R) { const kk = im.R.naturalWidth / im.rw; ctx.drawImage(im.R, x0 * kk, y0 * kk, w * kk, h * kk, ox, oy, w * s, h * s); }
+      ctx.restore();
+      //   変わった所の枠(いま出している側の枠を、線だけ。中の字が見えるように)
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(f.id === S.sel ? '--sel' : '--c-' + colorOf(f)).trim(); ctx.lineWidth = 2;
+      for (const b of (S.phase === 0 ? ab : marks(f, 'R'))) ctx.strokeRect(ox + (b[0] - x0 - 4) * s, oy + (b[1] - y0 - 4) * s, (b[2] - b[0] + 8) * s, (b[3] - b[1] + 8) * s);
+      flipBadge(ctx, 6, 6, S.phase === 0, A.label);
+    });
+  }
 
   // ページの表示名: 原稿の何ページ目が、成果物のどのページ(のどちら側)に当たるか。ファイルが複数ならファイル名も示す
   const nm = (parts, x) => (parts || []).length > 1 ? `${x.name} の` : '';
@@ -518,16 +596,17 @@
     //   絞り込み中は、そのことを一覧の上に示す(見落とさないように)。ページの枠の色の説明は、出ている色だけ
     $('fnote').hidden = !S.only;
     if (S.only) { $('fnote').innerHTML = `「${esc(onlyLabel(S.only))}」だけを表示しています <button class="btn small" id="fAll">全部を表示</button>`; $('fAll').onclick = () => setOnly(null); }
-    $('legend').innerHTML = Object.keys(LV).filter(l => F.some(f => f.cat !== 'F2' && colorOf(f) === l)).map(l => `<span style="--c: var(--c-${l})"><i></i>${LV[l]}</span>`).join('');
+    renderLegend(F);
     renderProgress();
     if (!F.length) { list.innerHTML = '<div class="empty">表示する項目はありません</div>'; return; }
     list.innerHTML = F.map(f => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${+f.id}" style="--c: var(--c-${colorOf(f)})">
-        <div class="hd"><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
+        <div class="hd"><span class="selmark">選択中</span><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
         ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${+f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${+f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
+        ${itemFlip(f) ? `<div class="flipbar"><button class="btn small flipb" title="${esc(itemFlip(f).label)}と成果物を同じ所に重ねて、交互に表示します（キー：P）。ページの表示も同じように切り替わります">${S.flip ? 'パタパタを止める' : 'パタパタで見る'}</button><span class="hint">${esc(itemFlip(f).label)}と成果物を交互に表示（あおり）</span></div>` : ''}
         <div class="crops">${f.old ? '<figure><canvas data-side="O" width="300" height="130"></canvas><figcaption>旧版</figcaption></figure>' : ''}${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
-        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"><span class="kh">キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目</span></div>
+        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"><span class="kh">キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目${itemFlip(f) ? '／P パタパタ' : ''}</span></div>
       </div>`;
     }).join('');
     // 切り抜きは画面に入ったものから描く
@@ -535,10 +614,17 @@
     list.querySelectorAll('.item').forEach(el => {
       observer.observe(el);
       const id = +el.dataset.id;
-      el.onclick = ev => { if (ev.target.closest('.judge')) return; select(id, false); };
+      el.onclick = ev => { if (ev.target.closest('.judge')) return; if (ev.target.closest('.flipb')) { if (S.sel !== id) select(id, false); setFlip(!S.flip); return; } select(id, false); };
+      if (S.sel === id) updFlipFig(el);
       el.querySelectorAll('.judge button').forEach(b => b.onclick = () => judge(id, b.dataset.v));
       el.querySelector('.judge input').oninput = e => { const v = S.verdict[id] || {}; v.memo = e.target.value; S.verdict[id] = v; save(); };
     });
+  }
+  //   ページの枠の色の説明: 出ている色だけ。項目を選んでいれば、その色(オレンジ)も
+  function renderLegend(F = S.res.findings.filter(visible)) {
+    const sf = S.sel != null ? S.res.findings[S.sel] : null;
+    $('legend').innerHTML = Object.keys(LV).filter(l => F.some(f => f.cat !== 'F2' && colorOf(f) === l)).map(l => `<span style="--c: var(--c-${l})"><i></i>${LV[l]}</span>`).join('') +
+      (sf && visible(sf) ? '<span class="selk" style="--c: var(--sel)"><i></i>選んだ項目（一覧のオレンジの枠の項目）</span>' : '');
   }
   // 判定を付ける(同じものをもう一度押すと外す)。付けた判定を返す
   function judge(id, val) {
@@ -546,7 +632,7 @@
     const el = document.querySelector(`.item[data-id="${id}"]`);
     if (el) el.querySelectorAll('.judge button').forEach(x => x.classList.toggle('on', x.dataset.v === v.v));
     // 「確認済み（OK）を隠す」がオンなら、OKにした項目をすぐ一覧から外す(ほかの項目の位置はそのまま)
-    if (el && v.v === 'ok' && $('hideDone').checked) { if (observer) observer.unobserve(el); el.remove(); if (S.sel === id) S.sel = null; if (!$('list').querySelector('.item')) $('list').innerHTML = '<div class="empty">表示する項目はありません</div>'; drawPage(); }
+    if (el && v.v === 'ok' && $('hideDone').checked) { if (observer) observer.unobserve(el); el.remove(); if (S.sel === id) S.sel = null; if (!$('list').querySelector('.item')) $('list').innerHTML = '<div class="empty">表示する項目はありません</div>'; renderLegend(); drawPage(); }
     renderProgress();
     return v.v;
   }
@@ -583,6 +669,14 @@
     const cur = S.sel, L = shown(), i = L.findIndex(el => +el.dataset.id === cur), next = i >= 0 && L[i + 1] ? +L[i + 1].dataset.id : null;
     if (judge(cur, val) && next != null) select(next, true);
   });
+  //   P: パタパタ表示の切り替え(項目を選んでいなくても使える)
+  document.addEventListener('keydown', ev => {
+    if (ev.key !== 'p' && ev.key !== 'P') return;
+    if (!S.res || $('results').classList.contains('hidden') || $('flipBtn').hidden || !$('savePop').hidden || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
+    if (ev.target && ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    ev.preventDefault(); setFlip(!S.flip);
+  });
+  $('flipBtn').onclick = () => setFlip(!S.flip);
   const save = () => { try { localStorage.setItem(S.key, JSON.stringify(S.verdict)); } catch (e) { /* 保存できない環境でも動作は続ける */ } };
 
   // 枠: 違う字が分かっていればその位置だけ(最大4か所)、なければ変わった範囲
@@ -591,9 +685,9 @@
     return f.pnboxes && f.pnboxes.length && !f.same ? f.pnboxes.slice(0, MAXG) : f.nbox ? [f.nbox] : [];
   };
   // 切り抜きの範囲: 違う字のまわりに、字の大きさに合わせた余白を付ける(小さい字は大きく写るように、狭めに切る)
-  function cropBox(f, side) {
-    const bs = marks(f, side), b = bs.length ? PC.union(bs) : (side === 'R' && f.nbox ? f.nbox : f.box);
-    const hs = (bs.length ? bs : [b]).map(x => x[3] - x[1]).sort((p, q) => p - q), ch = Math.max(10, hs[hs.length >> 1]);
+  function cropBox(f, side) { const bs = marks(f, side); return cropOf(bs.length ? bs : [side === 'R' && f.nbox ? f.nbox : f.box]); }
+  function cropOf(bs) {
+    const b = PC.union(bs), hs = bs.map(x => x[3] - x[1]).sort((p, q) => p - q), ch = Math.max(10, hs[hs.length >> 1]);
     const m = Math.min(60, Math.max(12, 1.5 * ch)), minW = Math.min(360, Math.max(160, 14 * ch));
     let [x0, y0, x1, y1] = [b[0] - m, b[1] - m, b[2] + m, b[3] + m];
     if (x1 - x0 < minW) { const c = (x0 + x1) / 2; x0 = c - minW / 2; x1 = c + minW / 2; }   // 小さい違いは少し広めに(前後の文脈が見えるように)
@@ -610,12 +704,15 @@
     ctx.drawImage(im, x0 * kk, y0 * kk, w * kk, h * kk, ox, oy, w * sc, h * sc);
     ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([5, 3]); ctx.strokeRect(ox + (b[0] - x0 - 3) * sc, oy + (b[1] - y0 - 3) * sc, (b[2] - b[0] + 6) * sc, (b[3] - b[1] + 6) * sc); ctx.setLineDash([]);
   }
+  //   枠の色: 選んだ項目はオレンジ(ページの表示の枠と同じ色)、ほかは項目の色
   function drawCrops(el) {
     const f0 = S.res.findings[+el.dataset.id];
     if (!ready(f0.page - 1)) { ensure(f0.page - 1).then(() => drawCrops(el)); return; }
-    const f = f0, im = S.imgs[f.page - 1], col = getComputedStyle(document.documentElement).getPropertyValue('--c-' + colorOf(f)).trim();
+    el.dataset.drawn = '1';
+    const f = f0, im = S.imgs[f.page - 1], col = getComputedStyle(document.documentElement).getPropertyValue(f.id === S.sel ? '--sel' : '--c-' + colorOf(f)).trim();
     el.querySelectorAll('canvas').forEach(c => {
       if (c.dataset.side === 'O') { drawOld(c, f, col); return; }
+      if (c.dataset.side === 'F') { drawFlip(c, f); return; }
       const side = c.dataset.side, [x0, y0, x1, y1] = side === 'N' ? [f.noteBox[0] - 15, f.noteBox[1] - 15, f.noteBox[2] + 15, f.noteBox[3] + 15] : cropBox(f, side), w = x1 - x0, h = y1 - y0, ctx = c.getContext('2d');
       const W = c.width = 360, H = c.height = Math.max(60, Math.min(220, Math.round(W * h / w)));
       const s = Math.min(W / w, H / h), ox = (W - w * s) / 2, oy = (H - h * s) / 2;
@@ -634,8 +731,11 @@
   }
 
   function select(id, fromViewer, keepView) {
-    S.sel = id; const f = S.res.findings[id];
+    const prev = S.sel; S.sel = id; const f = S.res.findings[id];
     document.querySelectorAll('.item').forEach(el => el.classList.toggle('sel', +el.dataset.id === id));
+    //   切り抜きの枠の色を変える(前に選んでいた項目は項目の色に戻す)。まだ描いていないものは、画面に入ったときに描く
+    for (const x of new Set([prev, id])) { const el = x != null && document.querySelector(`.item[data-id="${x}"]`); if (el) updFlipFig(el); if (el && el.dataset.drawn) drawCrops(el); }
+    renderLegend();
     if (fromViewer) { const el = document.querySelector(`.item[data-id="${id}"]`); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     if (S.page !== f.page - 1) S.vc = { L: null, R: null };
     S.page = f.page - 1;
@@ -656,12 +756,15 @@
     if (!S.imgs.length) { $('pinfo').textContent = '表示するページはありません'; const c = $('vcanvas'); c.width = c.height = 0; c.style.height = '0px'; geo = null; return; }
     if (!ready(S.page)) { ensure(S.page).then(() => drawPage(scrollToSel)); return; }
     $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.page));
-    $('pinfo').textContent = pageLabel(S.page + 1);
+    //   パタパタ表示: 成果物の位置に旧版(原稿)を重ね、1つの表示で交互に出す(相手のないページは、ふつうに並べる)
+    const im = S.imgs[S.page], fl = S.flip && im.R ? pageFlip(S.page) : null;
+    $('pinfo').textContent = pageLabel(S.page + 1) + (S.flip && !fl ? '　※このページは重ねて比べる相手（同じレイアウトの旧版・原稿）がないため、パタパタはできません' : '');
     //   原稿の画像がないページ(成果物だけ・旧版との比べ合わせ)は、成果物を幅いっぱいに出す
-    const im = S.imgs[S.page], one = !im.L && !!im.R, gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = one ? cw : (cw - gap) / 2;
-    $('vcap').classList.toggle('one', one); $('vcap').innerHTML = one ? '<div>成果物</div>' : '<div>原稿</div><div>成果物</div>';
-    const sR0 = im.R ? half / im.rw : 1, sL0 = im.L ? half / im.lw : sR0, ox = one ? 0 : half + gap, Z = S.zoom;
-    const fitH = Math.max(im.L ? im.lh * sL0 : 60, im.R ? im.rh * sR0 : 0), H = Z > 1 ? Math.min(viewMaxH(), fitH * Z) : fitH;
+    const one = (!im.L && !!im.R) || !!fl, gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = one ? cw : (cw - gap) / 2;
+    $('vcap').classList.toggle('one', one);
+    $('vcap').innerHTML = fl ? `<div class="flipcap"><span class="${S.phase ? '' : 'on'}">${esc(fl.label)}</span>⇄<span class="${S.phase ? 'on' : ''}">成果物</span></div>` : one ? '<div>成果物</div>' : '<div>原稿</div><div>成果物</div>';
+    const sR0 = im.R ? half / im.rw : 1, sL0 = im.L && !fl ? half / im.lw : sR0, ox = one ? 0 : half + gap, Z = S.zoom;
+    const fitH = Math.max(im.L && !fl ? im.lh * sL0 : 60, im.R ? im.rh * sR0 : 0), H = Z > 1 ? Math.min(viewMaxH(), fitH * Z) : fitH;
     //   片側の見える範囲: ページの画素で (x0, y0) から、倍率 s。拡大していないときはページ全体
     const view = (k, w, h, s0, x) => {
       const s = s0 * Z, vw = half / s, vh = H / s; let x0 = 0, y0 = 0;
@@ -673,7 +776,7 @@
       }
       return { k, s, x0, y0, ox: x, w: half };
     };
-    const VL = im.L ? view('L', im.lw, im.lh, sL0, 0) : null, VR = im.R ? view('R', im.rw, im.rh, sR0, ox) : null;
+    const VL = im.L && !fl ? view('L', im.lw, im.lh, sL0, 0) : null, VR = im.R ? view('R', im.rw, im.rh, sR0, ox) : null;
     const c = $('vcanvas'), ctx = c.getContext('2d');
     c.classList.toggle('zoomed', Z > 1);
     c.style.width = cw + 'px'; c.style.height = Math.round(H) + 'px'; c.width = Math.round(cw * dpr); c.height = Math.round(H * dpr);
@@ -684,18 +787,42 @@
     const label = (t, x) => { ctx.fillStyle = '#5b6475'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(t, x, 40); ctx.textAlign = 'start'; };
     if (VL) clip(VL, () => ctx.drawImage(im.L, VL.ox - VL.x0 * VL.s, -VL.y0 * VL.s, im.lw * VL.s, im.lh * VL.s));
     else if (!one) label('原稿なし（成果物だけを確認）', half / 2);
-    if (VR) clip(VR, () => ctx.drawImage(im.R, VR.ox - VR.x0 * VR.s, -VR.y0 * VR.s, im.rw * VR.s, im.rh * VR.s));
+    if (VR) clip(VR, () => {
+      if (fl && S.phase === 0 && im.A) { ctx.fillStyle = '#fff'; ctx.fillRect(VR.ox, 0, VR.w, H); drawAligned(ctx, im.A, fl, VR.s, VR.x0, VR.y0, VR.ox, 0); }
+      else ctx.drawImage(im.R, VR.ox - VR.x0 * VR.s, -VR.y0 * VR.s, im.rw * VR.s, im.rh * VR.s);
+    });
     else label('対応する成果物のページなし', ox + half / 2);
     const css = getComputedStyle(document.documentElement), boxes = [];
     if (im.region && VR) clip(VR, () => { ctx.setLineDash([6, 4]); ctx.strokeStyle = css.getPropertyValue('--accent'); ctx.lineWidth = 1.5; const r = rectOf(VR, im.region); ctx.strokeRect(r[0] + 3, r[1] + 3, r[2] - 6, r[3] - 6); ctx.setLineDash([]); });
-    //   枠を描き、押せる範囲(見えている部分だけ)を覚える
-    const put = (V, id, b) => { const r = rectOf(V, b); ctx.strokeRect(...r); const x0 = Math.max(r[0], V.ox), x1 = Math.min(r[0] + r[2], V.ox + V.w), y0 = Math.max(r[1], 0), y1 = Math.min(r[1] + r[3], H); if (x1 > x0 && y1 > y0) boxes.push([id, x0, y0, x1, y1]); };
-    for (const f of S.res.findings) {
-      if (f.page !== S.page + 1 || !visible(f) || f.cat === 'F2') continue;
-      const sel = f.id === S.sel; ctx.strokeStyle = css.getPropertyValue('--c-' + colorOf(f)); ctx.lineWidth = sel ? 3 : 1.5;
-      if (VL) clip(VL, () => { for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) put(VL, f.id, b); });
-      if (VR) clip(VR, () => { for (const n of [...marks(f, 'R'), ...(f.moreNboxes || [])]) put(VR, f.id, n); });
+    //   枠を描き(draw)、押せる範囲(見えている部分だけ)を覚える
+    const put = (V, id, b, draw) => { const r = rectOf(V, b); draw(r); const x0 = Math.max(r[0], V.ox), x1 = Math.min(r[0] + r[2], V.ox + V.w), y0 = Math.max(r[1], 0), y1 = Math.min(r[1] + r[3], H); if (x1 > x0 && y1 > y0) boxes.push([id, x0, y0, x1, y1]); };
+    const FS = S.res.findings.filter(f => f.page === S.page + 1 && visible(f) && f.cat !== 'F2'), sf = FS.find(f => f.id === S.sel);
+    //   選んだ項目がこのページにあれば、ほかの項目の枠は薄くし、選んだ項目の枠をオレンジで太く、上に重ねる
+    //   (同じ違いのほかの所・推定のほかの所の枠は点線)
+    const plain = r => ctx.strokeRect(...r);
+    //   パタパタ表示の旧版・原稿の場面では、成果物の側の枠の代わりに、その側の枠(成果物の画素に写したもの)を出す
+    const rside = f => (fl && S.phase === 0 ? aBoxes(f, fl) : [...marks(f, 'R'), ...(f.moreNboxes || [])]);
+    for (const f of FS) {
+      if (f === sf) continue;
+      ctx.globalAlpha = sf ? 0.4 : 1; ctx.strokeStyle = css.getPropertyValue('--c-' + colorOf(f)); ctx.lineWidth = 1.5;
+      if (VL) clip(VL, () => { for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) put(VL, f.id, b, plain); });
+      if (VR) clip(VR, () => { for (const n of rside(f)) put(VR, f.id, n, plain); });
     }
+    ctx.globalAlpha = 1;
+    if (sf) {
+      const SEL = css.getPropertyValue('--sel').trim();
+      const hi = dash => r => {
+        ctx.save(); ctx.strokeStyle = ctx.fillStyle = SEL;
+        ctx.globalAlpha = 0.3; ctx.lineWidth = 9; ctx.strokeRect(...r);   // まわりのにじみ(小さい枠でも目に入るように)
+        if (!fl) { ctx.globalAlpha = 0.16; ctx.fillRect(...r); }   // パタパタ表示では塗らない(中の字の変わり方が見えるように)
+        ctx.globalAlpha = 1; ctx.lineWidth = 2.5; if (dash) ctx.setLineDash([5, 3]); ctx.strokeRect(...r);
+        ctx.restore();
+      };
+      if (VL) clip(VL, () => { for (const b of marks(sf, 'L')) put(VL, sf.id, b, hi(false)); for (const b of sf.moreBoxes || []) put(VL, sf.id, b, hi(true)); });
+      if (VR && fl && S.phase === 0) clip(VR, () => { for (const n of aBoxes(sf, fl)) put(VR, sf.id, n, hi(false)); });
+      else if (VR) clip(VR, () => { for (const n of marks(sf, 'R')) put(VR, sf.id, n, hi(!!sf.approx)); for (const n of sf.moreNboxes || []) put(VR, sf.id, n, hi(true)); });
+    }
+    if (fl && VR) flipBadge(ctx, VR.ox + 8, 8, S.phase === 0, fl.label);
     geo = { boxes, VL, VR, H };
     if (Z > 1) $('vscroll').scrollTop = 0;
     else if (scrollToSel && S.sel !== null) { const f = S.res.findings[S.sel]; $('vscroll').scrollTo({ top: Math.max(0, f.box[1] * sL0 - 150), behavior: 'smooth' }); }
@@ -722,13 +849,27 @@
   $('zIn').onclick = () => setZoom(zstep(1));
   $('zOut').onclick = () => setZoom(zstep(-1));
   const cv = $('vcanvas'); let pan = null;
+  //   ポインタの下の枠(重なっていれば小さいほう)
+  const hitAt = ev => {
+    if (!geo) return null;
+    const r = cv.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+    return geo.boxes.filter(b => x >= b[1] && x <= b[3] && y >= b[2] && y <= b[4]).sort((p, q) => (p[3] - p[1]) * (p[4] - p[2]) - (q[3] - q[1]) * (q[4] - q[2]))[0] || null;
+  };
   cv.addEventListener('click', ev => {
     if (!geo) return;
     if (S.dragged) { S.dragged = false; return; }   // 動かしたあとは、枠を押したことにしない
-    const r = ev.target.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
-    const hit = geo.boxes.filter(b => x >= b[1] && x <= b[3] && y >= b[2] && y <= b[4]).sort((p, q) => (p[3] - p[1]) * (p[4] - p[2]) - (q[3] - q[1]) * (q[4] - q[2]))[0];
+    const hit = hitAt(ev);
     if (hit) select(hit[0], true, true);
   });
+  //   枠の上では、押せることが分かるように指の形にし、項目の結論を出す
+  cv.addEventListener('mousemove', ev => {
+    if (pan) return;
+    const hit = hitAt(ev), id = hit ? hit[0] : null;
+    if (id === S.hov) return;
+    S.hov = id; cv.classList.toggle('onbox', id != null);
+    cv.title = id != null ? `${verdictOf(S.res.findings[id])[0]}（押すと一覧のこの項目を選びます）` : '';
+  });
+  cv.addEventListener('mouseleave', () => { S.hov = null; cv.classList.remove('onbox'); cv.title = ''; });
   //   拡大中のドラッグ: 原稿と成果物を一緒に動かす
   cv.addEventListener('pointerdown', ev => {
     if (S.zoom <= 1 || !geo || ev.button !== 0) return;
@@ -788,7 +929,14 @@
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '校正結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  $('print').onclick = async () => { closeMenu(); if (!okToExport('印刷')) return; if (S.only) setOnly(null); for (let i = 0; i < S.imgs.length; i++) await ensure(i); document.querySelectorAll('.item').forEach(drawCrops); window.print(); };
+  //   印刷では、選んだ項目の色(オレンジ)を使わない(報告書には、項目の色だけを出す)
+  $('print').onclick = async () => {
+    closeMenu(); if (!okToExport('印刷')) return; if (S.only) setOnly(null);
+    for (let i = 0; i < S.imgs.length; i++) await ensure(i);
+    const keep = S.sel; S.sel = null; document.querySelectorAll('.item').forEach(drawCrops); S.sel = keep;
+    window.print();
+    const el = keep != null && document.querySelector(`.item[data-id="${keep}"]`); if (el) drawCrops(el);
+  };
 
   // ---- 結果の保存と、保存した結果を開く ----
   //   ファイル(.kousei): 1行目「KOUSEI-TOOL-RESULT 1」(1は版)、2行目に JSON のバイト数、続けて JSON(UTF-8)、そのあとに表示用の画像をそのままつなげる
@@ -808,7 +956,7 @@
     const res = S.res; if (!res) return;
     const urls = [], at = new Map();
     const ref = x => { if (!x || !x.url) return null; if (!at.has(x.url)) { at.set(x.url, urls.length); urls.push(x.url); } return { img: at.get(x.url), w: x.w, h: x.h }; };
-    const pages = res.pages.map(pg => ({ ...pg, left: ref(pg.left), right: ref(pg.right) })), oldPages = Array.from(res.oldPages || [], ref);
+    const pages = res.pages.map(pg => ({ ...pg, left: ref(pg.left), right: ref(pg.right), base: ref(pg.base) })), oldPages = Array.from(res.oldPages || [], ref);
     const label = sbtn.innerHTML; sbtn.disabled = true; sbtn.textContent = '保存しています…';
     try {
       const blobs = []; for (const u of urls) blobs.push(await (await fetch(u)).blob());
@@ -825,7 +973,10 @@
   const pair = a => (Array.isArray(a) ? [str(a[0]), str(a[1])] : ['', '']);
   function cleanRes(r, urls) {
     const img = x => (x && int(x.img) != null && urls[x.img] ? { url: urls[x.img], w: num(x.w), h: num(x.h) } : null);
-    const pages = r.pages.map(pg => { pg = pg && typeof pg === 'object' ? pg : {}; return { kind: str(pg.kind), q: int(pg.q) ?? -1, src: int(pg.src), label: pg.label == null ? null : str(pg.label), crop: box4(pg.crop), region: box4(pg.region), left: img(pg.left), right: img(pg.right) }; });
+    //   位置合わせ(パタパタ表示): 5つの数 [a, b, tx, ty, ay]。形が違えば使わない
+    const m5 = M => (Array.isArray(M) && M.length === 5 && M.every(v => typeof v === 'number' && isFinite(v)) ? M.slice() : null);
+    const flipOf = fl => (fl && typeof fl === 'object' ? (int(fl.old) != null ? { old: int(fl.old), M: m5(fl.M) } : fl.src ? { src: true } : null) : null);
+    const pages = r.pages.map(pg => { pg = pg && typeof pg === 'object' ? pg : {}; return { kind: str(pg.kind), q: int(pg.q) ?? -1, src: int(pg.src), label: pg.label == null ? null : str(pg.label), crop: box4(pg.crop), region: box4(pg.region), left: img(pg.left), right: img(pg.right), base: img(pg.base), flip: flipOf(pg.flip) }; });
     const P = Math.max(1, pages.length);
     const findings = r.findings.map((f0, i) => {
       const f = f0 && typeof f0 === 'object' ? f0 : {}, g = { ...f, id: i, page: Math.min(P, Math.max(1, Math.round(num(f.page)) || 1)), cat: str(f.cat), label: str(f.label), box: box4(f.box) || [0, 0, 0, 0], nbox: box4(f.nbox), show: str(f.show), how: str(f.how), note: str(f.note), check: str(f.check) };
@@ -842,7 +993,7 @@
       if (f.j || g.cat === 'J') { const j = f.j && typeof f.j === 'object' ? f.j : {}; g.j = { ...j, kind: str(j.kind), msg: str(j.msg), want: str(j.want), ctx: pair(j.ctx) }; }
       if (f.lint) g.lint = { c: str(f.lint.c), want: str(f.lint.want), ctx: pair(f.lint.ctx) };
       if (f.s3) g.s3 = { still: !!f.s3.still, far: !!f.s3.far, look: !!f.s3.look, nt: num(f.s3.nt), nr: num(f.s3.nr) };
-      if (f.old) g.old = { p: int(f.old.p) ?? -1, box: box4(f.old.box) };
+      if (f.old) g.old = { p: int(f.old.p) ?? -1, box: box4(f.old.box), M: m5(f.old.M) };
       for (const k of ['merge', 'rec']) if (f[k]) g[k] = typeof f[k] === 'object' ? { ...f[k], kind: str(f[k].kind), fields: Array.isArray(f[k].fields) ? f[k].fields.map(str) : [] } : null;
       return g;
     });

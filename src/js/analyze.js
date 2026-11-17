@@ -166,6 +166,9 @@
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
     return { url: URL.createObjectURL(blob), w: img.w, h: img.h };
   }
+  //   パタパタ表示(旧版と成果物を同じ所に重ねて交互に出す)の位置合わせ: 旧版のページの画素 → 結果のページの成果物の画像の画素。
+  //   T: 旧版の pt → 成果物の pt、o0: 結果のページが成果物のページの一部(見開きの片側など)なら、その左上(pt)。形は T と同じ [a, b, tx, ty, ay]
+  const pxM = (T, o0 = [0, 0]) => (T ? [T[0], T[1], PC.S * (T[2] - o0[0]), PC.S * (T[3] - o0[1]), T.length > 4 ? T[4] : T[0]] : null);
 
   // 差分に、文字(修正前→修正後)とピンポイントの違いを付ける(注釈PDF・スキャン共通)
   function describe(ch, ot, ol, nt, nl, oc, nc) {
@@ -310,7 +313,8 @@
     //   (ページ全体が1つの図とみなされた変化・大きな字形のまとまりの変化など、違う画素がほかの所にあるもの)を、その指示の「直った」に数えない。
     //   指示の範囲の中がまったく同じ(stillIn)なら、画像・図版の変化は、その指示の「直った」に数えない(となりの字が動いただけの所など)
     if (pd) for (const a of an) { const qs = a.quads && a.quads.length ? a.quads : [a.box]; a.still = !qs.some(q => pd.has(q, 3 * PC.S + 2)); a.stillIn = !qs.some(q => pd.has(q, 1)); }
-    return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, tx, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, w: old.w };
+    //   base: 注釈を消した原稿の描画(パタパタ表示で成果物と交互に出す。赤字の印がちらつかないように)
+    return { kind: 'annot', ot, ol, nt, nl, ch: merged, im, an, notes, pairs: [...pairs, ...lookPairs], oc, nc, tx, restBoxes: restBoxesOf(rm, used, old.w, old.h), left: shown, right: nw, base: old, w: old.w };
   }
 
   // 数字のまとまり(桁区切り・小数点・時刻・日付の区切り)の中の違いを1件にまとめる(字形で比べるページ)
@@ -1410,7 +1414,7 @@
           P.push(d); ds.push(d);
         }
         const o = d.crop ? [d.crop[0], d.crop[1]] : [0, 0], px = b => [(b[0] - o[0]) * k, (b[1] - o[1]) * k, (b[2] - o[0]) * k, (b[3] - o[1]) * k];
-        if (diff) { for (const db of diff) { (d.shapes || (d.shapes = [])).push({ nbox: px(db), old: { p: op, box: db.map(v => v * k) } }); changed++; } continue; }
+        if (diff) { for (const db of diff) { (d.shapes || (d.shapes = [])).push({ nbox: px(db), old: { p: op, box: db.map(v => v * k), M: pxM(OLD.pairs[op].T, o) } }); changed++; } continue; }
         (d.unread || (d.unread = { why, boxes: [] })).boxes.push(px(sp.box)); total++;
       }
     }
@@ -1444,7 +1448,7 @@
         const nearOk = n => { if (!mb) return true; if (ident) return false; const [a0, a1, b0, b1, c0, c1, d0, d1] = along(n, mb), h = Math.max(1, Math.min(c1 - c0, d1 - d0)); return Math.min(c1, d1) - Math.max(c0, d0) >= 0.5 * h && Math.max(a0 - b1, b0 - a1) <= 2 * Math.max(c1 - c0, d1 - d0); };
         const nb = g.near && nearOk(g.near) ? [g.near[0] - 1, g.near[1], g.near[0] + 1, g.near[3]] : mb || PC.mapBox(T, ob);
         if (covered(nb)) continue;
-        items.push({ kind: 'del', text, segs: [['-', text]], nbox: nb, old: { p: g.p, box: px(ob) }, ocr: g.cs.some(c => c.ocr) });
+        items.push({ kind: 'del', text, segs: [['-', text]], nbox: nb, old: { p: g.p, box: px(ob), T }, ocr: g.cs.some(c => c.ocr) });
       }
       if (noContent) {   // 原稿がまったく当たらないページ(または同じレイアウトの原稿の外): 旧版にない字の続き
         // 違いのある数字のまとまりは、まとまり全体を続きに入れる
@@ -1470,7 +1474,7 @@
             if (goneIn.has(last + 1) && spanAt(last + 1) >= 0 && spanOf[last + 1] !== spanOf[last]) push(segs, '-', goneIn.get(last + 1));
             if (post.length) push(segs, '=', post.join(''));
             const kind = segs.some(g => g[0] === '+') ? 'add' : 'del', variant = run.every(j => o.st[j] === 1 || o.st[j] === 3) && !run.some(j => goneIn.has(j)) && !goneIn.has(last + 1);   // 書き方だけの変化
-            if (!covered(nb)) items.push({ kind, variant, text: run.map(j => C[j].c).join(''), segs, nbox: nb, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), nb)) } : null, ocr: run.some(j => C[j].ocr) });
+            if (!covered(nb)) items.push({ kind, variant, text: run.map(j => C[j].c).join(''), segs, nbox: nb, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), nb)), T: m.T } : null, ocr: run.some(j => C[j].ocr) });
           }
           run = [];
         };
@@ -1485,7 +1489,7 @@
           P.push(d);
         }
         const o0 = d.crop ? [d.crop[0], d.crop[1]] : [0, 0];
-        (d.olds || (d.olds = [])).push({ ...x, nbox: [(x.nbox[0] - o0[0]) * k, (x.nbox[1] - o0[1]) * k, (x.nbox[2] - o0[0]) * k, (x.nbox[3] - o0[1]) * k] });
+        (d.olds || (d.olds = [])).push({ ...x, nbox: [(x.nbox[0] - o0[0]) * k, (x.nbox[1] - o0[1]) * k, (x.nbox[2] - o0[0]) * k, (x.nbox[3] - o0[1]) * k], old: x.old && { p: x.old.p, box: x.old.box, M: pxM(x.old.T, o0) } });
       }
     }
   }
@@ -1898,7 +1902,7 @@
       if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、原稿と成果物の位置がうまく合いません（ページの向きを確かめてください）`);
       step('表示用の画像を作成', 0.96); await PC.tick();
       d.q = pr.q; d.crop = pr.crop; d.extra = [];
-      d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right) }; d.left = d.right = null;
+      d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right), ...(d.base ? { base: await toThumb(d.base) } : {}) }; d.left = d.right = d.base = null;
       put(d);
     }
     scan3Resolve(P);   // 紙の赤字原稿＋旧版: 同じ成果物のページの赤字と変化を、ページ全体でまとめて突き合わせる
@@ -2223,7 +2227,19 @@
     prog('結果をまとめています', 1);
     // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
     const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
-    const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null }));
+    //   パタパタ表示の相手(flip): 成果物のページに同じレイアウトの旧版のページがあれば旧版(old: 旧版のページの番号、M: 位置合わせ)、
+    //   なければ、原稿を成果物に重ねて比べたページ(注釈PDF・スキャン)の原稿(src。原稿と成果物の画像は同じ所がそろっている)
+    const flipOf = d => {
+      if (d.q < 0) return null;
+      if (OLD) {
+        const o0 = d.crop ? [d.crop[0], d.crop[1]] : [0, 0];
+        const inCrop = x => { if (!d.crop || !x.region) return true; const [cx] = PC.center(x.region); return cx >= d.crop[0] && cx <= d.crop[2]; };
+        const op = OLD.pairs.findIndex(x => x.q === d.q && x.same && x.T && inCrop(x));
+        if (op >= 0) return { old: op, M: pxM(OLD.pairs[op].T, o0) };
+      }
+      return ['annot', 'scan', 'scan3'].includes(d.kind) && d.thumbs && d.thumbs.left ? { src: true } : null;
+    };
+    const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null, flip: flipOf(d) }));
     // 仕上がり(トンボ)の外にある項目に印を付ける(詳細設定で、ページ情報などを結果から外せるように)
     //   仕上がりは成果物のPDFに書かれた TrimBox(ページの外枠と同じなら外はない)。項目の成果物での位置の中心で見る
     //   違う字の枠(pnboxes)があれば、そのすべてが外のものだけ(内側の字を含む項目は、外の項目として隠さない)
@@ -2237,9 +2253,9 @@
       const bs = f.pnboxes && f.pnboxes.length ? f.pnboxes : [f.nbox];
       if (bs.every(b => b && PC.outside(t, [b[0] / PC.S + o0[0], b[1] / PC.S + o0[1], b[2] / PC.S + o0[0], b[3] / PC.S + o0[1]]))) f.outTrim = true;
     }
-    // 旧版のページの表示用の画像(旧版から変わった所の項目で使うものだけ)
+    // 旧版のページの表示用の画像(旧版から変わった所の項目と、パタパタ表示で使うものだけ)
     const oldPages = [];
-    if (opts.oldDoc) for (const p of new Set(F.filter(f => f.old).map(f => f.old.p))) oldPages[p] = await toThumb(await PC.renderPage(opts.oldDoc, p, PC.DPI, false));
+    if (opts.oldDoc) for (const p of new Set([...F.filter(f => f.old).map(f => f.old.p), ...pages.filter(pg => pg.flip && pg.flip.old != null).map(pg => pg.flip.old)])) oldPages[p] = await toThumb(await PC.renderPage(opts.oldDoc, p, PC.DPI, false));
     return { findings: F, pages, oldPages, rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
   };
 })();
