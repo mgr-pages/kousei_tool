@@ -19,6 +19,8 @@
     { key: 'TO', label: '原稿と違う？（OCRで読んだ字）', test: f => (f.cat === 'T' || f.cat === 'N') && f.ocr, need: true },
     { key: 'T', label: '原稿と違う', test: f => f.cat === 'T' || f.cat === 'N', need: true },
     { key: 'D', label: '直し忘れ（全体・以下同様）', test: isLeak, need: true },
+    // 「以下同様」と書いていない指示から推定した、同じ語のほかの所(指示が確かでないので「確認だけ」。語ごと・ページごとに1件)
+    { key: 'D2', label: '以下同様なら直す所（推定）', test: f => f.cat === 'D' && !!f.guess },
     { key: 'E', label: '文字だけ違う', test: f => f.cat === 'E', need: true },
     { key: 'J', label: '成果物だけで見つけた誤り（端の切れ端・かっこ・日付など）', test: f => f.cat === 'J' && f.level === 'need', need: true },
     { key: 'A', label: '赤字どおり変わった（中身を確認）', test: f => f.cat === 'A' || f.cat === 'A_IMG' },
@@ -157,6 +159,7 @@
     if (f.cat === 'H') return ['赤以外の書き込み', ''];
     if (f.cat === 'D') {
       if (f.check === '未統一') return ['直し忘れ', (f.how || '').startsWith('同じ変更') ? `ほかでは「${f.to}」に直っています（${f.how}）` : '全体指示が反映されていません'];
+      if (f.guess) return ['同じ語が他にもある（推定）', `直した語と同じ語が、このページに ${+f.spotN || 1}か所あり、変わっていません（枠）。以下同様の指示なら、ここも直す（指示に「以下同様」がないので推定）`];
       if (f.check.includes('漏れ')) return f.how === '同じ語の他の箇所（以下同様の候補）' ? ['同じ語が他にもある', '以下同様の指示なら、ここも直す'] : ['直し忘れ', '以下同様がここに反映されていません'];
       return ['要確認', '全体・以下同様の語が、別の形に変わっています'];
     }
@@ -212,7 +215,7 @@
     if (f.same) return `<div class="what">文字は同じで、${f.color ? '色' : '見た目（書体・太さ・位置・色など）'}だけが違います</div>`;
     if (f.cat === 'B' || f.cat === 'B2') return f.ins ? `<div class="what">${q(geta(f.ins[0]))}と${q(geta(f.ins[1]))}の間に入れる赤字 → 修正後も何も入っていません</div>` : `<div class="what">${f.show ? '赤字の箇所 ' + q(geta(f.show)) : 'この位置の赤字'} → 修正後も変わっていません</div>`;
     if (f.cat === 'D') {   // 指示(全体指示・以下同様)と、修正後の状態を分けて示す
-      const now = f.check === '未統一' || f.check.includes('漏れ') ? `<span class="tx ng">${q(f.frm)}のまま</span>` : f.check.startsWith('展開済み') ? `<span class="tx okc">${q(f.to)}に直っている</span>` : '<span class="tx">別の形に変わっている（切り抜きで確認）</span>';
+      const now = f.guess ? `<span class="tx">${q(f.frm)}のまま（このページに ${+f.spotN || 1}か所）</span>` : f.check === '未統一' || f.check.includes('漏れ') ? `<span class="tx ng">${q(f.frm)}のまま</span>` : f.check.startsWith('展開済み') ? `<span class="tx okc">${q(f.to)}に直っている</span>` : '<span class="tx">別の形に変わっている（切り抜きで確認）</span>';
       return `<div class="rows"><span class="lb">${(f.how || '').startsWith('同じ変更') ? 'ほかの箇所' : '指示'}</span><span class="tx"><del>${esc(f.frm)}</del> → <ins>${esc(f.to || '')}</ins>${f.how ? `<span class="more">（${esc(f.how === '同じ語の他の箇所（以下同様の候補）' ? '別の箇所の赤字' : f.how)}）</span>` : ''}</span><span class="lb">ここ</span>${now}</div>`;
     }
     if (f.cat === 'M') return `<div class="what">${q(f.show)}</div>`;
@@ -831,6 +834,7 @@
       for (const k of ['more', 'goneN', 'spotN']) if (k in f) g[k] = num(f[k]);
       if ('why' in f) g.why = str(f.why);
       if ('shape' in f) g.shape = !!f.shape;
+      if ('guess' in f) g.guess = !!f.guess;
       if ('noteBox' in f) g.noteBox = box4(f.noteBox);
       if ('segs' in f) g.segs = Array.isArray(f.segs) ? f.segs.filter(x => Array.isArray(x) && ['=', '-', '+'].includes(x[0])).map(x => [x[0], str(x[1])]) : [];
       if ('refs' in f) g.refs = Array.isArray(f.refs) ? f.refs.map(str) : [];

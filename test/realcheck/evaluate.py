@@ -88,7 +88,8 @@ for d in dirs:
                 if not shown and detail: lines.append(f'   annot {name} p{e["page"] + 1} 注釈が出ていない {e["kind"]} {e["role"]} {[round(v) for v in e["rect"]]}')
         for k, f in enumerate(F):
             if k in hit or any(q(f) == e['page'] and any(ov(b, px(e), e['size'] * K) for b in boxes(f)) for e in E): continue
-            if f['cat'] in ('D', 'C1'): S['rule'] += 1; continue   # 全体指示・以下同様の推定から出た項目
+            if f['cat'] in ('D', 'C1'):   # 全体指示・以下同様の推定から出た項目(「直す必要がありそう」に入るもの: 直し忘れ・未統一)
+                S['rule'] += 1; S['rule_need'] += any(k in (f.get('check') or '') for k in ('漏れ', '未統一')); continue
             if any(q(f) == s_['page'] and any(ov(b, [v * K for v in s_['rect']], 2) for b in boxes(f)) for s_ in SIDE): S['side'] += 1; continue   # 副作用で動いた字の所
             S['extra'] += 1; S['extra_' + f['cat']] += 1
             if detail: lines.append(f'   {mode} {name} p{q(f) + 1} 余分な検出 {f["cat"]} {f.get("auto") or ""} {f.get("nbox") or f.get("box")}')
@@ -102,7 +103,7 @@ for mode in ('old', 'marks', 'annot'):
     if not S['files']: continue
     print(f"{NAMES[mode]}（{S['files']}組）: 見える変化 {pct(S['found'], S['changes'])} を見つけた / 余分な検出 {S['extra']}件" + (' [' + ' '.join(f'{k[6:]}:{v}' for k, v in S.items() if k.startswith('extra_')) + ']' if S['extra'] else ''))
     print('   種類ごと: ' + '　'.join(f"{k[5:]} {S['kindfound_' + k[5:]]}/{v}" for k, v in S.items() if k.startswith('kind_')))
-    if S['rule']: print(f"   全体指示・以下同様の推定から出た項目（誤りの所以外）: {S['rule']}件")
+    if S['rule']: print(f"   全体指示・以下同様の推定から出た項目（誤りの所以外）: {S['rule']}件（うち「直す必要がありそう」に入るもの {S['rule_need']}件）")
     if S['side']: print(f"   誤りを入れた副作用で字が動いた所に出た項目: {S['side']}件")
     if S['invisible']: print(f"   見た目が変わらなかった誤り（文字データだけの違い）: {S['invisible_found']}/{S['invisible']} を見つけた")
     if mode != 'annot':

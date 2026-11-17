@@ -259,6 +259,7 @@
     //   注釈を消した原稿の描画と成果物の描画がまったく同じ所の、字形・図版の変化は出さない(同じ大きさのときだけ)
     const pd = PC.pixelDiff(old, nw);
     dropUnchanged(pd, merged, im);
+    explainImages(pd, old, nw, merged, im, [...pairs.map(([k, l]) => [ot[k] && ot[k].box, nt[l] && nt[l].box]), ...(tx ? tx.moved : [])]);   // 画像の変化は、字の変化・字の移動で説明できない描画の違いだけ
     step('赤字を読み取り', 0.7); await PC.tick();
     const notes0 = await PC.annotations(doc, i), withA = await PC.renderPage(doc, i, PC.DPI, true);
     const { rm, shown } = PC.fromAnnots(withA, old, notes0);
@@ -358,6 +359,33 @@
     const still = c => !near(c.obox) && !near(c.nbox);
     for (let k = ch.length - 1; k >= 0; k--) if (!ch[k].fromText && !ch[k].txt && still(ch[k])) ch.splice(k, 1);
     for (let k = im.length - 1; k >= 0; k--) if (still(im[k])) im.splice(k, 1);
+  }
+  // 画像・図版の変化を、字の変化で説明できない描画の違いだけにする(全数の消し込み: 違う画素は、字の変化か画像の変化のどちらか一方で説明する)
+  //   exact: 原稿と成果物の描画の違い(同じ大きさ・ずれなしのときだけ。なければ何もしない)。A・B: 原稿・成果物の描画、ch: 字の変化、im: 画像・図版の変化(書き換える)
+  //   moved: 同じ形・同じ字と対応づいた字形・字の [原稿の枠, 成果物の枠](位置が動いた字は、前と後ろの両方の所の違いを説明する。同じ行の前で字を消すと、後ろの字が詰まる)
+  //   字の変化の枠(まわり: 枠の高さの半分、4〜16画素)と、動いた字の枠(まわり: 枠の高さの3割、3〜10画素。文字データの字の枠は推定なので、描いた字の縁がはみ出す)の中の違いを除き、画像の変化の範囲に残った違い(色の差 40 超・3x3 で開いた所)だけを見る。
+  //   残らなければ外し、残れば、その範囲に縮める(画像の所がページ全体の名刺などで、字を直しただけでページ全体が「画像が変わった」になり、
+  //   直していない注釈にも結びついて「直っていない」を隠していたため)。位置が動いた画像・消えた画像は、残った違いがなければ外すだけ
+  function explainImages(exact, A, B, ch, im, moved = []) {
+    if (!exact || !im.length || A.w !== B.w || A.h !== B.h) return;
+    const w = A.w, h = A.h, cover = new Uint8Array(w * h);
+    const fill = (b, m) => { const x0 = Math.max(0, Math.floor(b[0] - m)), y0 = Math.max(0, Math.floor(b[1] - m)), x1 = Math.min(w, Math.ceil(b[2] + m)), y1 = Math.min(h, Math.ceil(b[3] + m)); for (let y = y0; y < y1; y++) cover.fill(1, y * w + x0, y * w + x1); };
+    for (const c of ch) for (const b of [c.obox, c.nbox]) if (b) fill(b, Math.max(4, Math.min(16, 0.5 * (b[3] - b[1]))));
+    for (const [o, n] of moved) if (o && n && (Math.abs(o[0] - n[0]) > 1 || Math.abs(o[1] - n[1]) > 1)) { const m = Math.max(3, Math.min(10, 0.3 * (n[3] - n[1]))); fill(o, m); fill(n, m); }
+    for (let k = im.length - 1; k >= 0; k--) {
+      const c = im[k], u0 = PC.union([c.obox, c.nbox].filter(Boolean));
+      const u = [Math.max(0, Math.floor(u0[0])), Math.max(0, Math.floor(u0[1])), Math.min(w, Math.ceil(u0[2])), Math.min(h, Math.ceil(u0[3]))], uw = u[2] - u[0], uh = u[3] - u[1];
+      if (uw <= 0 || uh <= 0) continue;
+      const dm = new Uint8Array(uw * uh), a = A.d, b = B.d;
+      for (let y = 0; y < uh; y++) for (let x = 0; x < uw; x++) {
+        const j = (u[1] + y) * w + u[0] + x; if (cover[j]) continue;
+        const g = 4 * j; if (Math.max(Math.abs(a[g] - b[g]), Math.abs(a[g + 1] - b[g + 1]), Math.abs(a[g + 2] - b[g + 2])) > 40) dm[y * uw + x] = 1;
+      }
+      const op = PC.morph(dm, uw, uh, 'open', 3, 3); let ax0 = 1e9, ay0 = 1e9, ax1 = -1, ay1 = -1;
+      for (let y = 0; y < uh; y++) for (let x = 0; x < uw; x++) if (op[y * uw + x]) { if (x < ax0) ax0 = x; if (x > ax1) ax1 = x; if (y < ay0) ay0 = y; if (y > ay1) ay1 = y; }
+      if (ax1 < 0) { im.splice(k, 1); continue; }
+      if (c.kind === 'changed') c.obox = c.nbox = [u[0] + ax0, u[1] + ay0, u[0] + ax1, u[1] + ay1];   // 端の取り方は PC.imageChanges と同じ
+    }
   }
   // 紙の赤字原稿(スキャン)のページ: スキャンを修正後に重ねて字形を比べる。修正前の文字は、修正後の文字から推定する
   // スキャンでないPDFの原稿(同じレイアウト): 字の形に加えて、原稿と成果物の文字データどうしも比べ、字の形の違いとして出ていない違いを足す
@@ -564,7 +592,14 @@
         if ((oi.length || nj.length) && oi.every(i => eqOld.has(i)) && nj.every(j => eqNew.has(j))) c.textSame = true;
       }
     }
-    return { stat, At, Bt, T, c0 };
+    //   moved: 文字データで同じ字と対応づいた字のうち、位置が動いた字の [原稿の枠, 成果物の枠](成果物の描画の画素。画像の変化の説明に使う: explainImages)
+    const moved = [];
+    for (const b of blocks) for (const o of b.ops) {
+      if (o[0] !== '=' && o[0] !== '~') continue;
+      const ob = px(PC.mapBox(T, At.chars[b.s + o[1]].box)), nb = px(Bc[o[2]].box);
+      if (Math.abs(ob[0] - nb[0]) > 1 || Math.abs(ob[1] - nb[1]) > 1) moved.push([ob, nb]);
+    }
+    return { stat, At, Bt, T, c0, moved };
   }
   async function scanPage(src, p, nw, nc, step, nref = null) {
     step('スキャンを読み込み', 0.02); await PC.tick();
@@ -608,12 +643,14 @@
     }
     mergeNumbers(ch, sp.ot, oc, sp.nt, nc);
     describe(ch, sp.ot, sp.ol, sp.nt, sp.nl, oc, nc);
-    if (digital && nref) { step('文字データを比べています', 0.85); await textDiffChanges(src, p, A, s, sp, ch, nref); }
+    let tmov = [];
+    if (digital && nref) { step('文字データを比べています', 0.85); const tx = await textDiffChanges(src, p, A, s, sp, ch, nref); if (tx) tmov = tx.moved; }
     if (window.__pcDebug && typeof window.__pcDebug === 'object') window.__pcDebug.scan = { ot: sp.ot.map(t => t.box), nt: sp.nt.map(t => t.box), oc, nc, ch: ch.map(c => ({ oi: c.oi, nj: c.nj, show: c.show })) };
     ch.push(...layoutChanges(sp.ot, sp.ol, sp.nt, sp.nl, pairs));
     step('写真・図版を比べています', 0.86); await PC.tick();
     const im = sp.imageChanges(); im.forEach(imageShow);
     dropUnchanged(exact, ch, im);
+    explainImages(exact, W, nw, ch, im, [...pairs.map(([k, l]) => [sp.ot[k] && sp.ot[k].box, sp.nt[l] && sp.nt[l].box]), ...tmov]);   // 画像の変化は、字の変化・字の移動で説明できない描画の違いだけ
     step('赤字を読み取り', 0.9); await PC.tick();
     const { w, h } = nw, rm = PC.morph(sp.pen, w, h, 'open', 2, 2);
     // 赤以外の書き込みだけの行は、赤字の指す先にしない(書き込みに重ねた赤字は「読み取れない赤字」になる)
@@ -1967,11 +2004,16 @@
         c.status = 'C1'; c.why = r.how;
       }
       // 修正後に「A」が残っている箇所は、直し忘れの候補
+      //   「以下同様」「全体」と書いていない指示から推定した候補(guess)は、指示が確かでないので「直す必要がありそう」には入れず、
+      //   その語ごと・ページごとに1件にまとめる(ほかの所は枠で示す。同じ語が多い紙面で、1か所ずつ何百件も出ていたため)
+      const guess = !r.after && r.check === '変更なし（展開漏れの候補）' && r.how === '同じ語の他の箇所（以下同様の候補）';
       P.forEach((d, q) => {
+        let g = null;
         for (const [i, e] of findAll(d.nc, r.search || r.frm)) {
           const nb = union(d.nc.slice(i, e).map(c => c[1])).map(Math.trunc), key = q + ':' + nb.join(','), found = d.nc.slice(i, e).map(c => c[0]).join('');
           if (seen.has(key)) continue;
           seen.add(key);
+          if (guess) { if (g) { g.more.push(nb); continue; } g = { page: q + 1, frm: r.frm, to: r.to, nbox: nb, how: r.how, check: '変更なし（以下同様の指示なら直す所）', guess: true, more: [] }; leaks.push(g); continue; }
           let check = r.check;
           if (r.after && r.src && (q < r.src[0] || (q === r.src[0] && r.src[1] && (nb[1] < r.src[1][1] || (nb[1] === r.src[1][1] && nb[0] < r.src[1][0]))))) check += '（指示より前なので対象外の可能性）';
           leaks.push({ page: q + 1, frm: r.frm.includes('□') ? found : r.frm, to: r.to, nbox: nb, how: r.how, check });
@@ -2127,6 +2169,7 @@
       const d = P[e.page - 1], ob = backBox(d, e.nbox);
       add(e.page, 'D', ob || approx(d, e.nbox), `${e.frm}→${e.to}`, e.how, '', e.check, e.nbox);
       Object.assign(F[F.length - 1], { frm: e.frm, to: e.to, onNew: !ob });
+      if (e.guess) Object.assign(F[F.length - 1], { guess: true, spotN: 1 + e.more.length, moreNboxes: e.more });   // 推定の候補: このページの同じ語の所(ほかの所は枠)
     }
     for (const l of lookalike) { const [x, y] = l.show.split('→'); add(l.page, 'E', l.box, l.show, '', '', '', l.nbox); F[F.length - 1].segs = [['-', x], ['+', y]]; }
     // 見た目が似た別の字: 修正後の文字データだけで調べる(紙の赤字原稿でも分かるように)。すでに出ている箇所は除く
