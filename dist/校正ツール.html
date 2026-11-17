@@ -5971,7 +5971,9 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   function textDiffCore(At, Bt, T, c0, ot, nt, ch, crop, opt) {
     const K = PC.S, px = b => [(b[0] - c0[0]) * K, (b[1] - c0[1]) * K, (b[2] - c0[0]) * K, (b[3] - c0[1]) * K];
     const region = crop ? crop.slice() : [0, 0, Bt.w, Bt.h];
-    const blocks = PC.collatePage(At, Bt, { T, Tt: null, region, src: [0, 0, At.w, At.h], strict: true, noInstr: true, free: false }, new Uint8Array(Bt.chars.length), new Set());
+    const usedT = new Uint8Array(Bt.chars.length), blocks = PC.collatePage(At, Bt, { T, Tt: null, region, src: [0, 0, At.w, At.h], strict: true, noInstr: true, free: false }, usedT, new Set());
+    //   同じレイアウトなので、字の並びで対応づけたあとに、同じ位置の同じ字で対応づけを直す(posFirst。同じ字の並びがページに2回ある所の取り違え)
+    posFirst(At, Bt, blocks, T, usedT, new Uint8Array(Bt.chars.length), true);
     //   PDFの中の文字列の順番が原稿と成果物で違うと(書き直した文字列だけがページの最後に書かれたPDFなど)、同じ所にある同じ字を
     //   「消えた」「入った」とすることがある。同じレイアウトなので、消えたとした原稿の字は、写した位置に、どこにも当たっていない成果物の同じ字があれば同じとする
     const Bc = Bt.chars, usedB = new Uint8Array(Bc.length), freeB = new Map(), took = new Uint8Array(Bc.length);
@@ -6750,13 +6752,28 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   //     j が別の旧版の字 i2(j と同じ位置にない字)に対応づいていたら、i2 を「消えた」にする(i2 も同じ位置の字を探す)。j が「入った」なら、それを取り消す
   //   ・「入った」とした成果物の字 j と同じ字が、旧版の同じ位置にあり、その旧版の字が別の位置の成果物の字 j2 に対応づいていたら、入れ替える(j2 を「入った」にする)
   //   T: 旧版のページ → 成果物のページ(pt)。used: 成果物の字のうち対応づいたもの、snap: 前の旧版のページで使った字(動かさない)
-  function posFirst(A, B, blocks, T, used, snap) {
+  //   mono: 組み直した字が、同じまとまり(blocks)の中で前後に対応づいている字どうしの間に収まるとき(字の並びの順が入れ替わらないとき)だけ直す。
+  //   原稿と成果物の文字データの比べ合わせで使う(段落の途中を消す・足すと後ろの文が詰まり、日本語は字の格子にそろうので、近くの同じ字が
+  //   たまたま元の位置に来ることがある。それを組むと並びの順が入れ替わるので組まない。表の各列に同じ文が並ぶ所で、隣の列の同じ文と組んだ
+  //   取り違えは、ます目の前後の対応の間に収まるので直す)
+  function posFirst(A, B, blocks, T, used, snap, mono = false) {
     const G = 12, cen = b => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], sz = b => Math.max(1, Math.min(b[2] - b[0], b[3] - b[1]) || Math.max(b[2] - b[0], b[3] - b[1]));
     const index = (n, at) => { const g = new Map(); for (let k = 0; k < n; k++) { const [x, y] = at(k), key = Math.floor(x / G) + '|' + Math.floor(y / G); if (!g.has(key)) g.set(key, []); g.get(key).push(k); } return g; };
     const pA = A.chars.map(c => { const [x, y] = cen(c.box); return PC.applyT(T, x, y); }), pB = B.chars.map(c => cen(c.box));
     const gB = index(B.chars.length, k => pB[k]), gA = index(A.chars.length, k => pA[k]);
     const look = (g, [x, y]) => { const out = []; for (let gx = Math.floor(x / G) - 1; gx <= Math.floor(x / G) + 1; gx++) for (let gy = Math.floor(y / G) - 1; gy <= Math.floor(y / G) + 1; gy++) for (const k of g.get(gx + '|' + gy) || []) out.push(k); return out; };
     const near = (i, j) => { const s = 0.5 * sz(B.chars[j].box); return Math.abs(pA[i][0] - pB[j][0]) <= s && Math.abs(pA[i][1] - pB[j][1]) <= s; };
+    //   mapA: 旧版(原稿)の字 → 対応づいた成果物の字(なければ -1)。blk: 字 → まとまりの番号
+    const mapA = new Int32Array(A.chars.length).fill(-1), blk = new Int32Array(A.chars.length).fill(-1);
+    blocks.forEach((b, bi) => { for (let i = b.s; i < b.e; i++) blk[i] = bi; b.ops.forEach(o => { if (o.length === 3) mapA[b.s + o[1]] = o[2]; }); });
+    const inOrder = (i, j) => {   // 同じまとまりの中で、前後に対応づいている字の、対応先の間に j が収まるか
+      const bi = blk[i]; if (bi < 0) return false;
+      const b = blocks[bi]; let p = i - 1, n = i + 1;
+      while (p >= b.s && mapA[p] < 0) p--;
+      while (n < b.e && mapA[n] < 0) n++;
+      return (p < b.s || mapA[p] < j) && (n >= b.e || mapA[n] > j);
+    };
+    const same = (i, j) => A.chars[i].c === B.chars[j].c && near(i, j) && (!mono || inOrder(i, j));
     //   ops の場所: 旧版の字 i → [まとまり, 番号]、成果物の字 j → [まとまり, 番号]
     const atI = new Map(), atJ = new Map();
     blocks.forEach((b, bi) => b.ops.forEach((o, k) => { if (o[0] === '|') return; if (o[0] === '-') atI.set(b.s + o[1], [bi, k]); else if (o[0] === '+') atJ.set(o[1], [bi, k]); else { atI.set(b.s + o[1], [bi, k]); atJ.set(o[2], [bi, k]); } }));
@@ -6766,22 +6783,22 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     while ((qi.length || qj.length) && guard++ < 20000) {
       if (qi.length) {   // 消えたとした旧版の字
         const i = qi.shift(), xi = atI.get(i); if (!xi || opAt(xi)[0] !== '-') continue;
-        const j = look(gB, pA[i]).find(j => B.chars[j].c === A.chars[i].c && near(i, j) && !snap[j]); if (j === undefined) continue;
+        const j = look(gB, pA[i]).find(j => same(i, j) && !snap[j]); if (j === undefined) continue;
         const xj = atJ.get(j);
         if (xj) {
           const o = opAt(xj);
           if (o[0] === '+') setOp(xj, ['drop']);
-          else { const i2 = blocks[xj[0]].s + o[1]; if (i2 === i || near(i2, j)) continue; setOp(xj, ['-', o[1]]); atI.set(i2, xj); qi.push(i2); }
+          else { const i2 = blocks[xj[0]].s + o[1]; if (i2 === i || near(i2, j)) continue; setOp(xj, ['-', o[1]]); atI.set(i2, xj); mapA[i2] = -1; qi.push(i2); }
         } else if (used[j]) continue;
-        setOp(xi, ['=', opAt(xi)[1], j]); atJ.set(j, xi); used[j] = 1;
+        setOp(xi, ['=', opAt(xi)[1], j]); atJ.set(j, xi); used[j] = 1; mapA[i] = j;
         continue;
       }
       const j = qj.shift(), xj = atJ.get(j); if (!xj || opAt(xj)[0] !== '+' || snap[j]) continue;   // 入ったとした成果物の字
-      const i = look(gA, pB[j]).find(i => A.chars[i].c === B.chars[j].c && near(i, j)); if (i === undefined) continue;
+      const i = look(gA, pB[j]).find(i => same(i, j)); if (i === undefined) continue;
       const xi = atI.get(i); if (!xi) continue;
       const o = opAt(xi); if (o[0] === '-') { qi.push(i); continue; }
       const j2 = o[2]; if (j2 === j || near(i, j2) || snap[j2]) continue;
-      setOp(xi, ['=', o[1], j]); setOp(xj, ['+', j2]); atJ.set(j, xi); atJ.set(j2, xj); qj.push(j2);
+      setOp(xi, ['=', o[1], j]); setOp(xj, ['+', j2]); atJ.set(j, xi); atJ.set(j2, xj); mapA[i] = j; qj.push(j2);
     }
     for (const b of blocks) if (b.ops.some(o => o[0] === 'drop')) b.ops = b.ops.filter(o => o[0] !== 'drop');
   }
@@ -7104,12 +7121,34 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       //     指示が1〜2字で、入った字に指示の字が含まれない → 指示どおりでない(近くにたまたま同じ字があっても、置き換わった字は違う)
       //   それ以外(入った字が文字データで対応づいていない・指示が長く、入った字が何個かの違いに分かれているかもしれない)は、下の探し方で決める
       const segs = (c.fromText || c.txt) && c.diff && c.diff.segs, cat = t => (segs || []).filter(g => g[0] === t).map(g => g[1]).join('').replace(/\s/g, '');
+      if (window.__pcDebug) (PC._nc = PC._nc || []).push({ note: a.note, under: a.under, minus: cat('-'), plus: cat('+'), fromText: !!c.fromText, txt: !!c.txt, box: a.box });   // 調べるとき用
       if (segs && P_.text.length === 1 && !P_.ask.length && !P_.file.length && a.under && cat('-') && fk(cat('-')) === fk(String(a.under).replace(/\s/g, ''))) {
         const w = P_.text[0], plus = cat('+'), qs = a.quads && a.quads.length ? a.quads : a.box ? [a.box] : [];
         const inQ = d.nc.filter(([, b]) => { const x = (b[0] + b[2]) / 2, y = (b[1] + b[3]) / 2; return qs.some(q => x >= q[0] - 1 && x <= q[2] + 1 && y >= q[1] - 1 && y <= q[3] + 1); })
           .sort((p, q) => (p[1][0] - q[1][0]) || (p[1][1] - q[1][1])).map(x => x[0]).join('').replace(/\s/g, '');
         if (fk(plus) === fk(w) || fk(inQ) === fk(w)) return { chk: '指示文が修正後にある（自動確認OK）', want: w, sure: true };
         if ([...w].length <= 2 && plus && !fk(plus).includes(fk(w))) return { chk: '指示文が修正後に見当たらない（要確認）', want: w };
+      }
+      //   マーカーの所の字そのものを比べる(結びついた違いが、マーカーの所から1字ずれていたり、置き換えが「消えた」と「入った」に分かれていたりしても判定できるように)。
+      //   1行のマーカー(横組み)で、マーカーの左右に字の高さ分だけ広げた所の、原稿の字と成果物の字が同じ字数で、マーカーの外の字がすべて同じ(字が詰まっていない)ときだけ:
+      //     成果物のマーカーの中の字全体、またはその中の変わった字が、指示の字とちょうど同じ → 指示どおり(1字の指示でも確か)
+      //     変わった字が指示と同じ字数で、指示の字と違う(指示が1〜2字) → 指示どおりでない
+      if (P_.text.length === 1 && !P_.ask.length && !P_.file.length) {
+        const w0 = fk(P_.text[0].replace(/\s/g, '')), qs = a.quads && a.quads.length ? a.quads : a.box ? [a.box] : [];
+        if (qs.length === 1 && qs[0][2] - qs[0][0] >= 0.5 * (qs[0][3] - qs[0][1])) {
+          const q = qs[0], m = q[3] - q[1], inR = (b, r) => { const x = (b[0] + b[2]) / 2, y = (b[1] + b[3]) / 2; return x >= r[0] - 1 && x <= r[2] + 1 && y >= r[1] - 1 && y <= r[3] + 1; };
+          const pick = cs => cs.filter(([c, b]) => String(c).trim() && inR(b, [q[0] - m, q[1], q[2] + m, q[3]])).sort((p, r) => p[1][0] - r[1][0]).map(([c, b]) => ({ c: fk(c), inM: inR(b, q) }));
+          const U = pick(d.oc), N = pick(d.nc);
+          //   成果物のマーカーの中の字が、指示の字とちょうど同じで、原稿のマーカーの中の字と違う → 指示どおり(まわりの字のずれは問わない。欧文など字の幅が
+          //   まちまちな所では、1字替えると後ろの字が少しずれるため)
+          const mU = U.filter(x => x.inM).map(x => x.c).join(''), mN = N.filter(x => x.inM).map(x => x.c).join('');
+          if (mN && mN === w0 && mN !== mU) return { chk: '指示文が修正後にある（自動確認OK）', want: P_.text[0], sure: true };
+          if (U.length && U.length === N.length && U.every((u, k) => u.inM === N[k].inM && (u.inM || u.c === N[k].c))) {
+            const inN = N.filter(x => x.inM).map(x => x.c).join(''), chg = N.filter((x, k) => x.inM && x.c !== U[k].c).map(x => x.c).join('');
+            if (chg && (inN === w0 || chg === w0)) return { chk: '指示文が修正後にある（自動確認OK）', want: P_.text[0], sure: true };
+            if (chg && [...chg].length === [...w0].length && [...w0].length <= 2) return { chk: '指示文が修正後に見当たらない（要確認）', want: P_.text[0] };
+          }
+        }
       }
       const has = w => (fk(ctxOf(w)) + '\u0000' + fk(atMark(w))).includes(fk(w)), miss = P_.text.filter(w => !has(w));   // 載るはずの文字は、行ごとにすべてあるか
       if (!P_.ask.length && !P_.file.length) return miss.length ? { chk: '指示文が修正後に見当たらない（要確認）', want: miss[0] } : { chk: '指示文が修正後にある（自動確認OK）', want: P_.text.join('') };
