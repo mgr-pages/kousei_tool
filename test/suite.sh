@@ -105,6 +105,8 @@ for f in $PROPS; do
 done
 #   注釈で指示した原稿と、直していない成果物(注釈PDFの模擬データの元の原稿)
 run "$DATA/T1_digital.pdf" "$DATA/old.pdf" props/unchanged_digital &
+#   旧版から見た目が変わった所(図版・グラフ・ロゴ・アイコン。test/look/gt.json)
+OLD="$DATA/old.pdf" run - "$DATA/new.pdf" look_old &
 wait
 #   架空のPDFに誤りを無作為に入れる試験(成績を出す。採点は test/realcheck/evaluate.py)
 JOBS=4 bash test/realcheck/run.sh "$OUT/realcheck" 1 12 "$DATA/new.pdf" "$DATA/props/design.pdf" > "$OUT/realcheck.txt" 2>&1
@@ -151,6 +153,8 @@ echo "文法・話し言葉のチェック: $(head1 "$OUT/jcheck3.log" 12) | $(p
 python3 test/jcheck/evaluate.py test/jcheck3/gt.json "$OUT/jcheck3.json" | tail -n +2
 echo "コメントで指示したPDF原稿: $(head1 "$OUT/annot2.log" 12) | $(python3 test/annot2/evaluate.py "$DATA/annot2/truth.json" "$OUT/annot2.json" | sed -n 1p)"
 python3 test/annot2/evaluate.py "$DATA/annot2/truth.json" "$OUT/annot2.json" | tail -n +2
+echo "旧版から見た目が変わった所: $(head1 "$OUT/look_old.log" 24) | $(python3 test/look/evaluate.py test/look/gt.json "$OUT/look_old.json" | sed -n 1p)"
+python3 test/look/evaluate.py test/look/gt.json "$OUT/look_old.json" | tail -n +2
 echo "性質の試験: $(python3 test/props/check.py same "$OUT"/props/same_*.json "$OUT"/props/oldsame_*.json | sed -n 1p)"
 python3 test/props/check.py same "$OUT"/props/same_*.json "$OUT"/props/oldsame_*.json | tail -n +2
 python3 test/props/check.py unchanged "$OUT/props/unchanged_digital.json" | sed 's/^/性質の試験: /'
