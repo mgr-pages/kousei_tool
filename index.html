@@ -26,18 +26,15 @@ header .in { max-width: 1500px; margin: 0 auto; padding: 12px 20px; display: fle
 .brand { display: flex; align-items: center; gap: 12px }
 .logo { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, #4b8af0, #2f6fdb); color: #fff; display: grid; place-items: center; box-shadow: 0 2px 8px rgba(47, 111, 219, .3) }
 .brand h1 { font-size: 19px; margin: 0; line-height: 1.3; letter-spacing: .03em }
-.tagline { font-size: 12.5px; color: var(--sub) }
-.priv { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #23633f; background: var(--good-soft); border: 1px solid #cfe9d9; border-radius: 99px; padding: 4px 12px }
+header .openres { margin-left: auto; position: relative; color: var(--accent); border-color: #c9dafa; font-weight: 700 }
+header .openres input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer }
+header .openres:focus-within { outline: 3px solid #bcd3fb; outline-offset: 2px }
+.priv { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #23633f; background: var(--good-soft); border: 1px solid #cfe9d9; border-radius: 99px; padding: 4px 12px }
 main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 20px 22px; margin-bottom: 18px; box-shadow: var(--shadow) }
 .card h2 { font-size: 17px; margin: 0 }
 .hint { color: var(--sub); font-size: 12px }
 /* ---- ファイルを入れる所 ---- */
-.lead { margin: 2px 0 16px; color: var(--sub); font-size: 13px }
-.setuphd { display: flex; align-items: center; gap: 12px; flex-wrap: wrap }
-.setuphd .openres { margin-left: auto; position: relative; color: var(--accent); border-color: #c9dafa; font-weight: 700 }
-.setuphd .openres input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer }
-.setuphd .openres:focus-within { outline: 3px solid #bcd3fb; outline-offset: 2px }
 .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px }
 @media (max-width: 1000px) { .steps { grid-template-columns: 1fr } }
 .step { border: 2px dashed var(--line2); border-radius: var(--r); padding: 14px 16px; background: #fafbfd; transition: border-color .15s, background .15s; min-width: 0 }
@@ -52,13 +49,9 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .badge { font-style: normal; font-size: 11px; font-weight: 700; border-radius: 99px; padding: 1px 9px; margin-left: auto; white-space: nowrap }
 .badge.req { background: #fff0e3; color: #b4510b }
 .badge.opt { background: #eef1f5; color: var(--sub) }
-.step .desc { font-size: 12.5px; color: var(--sub); margin: 8px 0 6px; min-height: 3.2em }
 /* 入れられるファイルの形式(拡張子) */
-.exts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; margin: 0 0 10px; font-size: 11.5px; color: var(--sub) }
-.exts b { font-weight: 700; margin-right: 2px }
-.exts code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; background: #eef1f5; color: #3d4656; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; line-height: 1.6 }
-.exts .no { flex-basis: 100%; margin-top: 2px }
-@media (max-width: 1000px) { .step .desc { min-height: 0 } }
+.exts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px; margin: 10px 0 10px; font-size: 11px; color: var(--faint) }
+.exts code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; background: transparent; color: var(--sub); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; line-height: 1.5 }
 .pickrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
 .pick { position: relative; display: inline-flex; align-items: center; gap: 6px; border-radius: 99px; background: #fff; color: var(--accent); border: 1px solid #b9cdf3; padding: 5px 14px; font-size: 13px; font-weight: 700; cursor: pointer }
 .pick:hover { background: var(--accent-soft) }
@@ -66,7 +59,6 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .step.req:not(.has) .pick:hover { background: var(--accent-d) }
 .pick input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer }
 .pick:focus-within { outline: 3px solid #bcd3fb; outline-offset: 2px }
-.drop { font-size: 12px; color: var(--faint) }
 .flist { list-style: none; margin: 10px 0 0; padding: 0; counter-reset: f }
 .flist:empty { display: none }
 .flist li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12.5px; padding: 5px 2px; border-top: 1px solid #edf0f4; counter-increment: f }
@@ -118,8 +110,10 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .opts .optops { margin-top: 10px; display: flex; gap: 6px }
 /* ---- 結果の概要 ---- */
 .reshd { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px }
-#mapNote { margin-bottom: 12px }
-.notes { list-style: none; margin: 8px 0 10px; padding: 8px 12px; background: #f7f9fc; border: 1px solid var(--line); border-radius: var(--r-s); font-size: 13px }
+.notesbox { margin: 6px 0 12px; font-size: 13px }
+.notesbox[hidden] { display: none }
+.notesbox summary { cursor: pointer; color: var(--sub); font-size: 12.5px; width: max-content }
+.notes { list-style: none; margin: 6px 0 0; padding: 8px 12px; background: #f7f9fc; border: 1px solid var(--line); border-radius: var(--r-s); font-size: 13px }
 .notes:empty { display: none }
 .notes li { position: relative; padding-left: 16px; margin: 2px 0 }
 .notes li::before { content: ''; position: absolute; left: 3px; top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--accent) }
@@ -144,7 +138,6 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .fchip.on { background: var(--c); border-color: var(--c); color: #fff } .fchip.on b, .fchip.on small { color: #fff }
 .summary.filtering .fchip:not(.on) { opacity: .6 }
 .sumtip { margin-top: 8px }
-.sumtip.all { grid-column: 1 / -1; margin-top: 0 }
 .fnote { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -4px 0 12px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); border: 1px solid #c9dafa; font-size: 13px; font-weight: 700 }
 /* ---- 一覧の上の切り替え ---- */
 .toolbar { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin: 2px 0 14px }
@@ -160,8 +153,6 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .jprog .bar { display: inline-block; width: 90px; height: 7px; border-radius: 99px; background: #e3e7ee; vertical-align: 1px; margin-left: 6px; overflow: hidden }
 .jprog .bar i { display: block; height: 100%; background: var(--good) }
 .jprog .sub { font-weight: 400; color: var(--sub); font-size: 12px; margin-left: 4px }
-.judge .kh { display: none; font-size: 11px; color: var(--faint); white-space: nowrap }
-.item.sel .judge .kh { display: inline }
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; user-select: none }
 .switch input { appearance: none; -webkit-appearance: none; width: 36px; height: 21px; border-radius: 99px; background: #cdd4df; position: relative; cursor: pointer; transition: background .15s; margin: 0; flex: none }
 .switch input::after { content: ''; position: absolute; top: 2.5px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: left .15s }
@@ -182,6 +173,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .item.light { border-left-style: dashed }
 .tag { font-size: 12.5px; font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 11%, #fff); border: 1px solid color-mix(in srgb, var(--c) 32%, #fff); border-radius: 99px; padding: 0 10px }
 .todo { font-size: 13px }
+.item .todo:not(.keep) { display: none }
 .pg { font-size: 12px; color: var(--faint); margin-left: auto }
 .rows { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin-top: 8px; font-size: 16px; line-height: 1.7; align-items: baseline }
 .rows .lb { font-size: 11px; color: var(--sub); white-space: nowrap }
@@ -222,6 +214,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .viewer .tabs .btn { border-radius: 99px; min-width: 34px; justify-content: center; padding: 2px 10px }
 .viewer .tabs .btn.on { background: var(--accent); color: #fff; border-color: var(--accent) }
 #pinfo { margin-bottom: 6px }
+#pinfo:empty { display: none }
 .viewer .cap { display: grid; grid-template-columns: 1fr 1fr; font-size: 12px; color: var(--sub); text-align: center; margin-bottom: 4px }
 .viewer .cap.one { grid-template-columns: 1fr }
 .viewer .scroll { max-height: calc(100vh - 130px); overflow: auto; border-radius: 10px; background: #eef1f6 }
@@ -245,9 +238,10 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .empty { color: var(--sub); text-align: center; padding: 34px 20px; background: #fff; border: 1px dashed var(--line2); border-radius: 12px }
 .hidden, [hidden] { display: none !important }
 @media print {
-  header, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on), .judge .kh, .sumtip { display: none !important }
+  header, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on), .sumtip { display: none !important }
+  .item .todo { display: inline !important }
   body { background: #fff } main { padding: 0 } .work { display: block } .item { break-inside: avoid; box-shadow: none; margin-bottom: 4mm }
-  .card { box-shadow: none } .summary { grid-template-columns: 1fr 1fr } .sumtip.all, .fnote { display: none !important }
+  .card { box-shadow: none } .summary { grid-template-columns: 1fr 1fr } .fnote { display: none !important }
   .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb } .item.sel { outline: none; background: #fff } .item .selmark { display: none !important }
   .flipbar { display: none !important } .crops.flipping figure { display: block !important } .crops figure.flipfig { display: none !important }
 }
@@ -258,33 +252,29 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
   <div class="in">
     <div class="brand">
       <span class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5"/><path d="M8.5 14.5l2.5 2.5 4.5-5"/></svg></span>
-      <div><h1>校正ツール</h1><div class="tagline">原稿と成果物を見比べて、直し漏れや誤りを探します</div></div>
+      <h1>校正ツール</h1>
     </div>
-    <span class="priv"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>ファイルはこのブラウザの中だけで処理し、外部には送信しません</span>
+    <label class="btn small openres" title="「結果を保存」で保存したファイル（.kousei）を開きます。照合し直さずに、保存したときの結果・判定・メモに戻ります">保存した結果を開く<input type="file" id="fRes" accept=".kousei"></label>
+    <span class="priv" title="ファイルはこのブラウザの中だけで処理し、外部には送信しません"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>外部送信なし</span>
   </div>
 </header>
 <main>
   <section class="card" id="setup">
-    <div class="setuphd"><h2>チェックするファイルを入れてください</h2><label class="btn small openres" title="「結果を保存」で保存したファイル（.kousei）を開きます。照合し直さずに、保存したときの結果・判定・メモに戻ります">保存した結果を開く（.kousei）<input type="file" id="fRes" accept=".kousei"></label></div>
-    <p class="lead">成果物（PDF）は必ず入れます。原稿と旧版は、あれば入れてください。</p>
     <div class="steps">
       <div class="step" data-kind="marks">
-        <div class="t"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></span>原稿<em class="badge opt">任意</em></div>
-        <div class="desc">朱書き・ラフのPDF、画像、Excel・Word・PowerPoint・テキスト・CSV</div>
+        <div class="t" title="朱書き・ラフのPDF、画像、データ（Excel・Word・PowerPoint・テキスト・CSV）。ファイルはここへドラッグしても入れられます"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></span>原稿<em class="badge opt">任意</em></div>
         <div class="exts" data-kind="marks"></div>
-        <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*,.xlsx,.xlsm,.docx,.docm,.pptx,.pptm,.txt,.csv,.tsv,.xls,.doc,.ppt" multiple></label><span class="drop">またはここへドラッグ</span></div>
+        <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*,.xlsx,.xlsm,.docx,.docm,.pptx,.pptm,.txt,.csv,.tsv,.xls,.doc,.ppt" multiple></label></div>
         <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div></div>
       <div class="step req" data-kind="nw">
-        <div class="t"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>成果物（PDF）<em class="badge req">必須</em></div>
-        <div class="desc">今回チェックするPDF</div>
+        <div class="t" title="今回チェックするPDF。ファイルはここへドラッグしても入れられます"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>成果物<em class="badge req">必須</em></div>
         <div class="exts" data-kind="nw"></div>
-        <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label><span class="drop">またはここへドラッグ</span></div>
+        <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label></div>
         <ol class="flist" id="lNew"></ol><div class="ftot" id="tNew"></div></div>
       <div class="step" data-kind="old">
-        <div class="t"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></span>旧版（PDF）<em class="badge opt">任意</em></div>
-        <div class="desc">前回の成果物。前回から変わった所も確かめます</div>
+        <div class="t" title="前回の成果物。前回から変わった所も確かめます。ファイルはここへドラッグしても入れられます"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></span>旧版<em class="badge opt">任意</em></div>
         <div class="exts" data-kind="old"></div>
-        <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fOld" accept=".pdf,application/pdf" multiple></label><span class="drop">またはここへドラッグ</span></div>
+        <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fOld" accept=".pdf,application/pdf" multiple></label></div>
         <ol class="flist" id="lOld"></ol><div class="ftot" id="tOld"></div></div>
     </div>
     <div class="runbar">
@@ -294,31 +284,30 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
       <div class="progress"><div class="bar"><div id="pbar"></div></div><div class="msg" id="pmsg"></div></div>
     </div>
     <div class="err" id="err"></div>
-    <details class="opts" id="opts"><summary><span class="arw">▶</span>詳細設定（チェックする項目）<span class="optnote" id="optNote"></span></summary>
-      <div class="hint">外した項目は、結果（概要・一覧・ページの枠・CSV）に出しません。照合のあとでも切り替えられます。設定はこのブラウザに残ります</div>
+    <details class="opts" id="opts"><summary title="チェックする項目を選びます。外した項目は結果に出しません（照合のあとでも切り替えられます。設定はこのブラウザに残ります）"><span class="arw">▶</span>詳細設定<span class="optnote" id="optNote"></span></summary>
       <div id="optList"></div>
       <div class="optops"><button class="btn small" id="optAll">すべて選ぶ</button><button class="btn small" id="optNone">すべて外す</button></div>
     </details>
   </section>
 
   <section id="results" class="hidden">
-    <div class="stale-note" id="staleNote">入れたファイルが変わりました。「照合」を押すと結果が新しくなります（下は前回の結果です）</div>
-    <div class="card"><div class="reshd"><h2>結果</h2><span class="hint" id="sumNote"></span></div><ul class="notes" id="notes"></ul><div class="hint" id="mapNote"></div><div class="summary" id="summary"></div></div>
+    <div class="stale-note" id="staleNote">ファイルが変わりました（下は前の結果です）</div>
+    <div class="card"><div class="reshd"><h2>結果</h2><span class="hint" id="sumNote"></span></div><details class="notesbox" id="notesBox"><summary id="notesSum"></summary><ul class="notes" id="notes"></ul></details><div class="summary" id="summary"></div></div>
     <div class="toolbar">
       <span class="jprog" id="jprog"></span>
-      <button class="btn" id="nextU" title="まだ OK・要修正・保留を付けていない次の項目へ移ります">次の未確認へ</button>
-      <label class="switch"><input type="checkbox" id="hideDone">確認済み（OK）を隠す</label>
-      <label class="switch"><input type="checkbox" id="showMinor">参考も表示</label>
+      <button class="btn" id="nextU" title="まだ OK・要修正・保留を付けていない次の項目へ移ります">次の未確認</button>
+      <label class="switch" title="OK を付けた項目を一覧から隠します"><input type="checkbox" id="hideDone">OKを隠す</label>
+      <label class="switch" title="指示どおりと自動で確認できた項目なども一覧に出します"><input type="checkbox" id="showMinor">参考も表示</label>
       <span class="sp"></span>
       <div class="menu" id="saveMenu">
         <button class="btn" id="saveBtn" aria-haspopup="true" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>保存・印刷<span class="caret">▾</span></button>
         <div class="menu-pop" id="savePop" hidden>
-          <button id="saveRes"><b>結果を保存</b><span>あとでこのツールで開いて、続きをする・人に渡す（照合し直さずに開けます）</span></button>
-          <button id="csv"><b>CSVで保存</b><span>一覧を Excel などの表計算ソフトで使う</span></button>
-          <button id="print"><b>印刷・PDFで保存</b><span>報告書として読む・残す（ツールでは開けません）</span></button>
+          <button id="saveRes" title="あとでこのツールで開いて、続きをする・人に渡す（照合し直さずに開けます）"><b>結果を保存</b></button>
+          <button id="csv" title="一覧を Excel などの表計算ソフトで使う"><b>CSVで保存</b></button>
+          <button id="print" title="報告書として読む・残す（ツールでは開けません）"><b>印刷・PDFで保存</b></button>
         </div>
       </div>
-      <button class="btn" id="reset2" title="入れたファイルと結果を空にして、最初の状態に戻します（詳細設定はそのまま）">新しい校正を始める</button>
+      <button class="btn" id="reset2" title="入れたファイルと結果を空にして、最初の状態に戻します（詳細設定はそのまま）">新しい校正</button>
     </div>
     <div class="fnote" id="fnote" hidden></div>
     <div class="work">
@@ -8393,10 +8382,10 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   //   old: 旧版＋成果物 → 前回の成果物から変わった所(文字データのない所は OCR で読む)＋成果物のチェック
   //   all: 3つすべて → 原稿との照合＋原稿のない部分の前回からの変化＋成果物のチェック
   const MODES = {
-    new: { run: '成果物だけチェック', note: '原稿なし：成果物だけでチェックしました' },
-    marks: { run: '原稿と照合', note: '' },
+    new: { run: 'チェック', note: '原稿なし：成果物だけでチェックしました' },
+    marks: { run: '照合', note: '' },
     old: { run: '前回と比べる', note: '原稿なし：前回の成果物（旧版）から変わった所と、成果物の文字・表記をチェックしました' },
-    all: { run: '原稿と照合・前回と比べる', note: '' },
+    all: { run: '照合', note: '' },
   };
   const modeOf = () => (S.lists.marks.length ? (S.lists.old.length ? 'all' : 'marks') : S.lists.old.length ? 'old' : 'new');
   function verdictOf(f) {
@@ -8668,11 +8657,10 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     if (S.running) return;
     let msg = !PC.libsReady ? '準備中…' : S.doneMsg;
     if (!msg) {
-      if (bad) msg = '読めないファイルがあります。リストから外すか、選び直してください';
-      else if (busy) msg = 'ファイルを読み込んでいます…';
-      else if (!ready) msg = '成果物（PDF）を選んでください。原稿・旧版は、あれば入れてください';
-      else msg = { new: `成果物 ${total('nw')}ページをチェックします`, marks: `原稿 ${total('marks')}ページと成果物 ${total('nw')}ページを照合します（対応するページは自動で探します）`, old: `成果物 ${total('nw')}ページを、旧版 ${total('old')}ページと比べます（対応するページは自動で探します）`, all: `原稿 ${total('marks')}ページ・成果物 ${total('nw')}ページ・旧版 ${total('old')}ページで照合します（対応するページは自動で探します）` }[modeOf()];
-      if (ready) msg += `（目安：${roughly(estimateSec())}）`;
+      if (bad) msg = '読めないファイルがあります';
+      else if (busy) msg = '読み込み中…';
+      else if (!ready) msg = '成果物を入れてください';
+      else msg = `目安：${roughly(estimateSec())}`;
       if (S.addMsg) msg += '　' + S.addMsg;
     }
     $('pmsg').textContent = msg;
@@ -8681,8 +8669,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   const EXTS = { marks: ['pdf', ...IMG_EXTS, ...PC.DATA_EXTS], nw: ['pdf'], old: ['pdf'] };
   document.querySelectorAll('.exts[data-kind]').forEach(el => {
     const k = el.dataset.kind;
-    el.innerHTML = '<b>形式</b>' + EXTS[k].map(x => `<code>.${x}</code>`).join('') +
-      (k === 'marks' ? `<span class="no">${PC.OLD_EXTS.map(x => '.' + x).join('・')}・.tif・.svg などは読めません（PDF などに保存し直してから）</span>` : '');
+    el.innerHTML = EXTS[k].map(x => `<code>.${x}</code>`).join('');
   });
   $('fMarks').accept = [...EXTS.marks.map(x => '.' + x), 'application/pdf', ...PC.OLD_EXTS.map(x => '.' + x)].join(',');   // 古い形式は、選ぶと直し方を知らせる
   $('fNew').accept = $('fOld').accept = '.pdf,application/pdf';
@@ -8731,7 +8718,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1); S.runSig = runSig;
       return res;
     } catch (e) {
-      if (e === ABORT) { S.doneMsg = '中止しました（入れたファイルはそのままです。もう一度押すと、最初から照合します）'; $('pbar').style.width = '0'; return null; }
+      if (e === ABORT) { S.doneMsg = '中止しました'; $('pbar').style.width = '0'; return null; }
       console.error(e); $('err').textContent = '処理できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
       throw e;
     } finally { S.running = false; S.abort = false; clearInterval(ETA.timer); ETA.t0 = 0; refresh(); }
@@ -8751,7 +8738,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     S.cache = new Map();
     if (S.imgs.length) await ensure(0);   // 成果物だけのチェックで項目がないときは、表示するページがない
     $('results').classList.remove('hidden');
-    $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
+    $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('');
     $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; S.vc = { L: null, R: null }; drawPage(); });
     //   パタパタ表示: 重ねて比べる相手(同じレイアウトの旧版・原稿)のあるページ・項目がなければ、ボタンを出さない
     const canFlip = res.pages.some((_, i) => pageFlip(i)) || res.findings.some(f => itemFlip(f));
@@ -8765,21 +8752,22 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const nOff = res.findings.length - F.length;
     //   ページ数: 結果のページ(原稿のページごと)。成果物だけのチェックで項目がないときは、チェックした成果物のページ数
     const nNew = (res.newParts || []).reduce((n, x) => n + x.pages, 0);
-    $('sumNote').textContent = `${res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`}・${res.seconds.toFixed(1)}秒`;
-    const notes = [S.opened ? `保存した結果を開いています（${S.opened}）。照合し直してはいません` : '', ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : ''].filter(Boolean);
+    $('sumNote').textContent = res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`;
+    const notes = [S.opened ? `保存した結果を開いています（${S.opened}）。照合し直してはいません` : '', ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : '', res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : ''].filter(Boolean);
     $('notes').innerHTML = notes.map(t => `<li>${esc(t)}</li>`).join('');
-    $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : MODES[S.runMode].note || MODES.new.note;
+    //   お知らせ: ふだんは畳んで件数だけ。項目が1件もないときは開いておく(なぜ0件かが分かるように)
+    $('notesBox').hidden = !notes.length; $('notesSum').textContent = `お知らせ ${notes.length}件`;
+    if (!F.length && notes.length) $('notesBox').open = true;
     //   2つのまとまり(直す必要がありそう・確認だけ)と、件数のある種類の札。見出しや札を押すと、それだけを一覧とページに出す(もう一度押すと全部に戻る)
     const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nOf = g => F.filter(f => groupOf(f) === g).length;
     const nNeed = F.filter(f => groupOf(f).need).length, nLook = F.filter(f => look.includes(groupOf(f))).length, nAuto = F.filter(f => groupOf(f).auto).length;
-    const chips = gs => gs.filter(nOf).map(g => { const light = F.filter(f => groupOf(f) === g && isLight(f)).length; return `<button class="fchip ${S.only === g.key ? 'on' : ''}" data-f="${g.key}" title="${esc(g.label)}">${esc(short(g.label))}<b>${nOf(g)}</b>${light ? `<small>うち念のため${light}</small>` : ''}</button>`; }).join('');
-    const head = (k, n) => `<button class="sumhd ${S.only === k ? 'on' : ''}" data-f="${k}" ${n ? '' : 'disabled'}>${LV[k]}<b>${n}件</b></button>`;
+    const chips = gs => gs.filter(nOf).map(g => { const light = F.filter(f => groupOf(f) === g && isLight(f)).length; return `<button class="fchip ${S.only === g.key ? 'on' : ''}" data-f="${g.key}" title="${esc(g.label)}（押すとこの種類だけを表示。もう一度押すと全部に戻る）">${esc(short(g.label))}<b>${nOf(g)}</b>${light ? `<small>うち念のため${light}</small>` : ''}</button>`; }).join('');
+    const head = (k, n) => `<button class="sumhd ${S.only === k ? 'on' : ''}" data-f="${k}" ${n ? '' : 'disabled'} title="押すとこのまとまりだけを表示（もう一度押すと全部に戻る）">${LV[k]}<b>${n}件</b></button>`;
     $('summary').classList.toggle('filtering', !!S.only);
     $('summary').innerHTML = (nNeed ? `<div class="sumgrp need" style="--c: var(--c-need)">${head('need', nNeed)}<div class="fchips">${chips(need)}</div></div>`
       : '<div class="sumgrp clear"><div class="sumhd" style="cursor:default">直す必要がありそう<b>0件</b></div><div class="clearmsg"><i>✓</i>直す必要がありそうな所は見つかりませんでした</div></div>') +
       `<div class="sumgrp look" style="--c: var(--c-look)">${head('look', nLook)}<div class="fchips">${nLook ? chips(look) : '<span class="hint">ありません</span>'}</div>` +
-      (nAuto ? `<div class="hint sumtip">ほかに、指示どおりと自動で確認できたもの ${nAuto}件（一覧には出していません。「参考も表示」で見られます）</div>` : '') + '</div>' +
-      (nNeed + nLook ? '<div class="hint sumtip all">見出しや種類を押すと、それだけを表示します（もう一度押すと全部に戻ります）</div>' : '');
+      (nAuto ? `<div class="hint sumtip" title="一覧には出していません。「参考も表示」で見られます">ほか、自動で確認済み ${nAuto}件</div>` : '') + '</div>';
     $('summary').querySelectorAll('[data-f]').forEach(el => el.onclick = () => setOnly(S.only === el.dataset.f ? null : el.dataset.f));
   }
   //   絞り込み: need・look(まとまり)か、種類の key。null は全部
@@ -8916,11 +8904,11 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     list.innerHTML = F.map(f => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${+f.id}" style="--c: var(--c-${colorOf(f)})">
-        <div class="hd"><span class="selmark">選択中</span><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
-        ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${+f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${+f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
-        ${itemFlip(f) ? `<div class="flipbar"><button class="btn small flipb" title="${esc(itemFlip(f).label)}と成果物を同じ所に重ねて、交互に表示します（キー：P）。ページの表示も同じように切り替わります">${S.flip ? 'パタパタを止める' : 'パタパタで見る'}</button><span class="hint">${esc(itemFlip(f).label)}と成果物を交互に表示（あおり）</span></div>` : ''}
+        <div class="hd"><span class="selmark">選択中</span><span class="tag" title="${esc(todo)}">${esc(title)}</span><span class="todo ${f.cat === 'J' || f.rec || f.merge ? 'keep' : ''}">${esc(todo)}</span><span class="pg" title="${esc(pageLabel(f.page))}">p.${+f.page}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
+        ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${+f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta" title="原稿のうち載せない部分なら OK にしてください">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${+f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}</div>` : ''}${markOf(f)}
+        ${itemFlip(f) ? `<div class="flipbar"><button class="btn small flipb" title="${esc(itemFlip(f).label)}と成果物を同じ所に重ねて、交互に表示します（キー：P）。ページの表示も同じように切り替わります">${S.flip ? 'パタパタを止める' : 'パタパタで見る'}</button></div>` : ''}
         <div class="crops">${f.old ? '<figure><canvas data-side="O" width="300" height="130"></canvas><figcaption>旧版</figcaption></figure>' : ''}${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
-        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"><span class="kh">キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目${itemFlip(f) ? '／P パタパタ' : ''}</span></div>
+        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}" title="キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目${itemFlip(f) ? '／P パタパタ' : ''}"></div>
       </div>`;
     }).join('');
     // 切り抜きは画面に入ったものから描く
@@ -8938,7 +8926,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   function renderLegend(F = S.res.findings.filter(visible)) {
     const sf = S.sel != null ? S.res.findings[S.sel] : null;
     $('legend').innerHTML = Object.keys(LV).filter(l => F.some(f => f.cat !== 'F2' && colorOf(f) === l)).map(l => `<span style="--c: var(--c-${l})"><i></i>${LV[l]}</span>`).join('') +
-      (sf && visible(sf) ? '<span class="selk" style="--c: var(--sel)"><i></i>選んだ項目（一覧のオレンジの枠の項目）</span>' : '');
+      (sf && visible(sf) ? '<span class="selk" style="--c: var(--sel)"><i></i>選択中</span>' : '');
   }
   // 判定を付ける(同じものをもう一度押すと外す)。付けた判定を返す
   function judge(id, val) {
@@ -9072,11 +9060,12 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.page));
     //   パタパタ表示: 成果物の位置に旧版(原稿)を重ね、1つの表示で交互に出す(相手のないページは、ふつうに並べる)
     const im = S.imgs[S.page], fl = S.flip && im.R ? pageFlip(S.page) : null;
-    $('pinfo').textContent = pageLabel(S.page + 1) + (S.flip && !fl ? '　※このページは重ねて比べる相手（同じレイアウトの旧版・原稿）がないため、パタパタはできません' : '');
+    $('pinfo').textContent = S.flip && !fl ? 'このページはパタパタできません（重ねる旧版・原稿がありません）' : '';
     //   原稿の画像がないページ(成果物だけ・旧版との比べ合わせ)は、成果物を幅いっぱいに出す
     const one = (!im.L && !!im.R) || !!fl, gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = one ? cw : (cw - gap) / 2;
     $('vcap').classList.toggle('one', one);
-    $('vcap').innerHTML = fl ? `<div class="flipcap"><span class="${S.phase ? '' : 'on'}">${esc(fl.label)}</span>⇄<span class="${S.phase ? 'on' : ''}">成果物</span></div>` : one ? '<div>成果物</div>' : '<div>原稿</div><div>成果物</div>';
+    const nP = esc(newPlace(S.page + 1) || ''), sP = esc(srcName(S.page + 1) || '');   // 見出しに、どのページかを添える(ページの対応の一行の代わり)
+    $('vcap').innerHTML = fl ? `<div class="flipcap"><span class="${S.phase ? '' : 'on'}">${esc(fl.label)}</span>⇄<span class="${S.phase ? 'on' : ''}">成果物</span></div>` : one ? `<div>成果物 ${nP}</div>` : `<div>原稿 ${sP}</div><div>成果物 ${nP}</div>`;
     const sR0 = im.R ? half / im.rw : 1, sL0 = im.L && !fl ? half / im.lw : sR0, ox = one ? 0 : half + gap, Z = S.zoom;
     const fitH = Math.max(im.L && !fl ? im.lh * sL0 : 60, im.R ? im.rh * sR0 : 0), H = Z > 1 ? Math.min(viewMaxH(), fitH * Z) : fitH;
     //   片側の見える範囲: ページの画素で (x0, y0) から、倍率 s。拡大していないときはページ全体
@@ -9248,7 +9237,9 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     closeMenu(); if (!okToExport('印刷')) return; if (S.only) setOnly(null);
     for (let i = 0; i < S.imgs.length; i++) await ensure(i);
     const keep = S.sel; S.sel = null; document.querySelectorAll('.item').forEach(drawCrops); S.sel = keep;
+    const nb = $('notesBox'), wasOpen = nb.open; nb.open = true;
     window.print();
+    nb.open = wasOpen;
     const el = keep != null && document.querySelector(`.item[data-id="${keep}"]`); if (el) drawCrops(el);
   };
 

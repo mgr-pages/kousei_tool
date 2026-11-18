@@ -107,10 +107,10 @@
   //   old: 旧版＋成果物 → 前回の成果物から変わった所(文字データのない所は OCR で読む)＋成果物のチェック
   //   all: 3つすべて → 原稿との照合＋原稿のない部分の前回からの変化＋成果物のチェック
   const MODES = {
-    new: { run: '成果物だけチェック', note: '原稿なし：成果物だけでチェックしました' },
-    marks: { run: '原稿と照合', note: '' },
+    new: { run: 'チェック', note: '原稿なし：成果物だけでチェックしました' },
+    marks: { run: '照合', note: '' },
     old: { run: '前回と比べる', note: '原稿なし：前回の成果物（旧版）から変わった所と、成果物の文字・表記をチェックしました' },
-    all: { run: '原稿と照合・前回と比べる', note: '' },
+    all: { run: '照合', note: '' },
   };
   const modeOf = () => (S.lists.marks.length ? (S.lists.old.length ? 'all' : 'marks') : S.lists.old.length ? 'old' : 'new');
   function verdictOf(f) {
@@ -382,11 +382,10 @@
     if (S.running) return;
     let msg = !PC.libsReady ? '準備中…' : S.doneMsg;
     if (!msg) {
-      if (bad) msg = '読めないファイルがあります。リストから外すか、選び直してください';
-      else if (busy) msg = 'ファイルを読み込んでいます…';
-      else if (!ready) msg = '成果物（PDF）を選んでください。原稿・旧版は、あれば入れてください';
-      else msg = { new: `成果物 ${total('nw')}ページをチェックします`, marks: `原稿 ${total('marks')}ページと成果物 ${total('nw')}ページを照合します（対応するページは自動で探します）`, old: `成果物 ${total('nw')}ページを、旧版 ${total('old')}ページと比べます（対応するページは自動で探します）`, all: `原稿 ${total('marks')}ページ・成果物 ${total('nw')}ページ・旧版 ${total('old')}ページで照合します（対応するページは自動で探します）` }[modeOf()];
-      if (ready) msg += `（目安：${roughly(estimateSec())}）`;
+      if (bad) msg = '読めないファイルがあります';
+      else if (busy) msg = '読み込み中…';
+      else if (!ready) msg = '成果物を入れてください';
+      else msg = `目安：${roughly(estimateSec())}`;
       if (S.addMsg) msg += '　' + S.addMsg;
     }
     $('pmsg').textContent = msg;
@@ -395,8 +394,7 @@
   const EXTS = { marks: ['pdf', ...IMG_EXTS, ...PC.DATA_EXTS], nw: ['pdf'], old: ['pdf'] };
   document.querySelectorAll('.exts[data-kind]').forEach(el => {
     const k = el.dataset.kind;
-    el.innerHTML = '<b>形式</b>' + EXTS[k].map(x => `<code>.${x}</code>`).join('') +
-      (k === 'marks' ? `<span class="no">${PC.OLD_EXTS.map(x => '.' + x).join('・')}・.tif・.svg などは読めません（PDF などに保存し直してから）</span>` : '');
+    el.innerHTML = EXTS[k].map(x => `<code>.${x}</code>`).join('');
   });
   $('fMarks').accept = [...EXTS.marks.map(x => '.' + x), 'application/pdf', ...PC.OLD_EXTS.map(x => '.' + x)].join(',');   // 古い形式は、選ぶと直し方を知らせる
   $('fNew').accept = $('fOld').accept = '.pdf,application/pdf';
@@ -445,7 +443,7 @@
       S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1); S.runSig = runSig;
       return res;
     } catch (e) {
-      if (e === ABORT) { S.doneMsg = '中止しました（入れたファイルはそのままです。もう一度押すと、最初から照合します）'; $('pbar').style.width = '0'; return null; }
+      if (e === ABORT) { S.doneMsg = '中止しました'; $('pbar').style.width = '0'; return null; }
       console.error(e); $('err').textContent = '処理できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
       throw e;
     } finally { S.running = false; S.abort = false; clearInterval(ETA.timer); ETA.t0 = 0; refresh(); }
@@ -465,7 +463,7 @@
     S.cache = new Map();
     if (S.imgs.length) await ensure(0);   // 成果物だけのチェックで項目がないときは、表示するページがない
     $('results').classList.remove('hidden');
-    $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('') + '<span class="hint">ページ</span>';
+    $('tabs').innerHTML = res.pages.map((_, i) => `<button class="btn small ${i === 0 ? 'on' : ''}" data-p="${i}" title="${esc(pageLabel(i + 1))}">${i + 1}</button>`).join('');
     $('tabs').querySelectorAll('button').forEach(b => b.onclick = () => { S.page = +b.dataset.p; S.vc = { L: null, R: null }; drawPage(); });
     //   パタパタ表示: 重ねて比べる相手(同じレイアウトの旧版・原稿)のあるページ・項目がなければ、ボタンを出さない
     const canFlip = res.pages.some((_, i) => pageFlip(i)) || res.findings.some(f => itemFlip(f));
@@ -479,21 +477,22 @@
     const nOff = res.findings.length - F.length;
     //   ページ数: 結果のページ(原稿のページごと)。成果物だけのチェックで項目がないときは、チェックした成果物のページ数
     const nNew = (res.newParts || []).reduce((n, x) => n + x.pages, 0);
-    $('sumNote').textContent = `${res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`}・${res.seconds.toFixed(1)}秒`;
-    const notes = [S.opened ? `保存した結果を開いています（${S.opened}）。照合し直してはいません` : '', ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : ''].filter(Boolean);
+    $('sumNote').textContent = res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`;
+    const notes = [S.opened ? `保存した結果を開いています（${S.opened}）。照合し直してはいません` : '', ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : '', res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : ''].filter(Boolean);
     $('notes').innerHTML = notes.map(t => `<li>${esc(t)}</li>`).join('');
-    $('mapNote').textContent = res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : MODES[S.runMode].note || MODES.new.note;
+    //   お知らせ: ふだんは畳んで件数だけ。項目が1件もないときは開いておく(なぜ0件かが分かるように)
+    $('notesBox').hidden = !notes.length; $('notesSum').textContent = `お知らせ ${notes.length}件`;
+    if (!F.length && notes.length) $('notesBox').open = true;
     //   2つのまとまり(直す必要がありそう・確認だけ)と、件数のある種類の札。見出しや札を押すと、それだけを一覧とページに出す(もう一度押すと全部に戻る)
     const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nOf = g => F.filter(f => groupOf(f) === g).length;
     const nNeed = F.filter(f => groupOf(f).need).length, nLook = F.filter(f => look.includes(groupOf(f))).length, nAuto = F.filter(f => groupOf(f).auto).length;
-    const chips = gs => gs.filter(nOf).map(g => { const light = F.filter(f => groupOf(f) === g && isLight(f)).length; return `<button class="fchip ${S.only === g.key ? 'on' : ''}" data-f="${g.key}" title="${esc(g.label)}">${esc(short(g.label))}<b>${nOf(g)}</b>${light ? `<small>うち念のため${light}</small>` : ''}</button>`; }).join('');
-    const head = (k, n) => `<button class="sumhd ${S.only === k ? 'on' : ''}" data-f="${k}" ${n ? '' : 'disabled'}>${LV[k]}<b>${n}件</b></button>`;
+    const chips = gs => gs.filter(nOf).map(g => { const light = F.filter(f => groupOf(f) === g && isLight(f)).length; return `<button class="fchip ${S.only === g.key ? 'on' : ''}" data-f="${g.key}" title="${esc(g.label)}（押すとこの種類だけを表示。もう一度押すと全部に戻る）">${esc(short(g.label))}<b>${nOf(g)}</b>${light ? `<small>うち念のため${light}</small>` : ''}</button>`; }).join('');
+    const head = (k, n) => `<button class="sumhd ${S.only === k ? 'on' : ''}" data-f="${k}" ${n ? '' : 'disabled'} title="押すとこのまとまりだけを表示（もう一度押すと全部に戻る）">${LV[k]}<b>${n}件</b></button>`;
     $('summary').classList.toggle('filtering', !!S.only);
     $('summary').innerHTML = (nNeed ? `<div class="sumgrp need" style="--c: var(--c-need)">${head('need', nNeed)}<div class="fchips">${chips(need)}</div></div>`
       : '<div class="sumgrp clear"><div class="sumhd" style="cursor:default">直す必要がありそう<b>0件</b></div><div class="clearmsg"><i>✓</i>直す必要がありそうな所は見つかりませんでした</div></div>') +
       `<div class="sumgrp look" style="--c: var(--c-look)">${head('look', nLook)}<div class="fchips">${nLook ? chips(look) : '<span class="hint">ありません</span>'}</div>` +
-      (nAuto ? `<div class="hint sumtip">ほかに、指示どおりと自動で確認できたもの ${nAuto}件（一覧には出していません。「参考も表示」で見られます）</div>` : '') + '</div>' +
-      (nNeed + nLook ? '<div class="hint sumtip all">見出しや種類を押すと、それだけを表示します（もう一度押すと全部に戻ります）</div>' : '');
+      (nAuto ? `<div class="hint sumtip" title="一覧には出していません。「参考も表示」で見られます">ほか、自動で確認済み ${nAuto}件</div>` : '') + '</div>';
     $('summary').querySelectorAll('[data-f]').forEach(el => el.onclick = () => setOnly(S.only === el.dataset.f ? null : el.dataset.f));
   }
   //   絞り込み: need・look(まとまり)か、種類の key。null は全部
@@ -630,11 +629,11 @@
     list.innerHTML = F.map(f => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${+f.id}" style="--c: var(--c-${colorOf(f)})">
-        <div class="hd"><span class="selmark">選択中</span><span class="tag">${esc(title)}</span><span class="todo">${esc(todo)}</span><span class="pg">${esc(pageLabel(f.page))}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
-        ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${+f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${+f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}。原稿のうち載せない部分なら OK にしてください</div>` : ''}${markOf(f)}
-        ${itemFlip(f) ? `<div class="flipbar"><button class="btn small flipb" title="${esc(itemFlip(f).label)}と成果物を同じ所に重ねて、交互に表示します（キー：P）。ページの表示も同じように切り替わります">${S.flip ? 'パタパタを止める' : 'パタパタで見る'}</button><span class="hint">${esc(itemFlip(f).label)}と成果物を交互に表示（あおり）</span></div>` : ''}
+        <div class="hd"><span class="selmark">選択中</span><span class="tag" title="${esc(todo)}">${esc(title)}</span><span class="todo ${f.cat === 'J' || f.rec || f.merge ? 'keep' : ''}">${esc(todo)}</span><span class="pg" title="${esc(pageLabel(f.page))}">p.${+f.page}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
+        ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${+f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta" title="原稿のうち載せない部分なら OK にしてください">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${+f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}</div>` : ''}${markOf(f)}
+        ${itemFlip(f) ? `<div class="flipbar"><button class="btn small flipb" title="${esc(itemFlip(f).label)}と成果物を同じ所に重ねて、交互に表示します（キー：P）。ページの表示も同じように切り替わります">${S.flip ? 'パタパタを止める' : 'パタパタで見る'}</button></div>` : ''}
         <div class="crops">${f.old ? '<figure><canvas data-side="O" width="300" height="130"></canvas><figcaption>旧版</figcaption></figure>' : ''}${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
-        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}"><span class="kh">キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目${itemFlip(f) ? '／P パタパタ' : ''}</span></div>
+        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}" title="キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目${itemFlip(f) ? '／P パタパタ' : ''}"></div>
       </div>`;
     }).join('');
     // 切り抜きは画面に入ったものから描く
@@ -652,7 +651,7 @@
   function renderLegend(F = S.res.findings.filter(visible)) {
     const sf = S.sel != null ? S.res.findings[S.sel] : null;
     $('legend').innerHTML = Object.keys(LV).filter(l => F.some(f => f.cat !== 'F2' && colorOf(f) === l)).map(l => `<span style="--c: var(--c-${l})"><i></i>${LV[l]}</span>`).join('') +
-      (sf && visible(sf) ? '<span class="selk" style="--c: var(--sel)"><i></i>選んだ項目（一覧のオレンジの枠の項目）</span>' : '');
+      (sf && visible(sf) ? '<span class="selk" style="--c: var(--sel)"><i></i>選択中</span>' : '');
   }
   // 判定を付ける(同じものをもう一度押すと外す)。付けた判定を返す
   function judge(id, val) {
@@ -786,11 +785,12 @@
     $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.page));
     //   パタパタ表示: 成果物の位置に旧版(原稿)を重ね、1つの表示で交互に出す(相手のないページは、ふつうに並べる)
     const im = S.imgs[S.page], fl = S.flip && im.R ? pageFlip(S.page) : null;
-    $('pinfo').textContent = pageLabel(S.page + 1) + (S.flip && !fl ? '　※このページは重ねて比べる相手（同じレイアウトの旧版・原稿）がないため、パタパタはできません' : '');
+    $('pinfo').textContent = S.flip && !fl ? 'このページはパタパタできません（重ねる旧版・原稿がありません）' : '';
     //   原稿の画像がないページ(成果物だけ・旧版との比べ合わせ)は、成果物を幅いっぱいに出す
     const one = (!im.L && !!im.R) || !!fl, gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = one ? cw : (cw - gap) / 2;
     $('vcap').classList.toggle('one', one);
-    $('vcap').innerHTML = fl ? `<div class="flipcap"><span class="${S.phase ? '' : 'on'}">${esc(fl.label)}</span>⇄<span class="${S.phase ? 'on' : ''}">成果物</span></div>` : one ? '<div>成果物</div>' : '<div>原稿</div><div>成果物</div>';
+    const nP = esc(newPlace(S.page + 1) || ''), sP = esc(srcName(S.page + 1) || '');   // 見出しに、どのページかを添える(ページの対応の一行の代わり)
+    $('vcap').innerHTML = fl ? `<div class="flipcap"><span class="${S.phase ? '' : 'on'}">${esc(fl.label)}</span>⇄<span class="${S.phase ? 'on' : ''}">成果物</span></div>` : one ? `<div>成果物 ${nP}</div>` : `<div>原稿 ${sP}</div><div>成果物 ${nP}</div>`;
     const sR0 = im.R ? half / im.rw : 1, sL0 = im.L && !fl ? half / im.lw : sR0, ox = one ? 0 : half + gap, Z = S.zoom;
     const fitH = Math.max(im.L && !fl ? im.lh * sL0 : 60, im.R ? im.rh * sR0 : 0), H = Z > 1 ? Math.min(viewMaxH(), fitH * Z) : fitH;
     //   片側の見える範囲: ページの画素で (x0, y0) から、倍率 s。拡大していないときはページ全体
@@ -962,7 +962,9 @@
     closeMenu(); if (!okToExport('印刷')) return; if (S.only) setOnly(null);
     for (let i = 0; i < S.imgs.length; i++) await ensure(i);
     const keep = S.sel; S.sel = null; document.querySelectorAll('.item').forEach(drawCrops); S.sel = keep;
+    const nb = $('notesBox'), wasOpen = nb.open; nb.open = true;
     window.print();
+    nb.open = wasOpen;
     const el = keep != null && document.querySelector(`.item[data-id="${keep}"]`); if (el) drawCrops(el);
   };
 
