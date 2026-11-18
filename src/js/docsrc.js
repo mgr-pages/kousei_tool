@@ -627,6 +627,7 @@
   // ---- 入口 ----
   const KINDS = { xlsx: 'Excel', xlsm: 'Excel', docx: 'Word', docm: 'Word', pptx: 'PowerPoint', pptm: 'PowerPoint', txt: 'テキスト', csv: 'CSV', tsv: 'CSV' };
   const OLD = { xls: '.xlsx', doc: '.docx', ppt: '.pptx' };
+  PC.DATA_EXTS = Object.keys(KINDS); PC.OLD_EXTS = Object.keys(OLD);   // 画面に出す、読めるデータファイルの拡張子・保存し直しが要る古い形式
   PC.dataKind = f => { const m = /\.([a-z0-9]+)$/i.exec(f.name || ''); return m && KINDS[m[1].toLowerCase()] ? m[1].toLowerCase() : null; };
   PC.dataLabel = f => KINDS[PC.dataKind(f)] || '';
   PC.oldOffice = f => { const m = /\.([a-z0-9]+)$/i.exec(f.name || ''); return m && OLD[m[1].toLowerCase()] ? OLD[m[1].toLowerCase()] : null; };

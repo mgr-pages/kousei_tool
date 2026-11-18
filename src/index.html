@@ -52,7 +52,12 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .badge { font-style: normal; font-size: 11px; font-weight: 700; border-radius: 99px; padding: 1px 9px; margin-left: auto; white-space: nowrap }
 .badge.req { background: #fff0e3; color: #b4510b }
 .badge.opt { background: #eef1f5; color: var(--sub) }
-.step .desc { font-size: 12.5px; color: var(--sub); margin: 8px 0 10px; min-height: 3.2em }
+.step .desc { font-size: 12.5px; color: var(--sub); margin: 8px 0 6px; min-height: 3.2em }
+/* 入れられるファイルの形式(拡張子) */
+.exts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; margin: 0 0 10px; font-size: 11.5px; color: var(--sub) }
+.exts b { font-weight: 700; margin-right: 2px }
+.exts code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; background: #eef1f5; color: #3d4656; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; line-height: 1.6 }
+.exts .no { flex-basis: 100%; margin-top: 2px }
 @media (max-width: 1000px) { .step .desc { min-height: 0 } }
 .pickrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
 .pick { position: relative; display: inline-flex; align-items: center; gap: 6px; border-radius: 99px; background: #fff; color: var(--accent); border: 1px solid #b9cdf3; padding: 5px 14px; font-size: 13px; font-weight: 700; cursor: pointer }
@@ -260,22 +265,25 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 </header>
 <main>
   <section class="card" id="setup">
-    <div class="setuphd"><h2>チェックするファイルを入れてください</h2><label class="btn small openres" title="「結果を保存」で保存したファイル（.kousei）を開きます。照合し直さずに、保存したときの結果・判定・メモに戻ります">保存した結果を開く<input type="file" id="fRes" accept=".kousei"></label></div>
+    <div class="setuphd"><h2>チェックするファイルを入れてください</h2><label class="btn small openres" title="「結果を保存」で保存したファイル（.kousei）を開きます。照合し直さずに、保存したときの結果・判定・メモに戻ります">保存した結果を開く（.kousei）<input type="file" id="fRes" accept=".kousei"></label></div>
     <p class="lead">成果物（PDF）は必ず入れます。原稿と旧版は、あれば入れてください。</p>
     <div class="steps">
       <div class="step" data-kind="marks">
         <div class="t"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></span>原稿<em class="badge opt">任意</em></div>
         <div class="desc">朱書き・ラフのPDF、画像、Excel・Word・PowerPoint・テキスト・CSV</div>
+        <div class="exts" data-kind="marks"></div>
         <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fMarks" accept=".pdf,application/pdf,image/*,.xlsx,.xlsm,.docx,.docm,.pptx,.pptm,.txt,.csv,.tsv,.xls,.doc,.ppt" multiple></label><span class="drop">またはここへドラッグ</span></div>
         <ol class="flist" id="lMarks"></ol><div class="ftot" id="tMarks"></div></div>
       <div class="step req" data-kind="nw">
         <div class="t"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>成果物（PDF）<em class="badge req">必須</em></div>
         <div class="desc">今回チェックするPDF</div>
+        <div class="exts" data-kind="nw"></div>
         <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fNew" accept=".pdf,application/pdf" multiple></label><span class="drop">またはここへドラッグ</span></div>
         <ol class="flist" id="lNew"></ol><div class="ftot" id="tNew"></div></div>
       <div class="step" data-kind="old">
         <div class="t"><span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></span>旧版（PDF）<em class="badge opt">任意</em></div>
         <div class="desc">前回の成果物。前回から変わった所も確かめます</div>
+        <div class="exts" data-kind="old"></div>
         <div class="pickrow"><label class="pick">ファイルを選ぶ<input type="file" id="fOld" accept=".pdf,application/pdf" multiple></label><span class="drop">またはここへドラッグ</span></div>
         <ol class="flist" id="lOld"></ol><div class="ftot" id="tOld"></div></div>
     </div>

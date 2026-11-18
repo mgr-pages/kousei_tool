@@ -259,13 +259,19 @@
 
   // ---- 入力: 各欄に複数のファイル。選んだときに中身を読み込んでおき(あとで元のファイルが変わっても照合できるように)、ページ数を数える ----
   const KIND = { marks: { input: 'fMarks', list: 'lMarks', tot: 'tMarks' }, nw: { input: 'fNew', list: 'lNew', tot: 'tNew' }, old: { input: 'fOld', list: 'lOld', tot: 'tOld' } };
-  const accepts = (kind, f) => PC.isPdf(f) || (kind === 'marks' && (/^image\//.test(f.type) || PC.dataKind(f) || PC.oldOffice(f)));
+  //   原稿の画像で読める形式(ブラウザの画像の読み込み createImageBitmap で開けるもの。Chromium で確かめた。.tif・.svg は開けない)
+  const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif'];
+  const extOf = f => { const m = /\.([a-z0-9]+)$/i.exec(f.name || ''); return m ? m[1].toLowerCase() : ''; };
+  const isImg = f => IMG_EXTS.includes(extOf(f));
+  //   読めない画像(.tif など)も受け付けて、選んだ時点で理由と直し方を出す(照合の途中で止まらないように)
+  const accepts = (kind, f) => PC.isPdf(f) || (kind === 'marks' && (isImg(f) || /^image\//.test(f.type) || PC.dataKind(f) || PC.oldOffice(f)));
   const OLD_NAME = { '.xlsx': 'Excel ブック', '.docx': 'Word 文書', '.pptx': 'PowerPoint プレゼンテーション' };
   const byName = (a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true });
   const READ_ERR = '読み込めません。パソコン内（デスクトップなど）にコピーしてから、選び直してください。';
   async function load(e) {
     const old = PC.oldOffice(e);   // 古い形式(.xls・.doc・.ppt)は読めない: 新しい形式で保存し直してもらう
     if (old) { e.err = `古い形式のファイルは読めません。「名前を付けて保存」で「${OLD_NAME[old]}（${old}）」かPDFにしてから選んでください。`; return; }
+    if (!PC.isPdf(e) && !PC.dataKind(e) && !isImg(e)) { const x = extOf(e); e.err = `この形式${x ? `（.${x}）` : ''}の画像は読めません。PDF か PNG・JPEG（.png・.jpg）に保存し直してから選んでください。`; return; }
     try { e.buf = await e.file.arrayBuffer(); } catch (err) { e.err = READ_ERR + '（' + (err && err.name || err) + '）'; return; }
     await countPages(e);
   }
@@ -378,6 +384,15 @@
     }
     $('pmsg').textContent = msg;
   };
+  //   入れられるファイルの形式を、拡張子で各欄に出し、ファイルを選ぶ画面にもその形式だけを出す(読み取りの処理と同じ一覧から作る)
+  const EXTS = { marks: ['pdf', ...IMG_EXTS, ...PC.DATA_EXTS], nw: ['pdf'], old: ['pdf'] };
+  document.querySelectorAll('.exts[data-kind]').forEach(el => {
+    const k = el.dataset.kind;
+    el.innerHTML = '<b>形式</b>' + EXTS[k].map(x => `<code>.${x}</code>`).join('') +
+      (k === 'marks' ? `<span class="no">${PC.OLD_EXTS.map(x => '.' + x).join('・')}・.tif・.svg などは読めません（PDF などに保存し直してから）</span>` : '');
+  });
+  $('fMarks').accept = [...EXTS.marks.map(x => '.' + x), 'application/pdf', ...PC.OLD_EXTS.map(x => '.' + x)].join(',');   // 古い形式は、選ぶと直し方を知らせる
+  $('fNew').accept = $('fOld').accept = '.pdf,application/pdf';
   Object.keys(KIND).forEach(kind => {
     const inp = $(KIND[kind].input);
     inp.addEventListener('change', () => { add(kind, inp.files); inp.value = ''; });   // 同じファイルを外したあとでも選び直せるように空にする
