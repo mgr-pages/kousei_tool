@@ -17,4 +17,18 @@ for name, (nl, cat, na) in want.items():
         and (na == 0 or sorted(f['show'] for f in ann) == ['', 'テスト用の確認メモ'])
     ng += not ok
     print(f"{name}: 見た目 {len(look)}/{nl}件・注釈 {len(ann)}/{na}件（{'・'.join(sorted(set(f['cat'] for f in ann))) or 'なし'}）・ほか {len(other)}件 → {'OK' if ok else 'NG'}")
+#   原稿に入れたとき(画像だけのPDFの原稿を、紙のスキャンとして扱わず、成果物と描画が同じと測って比べるか)
+#   組み合わせ → (結果のページの種類, 指示の項目の数(以上), 見た目が変わった所の数)。「指示にない変更」の文字の項目(C2)は出ないこと
+mk = {'mk_annot_old': ('annot', 2, 0), 'mk_annot_new': ('annot', 2, 1), 'mk_redflat_old': ('scan', 1, 0)}
+for name, (kind, na, nl) in mk.items():
+    if not os.path.exists(os.path.join(out, f'imgonly_{name}.json')): ng += 1; print(f'{name}: 出力なし → NG'); continue
+    F = json.load(open(os.path.join(out, f'imgonly_{name}.json'), encoding='utf-8'))
+    P = json.load(open(os.path.join(out, f'imgonly_{name}.pages.json'), encoding='utf-8'))
+    ins = [f for f in F if f['cat'] in ('A', 'B', 'B2', 'K', 'F', 'F2', 'M')]
+    look = [f for f in F if f['cat'] == 'C3']
+    bad = [f for f in F if f['cat'] in ('C1', 'C2', 'T', 'N', 'E')]
+    ok = P and P[0]['kind'] == kind and len(ins) >= na and len(look) == nl and all(ov(f['nbox'] or f['box'], SQ) for f in look) and not bad \
+        and (name != 'mk_annot_old' or (len(ins) == 2 and any(f.get('note') == 'テスト用の確認メモ' for f in ins)))
+    ng += not ok
+    print(f"{name}: ページ {P[0]['kind'] if P else 'なし'}（{kind}）・指示 {len(ins)}件（{na}以上）・見た目 {len(look)}/{nl}件・文字の違い {len(bad)}件 → {'OK' if ok else 'NG'}")
 print('文字データのないページ・注釈の試験:', 'すべて OK' if not ng else f'{ng}組 NG')

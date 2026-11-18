@@ -18,12 +18,17 @@
   };
 
   // デジタル: 注釈あり/なしで描画した差分が朱入れ。挿入(Caret)注釈は位置情報から直接読むため描画からは除く
+  // 全体指示のコメント(「全体…「A」→「B」」): 一致すれば [全体, A, B]
+  PC.ruleMatch = t => { const s = String(t || ''), m = s.match(/「(.+?)」\s*(?:→|を)\s*「(.+?)」/); return m && s.includes('全体') ? m : null; };
+  // テキストボックスの注釈(FreeText)で、全体指示でないもの: 打ち込んだ文字が指示の中身(コメント)。その描画(枠・字)は赤字の印として読まない
+  //   (描いた字の形が、囲み・取り消し線・注記に化けて、1つの注釈が何件にも分かれるため)。全体指示は、これまでどおり注記として読む
+  PC.typedNote = n => n.type === 'FreeText' && !!String(n.text || '').trim() && !PC.ruleMatch(n.text);
   PC.fromAnnots = (withA, without, notes) => {
     const n = withA.w * withA.h, rm = new Uint8Array(n);
     for (let i = 0, j = 0; i < n; i++, j += 4) rm[i] = Math.max(Math.abs(withA.d[j] - without.d[j]), Math.abs(withA.d[j + 1] - without.d[j + 1]), Math.abs(withA.d[j + 2] - without.d[j + 2])) > 40 ? 255 : 0;
     // 挿入・取り消し線・下線・マーカーの注釈は、位置情報から直接読むため描画からは除く
     const clear = ([x0, y0, x1, y1]) => { for (let y = Math.max(0, Math.round(y0) - 3); y < Math.min(withA.h, Math.round(y1) + 3); y++) for (let x = Math.max(0, Math.round(x0) - 3); x < Math.min(withA.w, Math.round(x1) + 3); x++) rm[y * withA.w + x] = 0; };
-    for (const nt of notes) { if (nt.type === 'Caret') clear(nt.box); else if (PC.MARKUP.has(nt.type) && nt.quads.length) nt.quads.forEach(clear); }
+    for (const nt of notes) { if (nt.type === 'Caret' || PC.typedNote(nt)) clear(nt.box); else if (PC.MARKUP.has(nt.type) && nt.quads.length) nt.quads.forEach(clear); }
     return { rm, shown: withA };
   };
 

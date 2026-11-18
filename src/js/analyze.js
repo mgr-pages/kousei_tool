@@ -224,6 +224,24 @@
   const imageShow = c => { c.show = { changed: '画像・図版の変化', moved: '画像・図版の移動', removed: '画像・図版の削除' }[c.kind]; };
 
   // 注釈を入れたPDFのページ: 注釈を消した描画が修正前、注釈ありとの描画の差が赤字
+  // ---- 原稿のPDFのページが、成果物と同じデータから書き出したものか(紙のスキャンでないか)を、描画を比べて測る ----
+  //   注釈を消した原稿のページと成果物のページを、同じ解像度(50dpi)でそのまま描いて重ね、インクのある画素(どちらかが白でない)の
+  //   半分以上が同じ色(差 8 以内)なら、同じデータから書き出したもの。紙のスキャンは、位置・にじみ・紙の色がそろわないので、ほとんど
+  //   一致しない(テストの紙のスキャン9ページで 0.3〜3%。同じデータから書き出したPDFは 82〜100%)。ページの大きさが違えば測らない(false)
+  //   (これまでは「文字データがあるか」「ページを覆う画像があるか」で決めていたため、ページ全体が1枚の画像のPDFは、成果物と
+  //   描画がまったく同じでも紙のスキャンとして扱い、描き方の違い(300dpi で描いて縮めたもの と 200dpi の描画)を違いとしていた)
+  async function sameSource(doc, i, newDoc, q) {
+    const D = 50, A = await PC.renderPage(doc, i, D, false), B = await PC.renderPage(newDoc, q, D, false);
+    if (A.w !== B.w || A.h !== B.h) return false;
+    const a = A.d, b = B.d;
+    let ink = 0, same = 0;
+    for (let j = 0; j < a.length; j += 4) {
+      if (a[j] >= 245 && a[j + 1] >= 245 && a[j + 2] >= 245 && b[j] >= 245 && b[j + 1] >= 245 && b[j + 2] >= 245) continue;
+      ink++;
+      if (Math.abs(a[j] - b[j]) <= 8 && Math.abs(a[j + 1] - b[j + 1]) <= 8 && Math.abs(a[j + 2] - b[j + 2]) <= 8) same++;
+    }
+    return ink > 0 && same >= 0.5 * ink;
+  }
   async function annotPage(src, p, nw, nc, cb, step, nref = null) {
     const { doc, i } = src.page(p);
     const old = await PC.renderPage(doc, i, PC.DPI, false), oc = await PC.textCharsSnapped(doc, i, old);
@@ -296,6 +314,15 @@
       else if (ob.some(b => b.kind === 'image' && ov(b.box, box))) an.push({ kind: 'image', ...base });
       //   どの字形・画像にも当たらない(字形のまとまりが大きいときの一部だけ・字のない所に引いたものなど)ものも捨てず、位置で照合する
       else an.push({ kind: 'area', ...base });
+    }
+    //   テキストボックスの注釈(全体指示でないもの): 打ち込んだ文字を、同じ行の近く(横に 120画素＝約15mm 以内)の、まだコメントのない指示に添える
+    //   (取り消し線の横に直す文字を打ち込んだもの)。なければ、その枠を指示の所とする(描画は赤字の印として読んでいない: PC.typedNote)
+    for (const n of notes) {
+      if (!PC.typedNote(n)) continue;
+      const vo = a => Math.min(a.box[3], n.box[3]) - Math.max(a.box[1], n.box[1]), gx = a => Math.max(0, a.box[0] - n.box[2], n.box[0] - a.box[2]);
+      const near = an.filter(a => a.note === undefined && vo(a) >= 0.5 * Math.min(a.box[3] - a.box[1], n.box[3] - n.box[1]) && gx(a) <= 120).sort((x, y) => gx(x) - gx(y))[0];
+      if (near) near.note = n.text;
+      else an.push({ kind: 'area', how: 'テキスト(注釈)', box: n.box.map(Math.trunc), quads: [n.box.map(Math.trunc)], under: '', stroke: -1, note: n.text });
     }
     //   付箋(テキストの注釈)のコメントも指示として読む(返信はつなげてある)。同じ所にほかの指示があれば、そちらに任せる
     for (const n of notes) {
@@ -608,9 +635,9 @@
     }
     return { stat, At, Bt, T, c0, moved };
   }
-  async function scanPage(src, p, nw, nc, step, nref = null) {
+  async function scanPage(src, p, nw, nc, step, nref = null, same = false) {
     step('スキャンを読み込み', 0.02); await PC.tick();
-    const { img, dpi, digital } = await src.image(p);
+    const { img, dpi, digital } = await src.image(p, same);
     step('位置を合わせています', 0.05); await PC.tick();
     let { W, matched, A, s } = PC.registerScan(img, nw, dpi);
     //   スキャンでないPDFの原稿が、成果物と同じ大きさで、ずれなく重なるとき: 原稿の描画をそのまま使い(重ね直しの補間をしない)、
@@ -2242,7 +2269,15 @@
         if (d.noText) warn.push(`${p + 1}ページ目に当たる成果物のページには文字データがほとんどないため（文字のアウトライン化など）、文字では比べられませんでした`);
         put(d); continue;
       }
-      const kind = await src.kind(p);
+      //   原稿の比べ方: 注釈と文字データのあるPDFは注釈PDF、それ以外はスキャンとして扱う(src.kind)。ただし、PDFのページが成果物と同じ
+      //   データから書き出したもの(描画を重ねて測る: sameSource)なら、文字データ・ページを覆う画像がなくても紙のスキャンではないので、
+      //   注釈があれば注釈PDFとして(注釈を指示として読み、注釈を消した描画を画素で成果物と比べる)、なければスキャンでないPDFとして比べる
+      let kind = await src.kind(p), same = false;
+      const it0 = src.page(p);
+      if (kind === 'scan' && it0.doc && !pr.crop && ((await PC.annotations(it0.doc, it0.i)).length || !(await PC.isDigitalPage(it0.doc, it0.i)))) {
+        same = await sameSource(it0.doc, it0.i, newDoc, pr.q);
+        if (same && (await PC.annotations(it0.doc, it0.i)).length) kind = 'annot';
+      }
       let nw = await PC.renderPage(newDoc, pr.q, PC.DPI, false), nc = await PC.textCharsSnapped(newDoc, pr.q, nw);
       if (pr.crop) {   // 原稿のページが成果物のページの一部(見開きの片側など)に当たる: その部分だけを切り出して比べる
         const [x0, y0, x1, y1] = pr.crop.map(v => Math.round(v * PC.S));
@@ -2250,7 +2285,7 @@
         nc = nc.filter(([, b]) => (b[0] + b[2]) / 2 >= x0 && (b[0] + b[2]) / 2 < x1 && (b[1] + b[3]) / 2 >= y0 && (b[1] + b[3]) / 2 < y1).map(([c, b]) => [c, [b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0]]);
       }
       //   紙の赤字原稿で、成果物のページに大きさ・位置のそろう旧版があれば、変化は旧版と成果物のPDFどうしで求める
-      const op0 = kind !== 'annot' ? sameOld(pr.q) : null, op = op0 && !(await src.image(p)).digital ? op0 : null;
+      const op0 = kind !== 'annot' && !same ? sameOld(pr.q) : null, op = op0 && !(await src.image(p)).digital ? op0 : null;
       const d3 = op ? await scan3Page(src, p, pr, op, opts.oldDoc, newDoc, nw, step) : null;
       if (d3) {
         s3.push({ p: p + 1, n: d3.groups.length });
@@ -2258,7 +2293,7 @@
         d3.thumbs = { left: await toThumb(d3.left), right: await toThumb(d3.right) }; d3.left = d3.right = null;
         put(d3); continue;
       }
-      const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step, { doc: newDoc, q: pr.q, crop: pr.crop }) : await scanPage(src, p, nw, nc, step, { doc: newDoc, q: pr.q, crop: pr.crop });
+      const d = kind === 'annot' ? await annotPage(src, p, nw, nc, cb, step, { doc: newDoc, q: pr.q, crop: pr.crop }) : await scanPage(src, p, nw, nc, step, { doc: newDoc, q: pr.q, crop: pr.crop }, same);
       if (d.kind === 'scan' && d.matched < 40) warn.push(`${p + 1}ページ目は、原稿と成果物の位置がうまく合いません（ページの向きを確かめてください）`);
       step('表示用の画像を作成', 0.96); await PC.tick();
       d.q = pr.q; d.crop = pr.crop; d.extra = [];
@@ -2380,8 +2415,8 @@
     const rules = [], textCh = [];
     P.forEach((d, p) => d.ch.forEach(c => { if (c.kind === 'text' && c.tag !== 'layout' && c.before && !c.hw) textCh.push([p, c]); }));
     for (const d of P) for (const n of d.notes) {
-      const m = n.text.match(/「(.+?)」\s*(?:→|を)\s*「(.+?)」/);
-      if (m && n.text.includes('全体')) { rules.push({ frm: m[1], to: m[2], core: coreOf(m[1], m[2]), how: '全体指示', check: '未統一' }); n.rule = true; }
+      const m = PC.ruleMatch(n.text);
+      if (m) { rules.push({ frm: m[1], to: m[2], core: coreOf(m[1], m[2]), how: '全体指示', check: '未統一' }); n.rule = true; }
     }
     const groups = [];
     for (const [p, c] of textCh) {

@@ -206,11 +206,12 @@
       // スキャンとして読む画像。PDFは注釈も含めて300dpiで描画、画像はそのまま(大きすぎるものは縮める)
       //   スキャンでないPDF(ページを覆う画像がない、文字や線で描いたPDF。赤字を書き込んで書き出したものなど)は、成果物と同じ
       //   解像度で描き、digital の印を付ける(字の形を、スキャン用のぼかしをかけずに比べる)
-      image: async p => {
+      //   digital: 成果物と描画が同じと測ったページ(analyze.js の sameSource。ページ全体が画像のPDFでも、紙のスキャンではない)
+      image: async (p, digital = false) => {
         const it = items[p];
         if (it.virt) return { img: it.virt.render(300), dpi: 300 };
         if (it.doc) {
-          if (await PC.isDigitalPage(it.doc, it.i)) return { img: await PC.renderPage(it.doc, it.i, PC.DPI, true), dpi: PC.DPI, digital: true };
+          if (digital || await PC.isDigitalPage(it.doc, it.i)) return { img: await PC.renderPage(it.doc, it.i, PC.DPI, true), dpi: PC.DPI, digital: true };
           return { img: await PC.renderPage(it.doc, it.i, 300, true), dpi: 300 };
         }
         let bmp;

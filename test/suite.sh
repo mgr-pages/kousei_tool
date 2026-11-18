@@ -115,6 +115,11 @@ OLD="$I/new.pdf" run - "$I/old.pdf" imgonly_new_old &
 OLD="$I/old.pdf" run - "$I/annot.pdf" imgonly_old_annot &
 OLD="$I/annot.pdf" run - "$I/annot.pdf" imgonly_annot_annot &
 wait
+#   画像だけのPDFを原稿に入れたとき(注釈付き・赤を描き込んだもの): 紙のスキャンとして扱わず、成果物と描画が同じと測って比べるか
+run "$I/annot.pdf" "$I/old.pdf" imgonly_mk_annot_old &
+run "$I/annot.pdf" "$I/new.pdf" imgonly_mk_annot_new &
+run "$I/redflat.pdf" "$I/old.pdf" imgonly_mk_redflat_old &
+wait
 #   架空のPDFに誤りを無作為に入れる試験(成績を出す。採点は test/realcheck/evaluate.py)
 JOBS=4 bash test/realcheck/run.sh "$OUT/realcheck" 1 12 "$DATA/new.pdf" "$DATA/props/design.pdf" > "$OUT/realcheck.txt" 2>&1
 for s in 1 2 3 4 5 6 7 8; do
