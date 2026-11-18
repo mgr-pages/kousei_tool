@@ -6948,7 +6948,14 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       if (pr.q < 0) continue;
       if (!out.has(pr.q)) { const B = NQ.has(pr.q) ? NQ.get(pr.q).B : JP && JP[pr.q] ? JP[pr.q].B : await PC.pageText(newDoc, pr.q); out.set(pr.q, { B, st: new Uint8Array(B.chars.length), oc: [], used: new Uint8Array(B.chars.length), gone: [], maps: [], moved: [] }); }
       const o = out.get(pr.q), A = await PC.pageText(oldDoc, p);
-      if (!A.chars.length) continue;
+      //   旧版のページに文字データがない(全面が画像など)ときは、字で位置を合わせられないので、画像のずらし方で合わせ、見た目で比べる(oldLooks)
+      //   (これまでは何も比べずに飛ばしていたため、画像が違っても0件になった)。成果物のページにだけ文字データがないときは、下の字の比べ合わせ
+      //   (成果物のその辺りを OCR で読む)を通し、字で位置を合わせられなければ、そこで画像のずらし方で合わせる
+      if (!A.chars.length) {
+        pr.Tr = pr.same ? await imageShift(oldDoc, p, newDoc, pr.q, pr.T) : null;
+        o.maps.push({ p, T: pr.T, Tr: pr.Tr || null, img: true, noText: true });
+        continue;
+      }
       const snap = o.used.slice(), opt = { ...pr, noInstr: true, strict: true };
       let blocks = PC.collatePage(A, o.B, opt, o.used, new Set());
       // 片方にだけ文字データがある所(どちらかで文字をアウトライン化・画像化した所)は、もう片方のその辺りを OCR で読んで比べ直す
@@ -7000,13 +7007,43 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       //   位置合わせを、同じ字と対応づいた組で求め直す(Tr。見た目の比べ合わせ・パタパタ表示に使う)。同じ字で位置が動いた組は、
       //   見た目の違いを字の移動として説明するのに使う(o.moved: 旧版の位置を写した枠と成果物の枠)
       if (pr.same) pr.Tr = refineT(eq);
+      //   字が少なくて字で位置を合わせられないページ(同じ字の組が10組未満)は、画像のずらし方で合わせる
+      let img = false;
+      if (pr.same && !pr.Tr && eq.length < 10) { pr.Tr = await imageShift(oldDoc, p, newDoc, pr.q, pr.T); img = !!pr.Tr; }
       const Tm = pr.Tr || pr.T;
       if (Tm) for (const [ob, nb] of eq) { const mb = PC.mapBox(Tm, ob); if (mb.some((v, t) => Math.abs(v - nb[t]) > 0.3)) o.moved.push(mb, nb); }
-      o.maps.push({ p, T: pr.T, Tr: pr.Tr || null });
+      o.maps.push({ p, T: pr.T, Tr: pr.Tr || null, img });
       await PC.tick();
     }
     for (const o of out.values()) slideNew(o.B.chars, o.st);
     return { pairs, byQ: out };
+  }
+  // 文字データのないページの位置合わせ: 旧版と成果物を 50dpi で描いた灰色の画像を、ページの対応づけの変換(T)の平行移動のまわり
+  //   ±9画素(約±13pt)でずらし、重なる所の差の平均がいちばん小さいずらし方を求める(2画素おきに見る)。大きさ・向きが変わったページは null
+  //   (細かいずれは、見た目の比べ合わせの前に 200dpi で詰める: fineShift)。返り値は平行移動の変換 [1, 0, tx, ty, 1](pt)
+  async function imageShift(oldDoc, p, newDoc, q, T) {
+    if (!T || Math.abs(PC.scaleOf(T) - 1) > 0.01 || Math.abs(T[1]) > 0.01 || Math.abs(PC.aspectOf(T) - 1) > 0.01) return null;
+    const D = 50, r = D / 72, A = await PC.renderPage(oldDoc, p, D, false), B = await PC.renderPage(newDoc, q, D, false);
+    const gray = im => { const g = new Uint8Array(im.w * im.h); for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (im.d[j] * 77 + im.d[j + 1] * 150 + im.d[j + 2] * 29) >> 8; return g; };
+    const ga = gray(A), gb = gray(B), cx = Math.round(T[2] * r), cy = Math.round(T[3] * r), R = 9;
+    let best = null, bc = Infinity;
+    for (let dy = cy - R; dy <= cy + R; dy++) for (let dx = cx - R; dx <= cx + R; dx++) {
+      let c = 0, n = 0;   // 成果物の (x, y) と旧版の (x - dx, y - dy)
+      for (let y = Math.max(0, dy); y < Math.min(B.h, A.h + dy); y += 2) for (let x = Math.max(0, dx); x < Math.min(B.w, A.w + dx); x += 2) { c += Math.abs(gb[y * B.w + x] - ga[(y - dy) * A.w + x - dx]); n++; }
+      if (n >= 0.125 * B.w * B.h && c / n < bc) { bc = c / n; best = [dx, dy]; }
+    }
+    return best ? [1, 0, best[0] / r, best[1] / r, 1] : null;
+  }
+  //   200dpi で、画像のずらし方を ±4画素詰める(差の平均がいちばん小さい所。4画素おきに見る)
+  function fineShift(OI, NW, Tr) {
+    const k = PC.S, cx = Math.round(Tr[2] * k), cy = Math.round(Tr[3] * k), A = OI.d, B = NW.d;
+    let best = [cx, cy], bc = Infinity;
+    for (let dy = cy - 4; dy <= cy + 4; dy++) for (let dx = cx - 4; dx <= cx + 4; dx++) {
+      let c = 0, n = 0;
+      for (let y = Math.max(0, dy); y < Math.min(NW.h, OI.h + dy); y += 4) for (let x = Math.max(0, dx); x < Math.min(NW.w, OI.w + dx); x += 4) { const i = 4 * (y * NW.w + x), j = 4 * ((y - dy) * OI.w + x - dx); c += Math.abs(B[i] - A[j]) + Math.abs(B[i + 1] - A[j + 1]) + Math.abs(B[i + 2] - A[j + 2]); n++; }
+      if (n && c / n < bc) { bc = c / n; best = [dx, dy]; }
+    }
+    return [1, 0, best[0] / k, best[1] / k, 1];
   }
   // 位置合わせを、同じ字と対応づいた組(旧版の枠, 成果物の枠。pt)で求め直す。ページの対応づけの変換(pr.T)は、ページの手がかり全体に
   //   合わせたおおよそのもので、文章の送りで動いた字にも引っぱられる(配置が同じなのに、横に3%縮む・本文の分だけ上下にずれる、など)。
@@ -7162,7 +7199,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         const push = (segs, t, s) => { const g = segs[segs.length - 1]; if (g && g[0] === t) g[1] += s; else segs.push([t, s]); };
         const flush = () => {
           if (run.length && run.some(j => o.st[j] !== 1) || run.some(j => goneIn.has(j)) || (run.length && goneIn.has(run[run.length - 1] + 1))) {   // 記号だけの変化(「、」→「。」など)も出す
-            const nb = PC.union(run.map(j => C[j].box)), m = o.maps[0];
+            const nb = PC.union(run.map(j => C[j].box)), m = o.maps.find(x => !x.noText) || o.maps[0];   // 旧版の切り抜きは、文字データのある旧版のページから
             // 前後の同じ字(同じまとまりの6字まで)を添え、置き換わった字は旧版の字→成果物の字で示す
             const it = C[run[0]].it, segs = [];
             const pre = []; for (let j = run[0] - 1; j >= 0 && pre.length < 6 && C[j].it === it && o.st[j] === 1; j--) pre.unshift(C[j].c);
@@ -7358,7 +7395,9 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       const NW = await PC.renderPage(newDoc, q, PC.DPI, false), skip = pinkBands(NW, o.B);
       for (const mp of maps) {
         //   比べる範囲: 旧版のページを写した範囲(成果物の pt)
-        const OI = await PC.renderPage(oldDoc, mp.p, PC.DPI, false), Rg = PC.mapBox(mp.Tr, [0, 0, OI.w / k, OI.h / k]);
+        const OI = await PC.renderPage(oldDoc, mp.p, PC.DPI, false);
+        if (mp.img) { mp.Tr = fineShift(OI, NW, mp.Tr); OLD.pairs[mp.p].Tr = mp.Tr; }   // 画像のずらし方で合わせたページ: 200dpi で詰める
+        const Rg = PC.mapBox(mp.Tr, [0, 0, OI.w / k, OI.h / k]);
         for (const { box: b, text } of lookKinds(lookDiff(OI, NW, mp.Tr, Rg, ex, skip), o)) {
           const nbPt = b.map(v => v / k), [cx, cy] = PC.center(nbPt);
           if (vis.some(r => cx >= r[0] && cx <= r[2] && cy >= r[1] && cy <= r[3])) continue;
@@ -7375,6 +7414,66 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       }
     }
     return total;
+  }
+
+  // ---- 旧版と成果物の注釈(コメント・図形・テキストボックスなど。ページの中身とは別に、PDFに付く書き込み)の比べ合わせ ----
+  //   見た目・文字の比べ合わせは注釈を描かず・読まずに行うので、注釈だけの違いはそこには出ない(そのため注釈だけ違うと0件になった)。
+  //   注釈どうしを比べる: 種類とコメントの文字が同じで、旧版の位置を成果物に写すと近いもの(8pt または大きさの半分まで)は同じ注釈(出さない)。
+  //   成果物にだけある注釈 → 成果物の書き込み(W)、旧版にだけある注釈 → 旧版の注釈(K。原稿があるときは原稿の指示と重なりうるので、知らせだけ)
+  //   返り値: 成果物にだけある数(nw)・旧版にだけある数(old)・成果物に当たるページのない旧版のページの注釈の数(lost)、注釈を描いて表示するページ(showOld・showNew)
+  const ANN = { Text: '付箋', FreeText: 'テキストボックス', Line: '線', Square: '四角', Circle: '円', Polygon: '多角形', PolyLine: '折れ線', Highlight: 'マーカー', Underline: '下線', Squiggly: '波線', StrikeOut: '取り消し線', Stamp: 'スタンプ', Caret: '挿入', Ink: '手書き', FileAttachment: '添付ファイル', Sound: '音声', Redact: '墨消し' };
+  async function oldAnnots(P, OLD, newDoc, oldDoc, NQ, marks) {
+    const k = PC.S, norm = s => (s || '').replace(/\s+/g, ''), r = { nw: 0, old: 0, lost: 0, showOld: new Set(), showNew: new Set() };
+    const AO = [], AN = [];
+    for (let p = 0; p < oldDoc.numPages; p++) AO.push(await PC.annotations(oldDoc, p));
+    for (let q = 0; q < newDoc.numPages; q++) AN.push(await PC.annotations(newDoc, q));
+    if (!AO.some(a => a.length) && !AN.some(a => a.length)) return r;
+    //   旧版の注釈を、旧版のページが当たる成果物のページの、同じ注釈(写した位置にいちばん近いもの)に当てる
+    const usedN = AN.map(a => new Uint8Array(a.length)), oldOnly = [];
+    for (let p = 0; p < AO.length; p++) {
+      const pr = OLD.pairs[p], T = pr && pr.q >= 0 ? pr.Tr || pr.T : null;
+      for (const a of AO[p]) {
+        if (!T) { r.lost++; continue; }
+        const mb = PC.mapBox(T, a.box.map(v => v / k)).map(v => v * k), [mx, my] = PC.center(mb), tol = Math.max(8 * k, 0.5 * Math.max(mb[2] - mb[0], mb[3] - mb[1]));
+        let best = -1, bd = Infinity;
+        AN[pr.q].forEach((b, j) => {
+          if (usedN[pr.q][j] || b.type !== a.type || norm(b.text) !== norm(a.text)) return;
+          const [bx, by] = PC.center(b.box), dd = Math.hypot(bx - mx, by - my);
+          if (dd <= tol && dd < bd) { bd = dd; best = j; }
+        });
+        if (best >= 0) usedN[pr.q][best] = 1; else oldOnly.push({ p, q: pr.q, a, mb, T });
+      }
+    }
+    //   項目を付ける結果のページ(その成果物のページを表示しているページ。なければ「成果物だけ」のページを足す)
+    const pageFor = async (q, c) => {
+      const ds = P.filter(d => d.q === q && d.kind !== 'none');
+      let d = ds.find(d => d.kind !== 'newonly' && !d.crop) || ds.find(d => d.crop && c[0] >= d.crop[0] && c[0] <= d.crop[2]) || P.find(e => e.kind === 'newonly' && e.q === q);
+      if (!d) {
+        d = { kind: 'newonly', q, src: null, label: null, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], thumbs: { left: null, right: NQ.has(q) ? NQ.get(q).thumb : null } };
+        P.push(d);
+      }
+      return d;
+    };
+    //   枠(200dpi の画素): 線の注釈など細いものも見えるように、縦・横とも12画素(約4pt)以上にする
+    const fat = b => { const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, w = Math.max(12, b[2] - b[0]), h = Math.max(12, b[3] - b[1]); return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]; };
+    const put = async (q, box, x) => {
+      const d = await pageFor(q, PC.center(box).map(v => v / k)), o0 = d.crop ? [d.crop[0], d.crop[1]] : [0, 0];
+      (d.anns || (d.anns = [])).push({ ...x, nbox: fat([box[0] - o0[0] * k, box[1] - o0[1] * k, box[2] - o0[0] * k, box[3] - o0[1] * k]), o0 });
+    };
+    for (let q = 0; q < AN.length; q++) for (let j = 0; j < AN[q].length; j++) {
+      if (usedN[q][j]) continue;
+      const b = AN[q][j];
+      await put(q, b.box, { cat: 'W', type: b.type, reply: !!b.irt, text: b.text });
+      r.nw++; r.showNew.add(q);
+    }
+    for (const x of oldOnly) {
+      r.old++; r.showOld.add(x.p); r.showNew.add(x.q);
+      if (marks) continue;   // 原稿があるときは、原稿の指示と同じ注釈のことがあるので、項目にせず知らせだけにする
+      await put(x.q, x.mb, { cat: 'K', type: x.a.type, reply: !!x.a.irt, text: x.a.text, old: { p: x.p, box: fat(x.a.box), T: x.T } });
+    }
+    //   注釈を描いて表示する成果物のページに当たる旧版のページも、注釈を描いて表示する(パタパタ表示で、同じ注釈がちらつかないように)
+    for (const q of r.showNew) for (const m of (OLD.byQ.get(q) || { maps: [] }).maps) r.showOld.add(m.p);
+    return r;
   }
 
   // ---- 内容で照合したページの項目 ----
@@ -7675,7 +7774,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
           //   数字のまとまりの中で消えた旧版の字(gin)は、その位置に「旧版の字」として入れる
           const done = new Set(), gone = j => { if (e.gin.has(j) && !done.has(j)) { done.add(j); push('-', e.gin.get(j)); } };
           e.jss.forEach((js, n) => { if (n) push('=', ' ／ '); js.forEach((j, i) => { const pj = js[i - 1]; if (i && (B[j].sp || B[j].it !== B[pj].it) && PC.DIGC.test(B[j].c) && PC.DIGC.test(B[pj].c)) push('=', ' '); gone(j); const st = e.os.st[j]; if (st === 1) push('=', B[j].c); else { if (st >= 2 && e.os.oc[j]) push('-', e.os.oc[j]); push('+', B[j].c); } }); gone(js[js.length - 1] + 1); });
-          const m = e.os.maps[0];
+          const m = e.os.maps.find(x => !x.noText) || e.os.maps[0];
           //   書き方だけの変化(全角・半角など)だけなら「全角・半角などの違い」に分ける
           const varOnly = !e.gin.size && e.jss.every(js => js.every(j => e.os.st[j] === 1 || e.os.st[j] === 3)), cat = varOnly ? 'V' : 'C2';
           Object.assign(f, { cat, label: PC.CAT[cat], how: varOnly ? '旧版から書き方だけ変わった所（全角・半角など）' : '旧版から変わった所（原稿のない部分）', fromOld: 'add', newOnly: true, segs, same: false, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.T), e.nbox)) } : null });
@@ -7811,6 +7910,24 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     if (SH.total) warn.push(`文字が図形になっていて文字データのない所が ${SH.total}か所あり、文字としては確かめていません（一覧の「文字として確かめていない所」。見た目で比べたページは除く）`);
     //   旧版から見た目が変わった所(写真・図版・色・線など。文字の変化・字の移動で説明できない描画の違い)
     if (OLD) { prog('旧版から見た目が変わった所を調べています', 0.983); await PC.tick(); await oldLooks(P, OLD, newDoc, opts.oldDoc, f => prog('旧版から見た目が変わった所を調べています', 0.983 + 0.002 * f)); }
+    //   旧版と成果物の注釈(コメント・図形などの書き込み)の違い
+    const AR = OLD ? await oldAnnots(P, OLD, newDoc, opts.oldDoc, NQ, npages > 0) : null;
+    if (AR && AR.nw) warn.push(`成果物のPDFに、旧版にない注釈（コメント・図形などの書き込み）が ${AR.nw}件あります（一覧の「指示・書き込みの確認」の中）。校正の赤字なら、このPDFを「原稿」の欄に入れて、直した成果物と比べると、指示どおりに直っているかを確かめられます`);
+    if (AR && AR.old) warn.push(npages ? `旧版のPDFにあった注釈（コメント・図形などの書き込み）${AR.old}件が、成果物にはありません（原稿の欄の指示と同じものなら問題ありません。別のものなら、旧版を原稿の欄にも入れて確かめてください）`
+      : `旧版のPDFにあった注釈（コメント・図形などの書き込み）${AR.old}件が、成果物にはありません（一覧の「指示・書き込みの確認」の中）。旧版に書き込んだ赤字の指示なら、旧版を「原稿」の欄に入れると、指示どおりに直っているかを確かめられます`);
+    if (AR && AR.lost) warn.push(`旧版の注釈 ${AR.lost}件は、そのページが成果物のどのページに当たるか分からないため、比べていません`);
+    //   旧版と比べられなかったページ(黙って0件にしないように知らせる)
+    if (OLD) {
+      const unp = OLD.pairs.map((x, p) => (x.q < 0 ? p + 1 : 0)).filter(Boolean);
+      if (unp.length) warn.push(`旧版の${spans(unp)}ページ目は、成果物のどのページにも当たらなかったため、比べていません`);
+      const noLook = [...OLD.byQ.values()].flatMap(o => o.maps.filter(m => m.img && !m.Tr).map(m => m.p + 1)).sort((x, y) => x - y);
+      if (noLook.length) warn.push(`旧版の${spans(noLook)}ページ目は、文字データがなく（ページ全体が画像など）、成果物と位置も合わせられなかったため、比べていません`);
+      if (!npages) {
+        const hit = new Set(OLD.pairs.map(x => x.q)), extra = [];
+        for (let q = 0; q < newDoc.numPages; q++) if (!hit.has(q)) extra.push(q + 1);
+        if (extra.length) warn.push(`成果物の${spans(extra)}ページ目は、旧版のどのページにも当たらなかったため、旧版と比べていません`);
+      }
+    }
     const none = P.map(d => (d.kind === 'none' && !d.label ? d.src + 1 : 0)).filter(Boolean), noneV = P.filter(d => d.kind === 'none' && d.label).map(d => d.label);
     if (none.length) warn.push(`原稿の${spans(none)}ページ目は、対応する成果物のページが見つかりませんでした（照合していません）`);
     if (noneV.length) warn.push(`${noneV.join('、')}は、成果物に載っている所が見つかりませんでした（照合していません）`);
@@ -8008,6 +8125,11 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         Object.assign(f, { onNew: true, newOnly: true, fromOld: 'look', pnboxes: [x.nbox], old: x.old });
         if (x.text) f.lookText = true;
       }
+      for (const x of d.anns || []) {   // 旧版と成果物の注釈の違い(成果物にだけある注釈 → W、旧版にだけある注釈 → K)。how に注釈の種類、show にコメントの文字
+        const f = add(p + 1, x.cat, x.nbox, x.text || '', `注釈（${ANN[x.type] || x.type}${x.reply ? '・返信' : ''}）`, '', '', x.nbox);
+        Object.assign(f, { onNew: true, newOnly: true, fromOld: 'annot', pnboxes: [x.nbox] });
+        if (x.old) f.old = { p: x.old.p, box: x.old.box, M: pxM(x.old.T, x.o0) };
+      }
       for (const x of d.jf || []) {   // 成果物だけで見た問題
         const f = add(p + 1, 'J', x.nbox, x.show, '', '', '', x.nbox);
         Object.assign(f, { onNew: true, newOnly: true, level: x.level, j: { kind: x.kind, sub: x.sub, want: x.want, msg: x.msg, ctx: x.ctx, count: x.count || 0 }, moreNboxes: x.more, pnboxes: [x.nbox] });
@@ -8129,6 +8251,17 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       }
       return ['annot', 'scan', 'scan3'].includes(d.kind) && d.thumbs && d.thumbs.left ? { src: true } : null;
     };
+    //   注釈の違いを出したページは、成果物の画像を注釈を描いたものにする(注釈の項目の枠の所に、注釈が見えるように)
+    if (AR && AR.showNew.size) {
+      const full = new Map();
+      for (const d of P) {
+        if (d.q < 0 || !AR.showNew.has(d.q) || !d.thumbs) continue;
+        if (!full.has(d.q)) full.set(d.q, await PC.renderPage(newDoc, d.q, PC.DPI, true));
+        let img = full.get(d.q);
+        if (d.crop) { const [x0, y0, x1, y1] = d.crop.map(v => Math.round(v * PC.S)); img = PC.crop(img, x0, y0, x1, y1); }
+        d.thumbs = { ...d.thumbs, right: await toThumb(img) };
+      }
+    }
     const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null, flip: flipOf(d) }));
     // 仕上がり(トンボ)の外にある項目に印を付ける(詳細設定で、ページ情報などを結果から外せるように)
     //   仕上がりは成果物のPDFに書かれた TrimBox(ページの外枠と同じなら外はない)。項目の成果物での位置の中心で見る
@@ -8145,7 +8278,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     }
     // 旧版のページの表示用の画像(旧版から変わった所の項目と、パタパタ表示で使うものだけ)
     const oldPages = [];
-    if (opts.oldDoc) for (const p of new Set([...F.filter(f => f.old).map(f => f.old.p), ...pages.filter(pg => pg.flip && pg.flip.old != null).map(pg => pg.flip.old)])) oldPages[p] = await toThumb(await PC.renderPage(opts.oldDoc, p, PC.DPI, false));
+    if (opts.oldDoc) for (const p of new Set([...F.filter(f => f.old).map(f => f.old.p), ...pages.filter(pg => pg.flip && pg.flip.old != null).map(pg => pg.flip.old)])) oldPages[p] = await toThumb(await PC.renderPage(opts.oldDoc, p, PC.DPI, !!(AR && AR.showOld.has(p))));
     return { findings: F, pages, oldPages, rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
   };
 })();
@@ -8287,6 +8420,11 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     if (f.shape) return [S.runMode === 'old' ? '前回から変わった（図形の文字）' : '旧版から変わった（図形の文字）', '文字が図形になっていて文字データのない所（ロゴなど）の見た目が変わっています。文字では比べられないので、切り抜きで確認'];
     if (f.fromOld === 'look' && f.lookText) return [S.runMode === 'old' ? '前回から字の見た目が変わった' : '旧版から字の見た目が変わった', '字は同じで、色・太さ・書体などの見た目が変わっています。意図した変更か、切り抜き（パタパタ）で確認'];
     if (f.fromOld === 'look') return [S.runMode === 'old' ? '前回から見た目が変わった' : '旧版から見た目が変わった', '写真・図・色・線など、文字以外の見た目が変わっています。意図した変更か、切り抜き（パタパタ）で確認'];
+    if (f.fromOld === 'annot') {   // 旧版と成果物の注釈(コメント・図形などの書き込み)の違い
+      const prev = S.runMode === 'old' ? '前回' : '旧版';
+      return f.cat === 'W' ? [`成果物の注釈（${prev}にない）`, `成果物のPDFに、${prev}にない注釈（コメント・図形などの書き込み）が付いています。ページの中身とは別の書き込みです。内容を読んで確かめてください`]
+        : [`${prev}の注釈（成果物にない）`, `${prev}のPDFに付いていた注釈（コメント・図形などの書き込み）が、成果物にはありません。直す指示なら、旧版を「原稿」の欄に入れると、指示どおりに直っているかを確かめられます`];
+    }
     if (f.cat === 'U') return ['文字として確かめていない', UWHY[f.why] || UWHY.none];
     if (f.fromOld && f.cat === 'V') return ['書き方だけ変わった', `${S.runMode === 'old' ? '前回の成果物' : '旧版'}から、全角・半角などの書き方だけが変わっています。意図した変更か確認`];
     if (f.fromOld && S.runMode === 'old') return ['前回から変わった', f.fromOld === 'del' ? '前回の成果物にあった文字がなくなっています。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '前回の成果物から変わっています。意図した変更か確認' : '前回の成果物にない文字があります。意図した追加か確認'];
@@ -8374,6 +8512,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       return `<div class="rows"><span class="lb">${(f.how || '').startsWith('同じ変更') ? 'ほかの箇所' : '指示'}</span><span class="tx"><del>${esc(f.frm)}</del> → <ins>${esc(f.to || '')}</ins>${f.how ? `<span class="more">（${esc(f.how === '同じ語の他の箇所（以下同様の候補）' ? '別の箇所の赤字' : f.how)}）</span>` : ''}</span><span class="lb">ここ</span>${now}</div>`;
     }
     if (f.cat === 'M') return `<div class="what">${q(f.show)}</div>`;
+    if (f.fromOld === 'annot') return `<div class="what">${esc(f.how)}${f.show ? `：「${esc(f.show.replace(/\s*\n\s*/g, ' ／ '))}」` : '（コメントなし）'}</div>`;   // 注釈の種類とコメントの文字(全文)
     if (f.cat === 'K') return '';   // 指示文は下の行に出す
     if (f.cat === 'W') return `<div class="what">${q(f.show)}</div>`;
     if (f.cat === 'I') return `<div class="what">成果物の文字：${esc(longCut(f.show))}</div>`;
@@ -8393,6 +8532,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     if (f.shape) return '見た目の変化（文字データのない文字・ロゴ）';
     if (f.fromOld === 'look' && f.lookText) return `「${f.show}」の見た目の変化（色・太さ・書体など。字は同じ）`;
     if (f.fromOld === 'look') return '見た目の変化（写真・図・色・線など。文字以外）';
+    if (f.fromOld === 'annot') return `${f.cat === 'W' ? '成果物だけの' : '旧版だけの'}${f.how}${f.show ? `「${f.show.replace(/\s*\n\s*/g, ' ／ ')}」` : ''}`;
     if (f.cat === 'J') return `${f.j.ctx[0]}【${f.show}】${f.j.ctx[1]}：${f.j.msg}${f.j.want ? `（候補「${f.j.want}」）` : ''}`;
     if (f.segs && !f.same) return groupsOf(PC.numberSegs(f.segs)).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
     if (f.same) return '見た目だけの違い';

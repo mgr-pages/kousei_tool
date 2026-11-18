@@ -134,6 +134,11 @@
     if (f.shape) return [S.runMode === 'old' ? '前回から変わった（図形の文字）' : '旧版から変わった（図形の文字）', '文字が図形になっていて文字データのない所（ロゴなど）の見た目が変わっています。文字では比べられないので、切り抜きで確認'];
     if (f.fromOld === 'look' && f.lookText) return [S.runMode === 'old' ? '前回から字の見た目が変わった' : '旧版から字の見た目が変わった', '字は同じで、色・太さ・書体などの見た目が変わっています。意図した変更か、切り抜き（パタパタ）で確認'];
     if (f.fromOld === 'look') return [S.runMode === 'old' ? '前回から見た目が変わった' : '旧版から見た目が変わった', '写真・図・色・線など、文字以外の見た目が変わっています。意図した変更か、切り抜き（パタパタ）で確認'];
+    if (f.fromOld === 'annot') {   // 旧版と成果物の注釈(コメント・図形などの書き込み)の違い
+      const prev = S.runMode === 'old' ? '前回' : '旧版';
+      return f.cat === 'W' ? [`成果物の注釈（${prev}にない）`, `成果物のPDFに、${prev}にない注釈（コメント・図形などの書き込み）が付いています。ページの中身とは別の書き込みです。内容を読んで確かめてください`]
+        : [`${prev}の注釈（成果物にない）`, `${prev}のPDFに付いていた注釈（コメント・図形などの書き込み）が、成果物にはありません。直す指示なら、旧版を「原稿」の欄に入れると、指示どおりに直っているかを確かめられます`];
+    }
     if (f.cat === 'U') return ['文字として確かめていない', UWHY[f.why] || UWHY.none];
     if (f.fromOld && f.cat === 'V') return ['書き方だけ変わった', `${S.runMode === 'old' ? '前回の成果物' : '旧版'}から、全角・半角などの書き方だけが変わっています。意図した変更か確認`];
     if (f.fromOld && S.runMode === 'old') return ['前回から変わった', f.fromOld === 'del' ? '前回の成果物にあった文字がなくなっています。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '前回の成果物から変わっています。意図した変更か確認' : '前回の成果物にない文字があります。意図した追加か確認'];
@@ -221,6 +226,7 @@
       return `<div class="rows"><span class="lb">${(f.how || '').startsWith('同じ変更') ? 'ほかの箇所' : '指示'}</span><span class="tx"><del>${esc(f.frm)}</del> → <ins>${esc(f.to || '')}</ins>${f.how ? `<span class="more">（${esc(f.how === '同じ語の他の箇所（以下同様の候補）' ? '別の箇所の赤字' : f.how)}）</span>` : ''}</span><span class="lb">ここ</span>${now}</div>`;
     }
     if (f.cat === 'M') return `<div class="what">${q(f.show)}</div>`;
+    if (f.fromOld === 'annot') return `<div class="what">${esc(f.how)}${f.show ? `：「${esc(f.show.replace(/\s*\n\s*/g, ' ／ '))}」` : '（コメントなし）'}</div>`;   // 注釈の種類とコメントの文字(全文)
     if (f.cat === 'K') return '';   // 指示文は下の行に出す
     if (f.cat === 'W') return `<div class="what">${q(f.show)}</div>`;
     if (f.cat === 'I') return `<div class="what">成果物の文字：${esc(longCut(f.show))}</div>`;
@@ -240,6 +246,7 @@
     if (f.shape) return '見た目の変化（文字データのない文字・ロゴ）';
     if (f.fromOld === 'look' && f.lookText) return `「${f.show}」の見た目の変化（色・太さ・書体など。字は同じ）`;
     if (f.fromOld === 'look') return '見た目の変化（写真・図・色・線など。文字以外）';
+    if (f.fromOld === 'annot') return `${f.cat === 'W' ? '成果物だけの' : '旧版だけの'}${f.how}${f.show ? `「${f.show.replace(/\s*\n\s*/g, ' ／ ')}」` : ''}`;
     if (f.cat === 'J') return `${f.j.ctx[0]}【${f.show}】${f.j.ctx[1]}：${f.j.msg}${f.j.want ? `（候補「${f.j.want}」）` : ''}`;
     if (f.segs && !f.same) return groupsOf(PC.numberSegs(f.segs)).filter(g => g.t === 'x').map(g => `${g.del || '（挿入）'}→${g.ins || '（削除）'}`).join('／');
     if (f.same) return '見た目だけの違い';
