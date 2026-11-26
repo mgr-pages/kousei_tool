@@ -240,7 +240,9 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .crops figure.flipfig { grid-column: 1 / -1 }
 .empty { color: var(--sub); text-align: center; padding: 34px 20px; background: #fff; border: 1px dashed var(--line2); border-radius: 12px }
 .hidden, [hidden] { display: none !important }
+@page land { size: A4 landscape }
 @media print {
+  .ppage.land { page: land }
   header, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on), .sumtip { display: none !important }
   .item .todo { display: inline !important }
   body { background: #fff } main { padding: 0 } .work { display: block } .item { break-inside: avoid; box-shadow: none; margin-bottom: 4mm }
@@ -249,7 +251,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
   .flipbar { display: none !important } .crops.flipping figure { display: block !important } .crops figure.flipfig { display: none !important }
   .item .pnum { display: inline-block }
   #printPages { display: block } #printPages:empty { display: none }
-  .ppage { break-before: page; break-inside: avoid } .ppage h3 { font-size: 12pt; margin: 0 0 2mm } .ppage img { display: block; width: 100%; max-height: 240mm; object-fit: contain; object-position: left top }
+  .ppage { break-before: page; break-inside: avoid } .ppage h3 { font-size: 11pt; margin: 0 0 2mm } .ppage h3 small { font-weight: 400; color: #666; margin-left: 3mm; font-size: 9pt } .ppage img { display: block; max-width: 100%; height: auto }
   .pplegend { font-size: 10pt; color: #444; margin: 0 0 2mm }
 }
 </style>

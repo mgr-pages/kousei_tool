@@ -240,7 +240,9 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .crops figure.flipfig { grid-column: 1 / -1 }
 .empty { color: var(--sub); text-align: center; padding: 34px 20px; background: #fff; border: 1px dashed var(--line2); border-radius: 12px }
 .hidden, [hidden] { display: none !important }
+@page land { size: A4 landscape }
 @media print {
+  .ppage.land { page: land }
   header, #setup, .toolbar, .viewer, .judge input:placeholder-shown, .judge button:not(.on), .sumtip { display: none !important }
   .item .todo { display: inline !important }
   body { background: #fff } main { padding: 0 } .work { display: block } .item { break-inside: avoid; box-shadow: none; margin-bottom: 4mm }
@@ -249,7 +251,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
   .flipbar { display: none !important } .crops.flipping figure { display: block !important } .crops figure.flipfig { display: none !important }
   .item .pnum { display: inline-block }
   #printPages { display: block } #printPages:empty { display: none }
-  .ppage { break-before: page; break-inside: avoid } .ppage h3 { font-size: 12pt; margin: 0 0 2mm } .ppage img { display: block; width: 100%; max-height: 240mm; object-fit: contain; object-position: left top }
+  .ppage { break-before: page; break-inside: avoid } .ppage h3 { font-size: 11pt; margin: 0 0 2mm } .ppage h3 small { font-weight: 400; color: #666; margin-left: 3mm; font-size: 9pt } .ppage img { display: block; max-width: 100%; height: auto }
   .pplegend { font-size: 10pt; color: #444; margin: 0 0 2mm }
 }
 </style>
@@ -5784,10 +5786,11 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
 
   // 表示用の画像(赤字原稿を薄く／修正後を薄く)をJPEGにして手放す
   const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
-  //   大きなページ(A3・見開きなど)は長い辺を2400画素までに縮める(w, h は元の大きさ。表示のときに縮めた分を戻す)
+  //   大きなページ(A3・見開きなど)は、面積が 2400×2400 画素までになるよう縮める(w, h は元の大きさ。表示のときに縮めた分を戻す)。
+  //   長い辺で決めると、縦に長いページ(ランディングページなど)の幅がとても粗くなり、印刷で字が読めないため(長い辺は 6000画素まで)
   async function toThumb(img) {
     let c = PC.toCanvas(blend(img));
-    const k = Math.min(1, 2400 / Math.max(img.w, img.h));
+    const k = Math.min(1, Math.sqrt(2400 * 2400 / (img.w * img.h)), 6000 / Math.max(img.w, img.h));
     if (k < 1) { const d = document.createElement('canvas'); d.width = Math.round(img.w * k); d.height = Math.round(img.h * k); d.getContext('2d').drawImage(c, 0, 0, d.width, d.height); c = d; }
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
     return { url: URL.createObjectURL(blob), w: img.w, h: img.h };
@@ -9282,53 +9285,77 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '校正結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  //   印刷用のページ全体: 項目のある結果のページごとに、原稿と成果物を並べて描き、項目の枠(項目の色)と一覧の番号を付ける(画面には出さない)。
-  //   縦に長いページ(ランディングページなど)は、用紙1枚に収まる高さで分けて載せる
+  //   印刷用のページ全体: 項目のある結果のページごとに、原稿と成果物を1面ずつ別の紙に載せ、項目の枠(項目の色)と一覧の番号を付ける(画面には出さない)。
+  //   紙で読めるように: 原寸の7割以上の大きさで載せ(A4 なら約9割)、用紙に収まらない分(見開き・縦に長いページ)は少し重ねて分ける。
+  //   表示用の画像は薄めてある(元の55%＋白45%)ので、元の濃さに戻して描く
+  //   1枚に載せる大きさ(mm。A4 の縦・横で、余白10mm と見出しの分を引いたもの)・最小の倍率・重ね(mm)
+  const PRINT = { paper: { port: { w: 180, h: 240 }, land: { w: 267, h: 160 } }, min: 0.7, lap: 8, dpi: PC.DPI };
+  //   載せる倍率と分け方: 幅は、原寸の7割以上で収まる列の数に分ける。高さまで1枚に収めても7割以上なら1枚に(A4 など)、
+  //   そうでなければ幅に合わせた倍率(原寸まで)で、用紙に収まる行に分ける(縦に長いページ)
+  const tilePlan = (physW, physH, P) => {
+    const cols = Math.max(1, Math.ceil(physW * PRINT.min / P.w - 1e-9)), tileW = physW / cols;
+    const scaleW = Math.min(1, P.w / (tileW + (cols > 1 ? PRINT.lap : 0))), scaleOne = Math.min(scaleW, P.h / physH);
+    const scale = scaleOne >= PRINT.min ? scaleOne : scaleW, tileH = P.h / scale;
+    const rows = scaleOne >= PRINT.min ? 1 : Math.max(1, Math.ceil((physH - PRINT.lap) / (tileH - PRINT.lap) - 1e-9));
+    return { cols, rows, scale, tileW, tileH, n: cols * rows };
+  };
   async function buildPrintPages() {
     const box = $('printPages'); box.innerHTML = '';
     const F = S.res.findings.filter(visible).sort(cmp), num = new Map(F.map((f, k) => [f.id, k + 1]));
     const css = getComputedStyle(document.documentElement), color = f => css.getPropertyValue('--c-' + colorOf(f)).trim();
-    const blocks = [];
+    const mm = px => px / PRINT.dpi * 25.4, blocks = [];
     for (let i = 0; i < S.imgs.length; i++) {
       const FS = F.filter(f => f.page === i + 1 && f.cat !== 'F2');
       if (!FS.length) continue;
       await ensure(i);
-      const im = S.imgs[i]; if (!im.L && !im.R) continue;
-      const W = 2000, gap = 40, top = 50, two = !!(im.L && im.R), half = two ? (W - gap) / 2 : W, sides = [];
-      if (im.L) sides.push({ k: 'L', img: im.L, w: im.lw, h: im.lh, s: half / im.lw, ox: 0, cap: `原稿 ${srcName(i + 1)}` });
-      if (im.R) sides.push({ k: 'R', img: im.R, w: im.rw, h: im.rh, s: half / im.rw, ox: two ? half + gap : 0, cap: `成果物 ${newPlace(i + 1) || ''}` });
-      const H = Math.ceil(top + Math.max(...sides.map(x => x.h * x.s)));
-      const c = document.createElement('canvas'); c.width = W; c.height = H;
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-      ctx.font = 'bold 28px sans-serif'; ctx.fillStyle = '#333'; ctx.textBaseline = 'top';
-      for (const x of sides) { ctx.fillText(x.cap, x.ox, 8); ctx.drawImage(x.img, x.ox, top, x.w * x.s, x.h * x.s); ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.strokeRect(x.ox, top, x.w * x.s, x.h * x.s); }
-      const R = sides.find(x => x.k === 'R');
-      if (im.region && R) { ctx.setLineDash([10, 6]); ctx.strokeStyle = css.getPropertyValue('--accent').trim(); ctx.lineWidth = 2; ctx.strokeRect(R.ox + im.region[0] * R.s, top + im.region[1] * R.s, (im.region[2] - im.region[0]) * R.s, (im.region[3] - im.region[1]) * R.s); ctx.setLineDash([]); }
-      //   枠と番号(番号は、その側の最初の枠の左上に1つ)
-      ctx.font = 'bold 24px sans-serif'; ctx.textBaseline = 'middle';
-      for (const f of FS) for (const x of sides) {
-        const bs = x.k === 'L' ? [...marks(f, 'L'), ...(f.moreBoxes || [])] : [...marks(f, 'R'), ...(f.moreNboxes || [])];
-        if (!bs.length) continue;
-        const col = color(f); ctx.strokeStyle = col; ctx.lineWidth = 3;
-        const rs = bs.map(b => [x.ox + b[0] * x.s - 4, top + b[1] * x.s - 4, (b[2] - b[0]) * x.s + 8, (b[3] - b[1]) * x.s + 8]);
-        for (const r of rs) ctx.strokeRect(...r);
-        const t = String(num.get(f.id)), tw = ctx.measureText(t).width + 14, th = 30;
-        const lx = Math.min(Math.max(x.ox, rs[0][0]), x.ox + x.w * x.s - tw), ly = Math.max(top, rs[0][1] - th);
-        ctx.fillStyle = col; ctx.fillRect(lx, ly, tw, th); ctx.fillStyle = '#fff'; ctx.fillText(t, lx + 7, ly + th / 2 + 1);
+      const im = S.imgs[i], sides = [];
+      if (im.L) sides.push({ k: 'L', img: im.L, w: im.lw, h: im.lh, cap: `原稿 ${srcName(i + 1)}` });
+      if (im.R) sides.push({ k: 'R', img: im.R, w: im.rw, h: im.rh, cap: `成果物 ${newPlace(i + 1) || ''}` });
+      for (const x of sides) {
+        //   画像の画素で描く(枠は元の画素の座標なので、s 倍して重ねる)
+        const W = x.img.naturalWidth, H = x.img.naturalHeight, s = W / x.w;
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.drawImage(x.img, 0, 0, W, H);
+        const id = ctx.getImageData(0, 0, W, H), d = id.data;
+        for (let j = 0; j < d.length; j += 4) for (let q = 0; q < 3; q++) d[j + q] = Math.max(0, Math.min(255, Math.round((d[j + q] - 114.75) / 0.55)));
+        ctx.putImageData(id, 0, 0);
+        if (x.k === 'R' && im.region) { ctx.setLineDash([10, 6]); ctx.strokeStyle = css.getPropertyValue('--accent').trim(); ctx.lineWidth = 2; ctx.strokeRect(im.region[0] * s, im.region[1] * s, (im.region[2] - im.region[0]) * s, (im.region[3] - im.region[1]) * s); ctx.setLineDash([]); }
+        //   紙の向き: 縦・横のうち、枚数の少ないほう(同じなら大きく載るほう、それも同じなら縦)
+        const physW = mm(x.w), physH = mm(x.h), pp = tilePlan(physW, physH, PRINT.paper.port), pl = tilePlan(physW, physH, PRINT.paper.land);
+        const land = pl.n < pp.n || (pl.n === pp.n && pl.scale > pp.scale + 1e-6), { cols, rows, scale, tileW, tileH } = land ? pl : pp;
+        //   線の太さ・番号の字の大きさは、紙の上の大きさで決める(線 0.4mm・番号の字 2.3mm。ページの大きさや倍率で変わらない)
+        const pxmm = W / physW, lw = Math.max(1, Math.round(0.4 * pxmm / scale)), fs = Math.max(10, Math.round(2.3 * pxmm / scale));
+        ctx.font = `bold ${fs}px sans-serif`; ctx.textBaseline = 'middle';
+        const placed = [], hits = (a, b) => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+        for (const f of FS) {
+          const bs = x.k === 'L' ? [...marks(f, 'L'), ...(f.moreBoxes || [])] : [...marks(f, 'R'), ...(f.moreNboxes || [])];
+          if (!bs.length) continue;
+          const col = color(f); ctx.strokeStyle = col; ctx.lineWidth = lw;
+          const rs = bs.map(b => [b[0] * s - lw - 1, b[1] * s - lw - 1, (b[2] - b[0]) * s + 2 * lw + 2, (b[3] - b[1]) * s + 2 * lw + 2]);
+          for (const r of rs) ctx.strokeRect(...r);
+          const t = String(num.get(f.id)), tw = ctx.measureText(t).width + fs * 0.6, th = fs * 1.3;
+          let lx = Math.min(Math.max(0, rs[0][0]), W - tw); const ly = Math.max(0, rs[0][1] - th);
+          for (let k = 0; k < 8 && placed.some(p => hits(p, [lx, ly, tw, th])); k++) lx = Math.min(W - tw, Math.max(...placed.filter(p => hits(p, [lx, ly, tw, th])).map(p => p[0] + p[2])) + 2);   // ほかの番号と重なるときは右へずらす
+          placed.push([lx, ly, tw, th]);
+          ctx.fillStyle = col; ctx.fillRect(lx, ly, tw, th); ctx.fillStyle = '#fff'; ctx.fillText(t, lx + fs * 0.3, ly + th / 2 + 1);
+        }
+        const parts = [];
+        for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+          const x0 = Math.max(0, (q * tileW - (q ? PRINT.lap : 0)) * pxmm), x1 = Math.min(W, ((q + 1) * tileW + (q < cols - 1 ? PRINT.lap : 0)) * pxmm);
+          const y0 = Math.max(0, r * (tileH - PRINT.lap) * pxmm), y1 = Math.min(H, y0 + tileH * pxmm);
+          const t = document.createElement('canvas'); t.width = Math.round(x1 - x0); t.height = Math.round(y1 - y0);
+          t.getContext('2d').drawImage(c, x0, y0, x1 - x0, y1 - y0, 0, 0, t.width, t.height);
+          parts.push({ url: t.toDataURL('image/jpeg', 0.9), wmm: (x1 - x0) / pxmm * scale });
+        }
+        const n = parts.length, pos = k => n === 1 ? '' : `（${k + 1}/${n}${cols > 1 ? (k % cols === 0 ? '・左' : k % cols === cols - 1 ? '・右' : '') : ''}）`;
+        blocks.push(parts.map((u, k) => `<div class="ppage${land ? ' land' : ''}"><h3>p.${i + 1} ${esc(x.cap)}${pos(k)}<small>${Math.round(scale * 100)}%</small></h3><img src="${u.url}" style="width:${u.wmm.toFixed(1)}mm" alt=""></div>`).join(''));
+        await PC.tick();
       }
-      //   用紙(A4 縦。見出し・凡例の分を残す)に収まる高さごとに分ける
-      const seg = Math.round(W * 1.25), parts = [];
-      for (let y = 0; y < H; y += seg) {
-        const h = Math.min(seg, H - y), p = document.createElement('canvas'); p.width = W; p.height = h;
-        p.getContext('2d').drawImage(c, 0, y, W, h, 0, 0, W, h); parts.push(p.toDataURL('image/jpeg', 0.88));
-      }
-      blocks.push(parts.map((u, k) => `<div class="ppage"><h3>${esc(pageLabel(i + 1))}${parts.length > 1 ? `（${k + 1}/${parts.length}）` : ''}</h3><img src="${u}" alt=""></div>`).join(''));
-      await PC.tick();
     }
     box.innerHTML = blocks.join('');
     //   最初のページの上に、枠の色と番号の見方
-    if (box.firstElementChild) box.firstElementChild.insertAdjacentHTML('afterbegin', '<p class="pplegend">ページ全体（枠の色：赤＝直す必要がありそう／青緑＝確認だけ／灰＝参考。枠の番号は一覧の番号）</p>');
+    if (box.firstElementChild) box.firstElementChild.insertAdjacentHTML('afterbegin', '<p class="pplegend">ページ全体（枠の色：赤＝直す必要がありそう／青緑＝確認だけ／灰＝参考。枠の番号は一覧の番号。％は原寸に対する大きさ）</p>');
   }
   //   印刷では、選んだ項目の色(オレンジ)を使わない(報告書には、項目の色だけを出す)。withPages: ページ全体も出す
   const doPrint = async withPages => {

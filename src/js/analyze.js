@@ -158,10 +158,11 @@
 
   // 表示用の画像(赤字原稿を薄く／修正後を薄く)をJPEGにして手放す
   const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
-  //   大きなページ(A3・見開きなど)は長い辺を2400画素までに縮める(w, h は元の大きさ。表示のときに縮めた分を戻す)
+  //   大きなページ(A3・見開きなど)は、面積が 2400×2400 画素までになるよう縮める(w, h は元の大きさ。表示のときに縮めた分を戻す)。
+  //   長い辺で決めると、縦に長いページ(ランディングページなど)の幅がとても粗くなり、印刷で字が読めないため(長い辺は 6000画素まで)
   async function toThumb(img) {
     let c = PC.toCanvas(blend(img));
-    const k = Math.min(1, 2400 / Math.max(img.w, img.h));
+    const k = Math.min(1, Math.sqrt(2400 * 2400 / (img.w * img.h)), 6000 / Math.max(img.w, img.h));
     if (k < 1) { const d = document.createElement('canvas'); d.width = Math.round(img.w * k); d.height = Math.round(img.h * k); d.getContext('2d').drawImage(c, 0, 0, d.width, d.height); c = d; }
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
     return { url: URL.createObjectURL(blob), w: img.w, h: img.h };
