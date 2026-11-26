@@ -454,7 +454,7 @@
 
   // ---- 結果の表示 ----
   const urlsOf = r => r ? [...(r.pages || []).flatMap(p => [p.left && p.left.url, p.right && p.right.url, p.base && p.base.url]), ...Array.from(r.oldPages || [], o => o && o.url)].filter(Boolean) : [];
-  const dropRes = () => { for (const u of urlsOf(S.res)) URL.revokeObjectURL(u); S.res = null; };
+  const dropRes = () => { for (const u of urlsOf(S.res)) URL.revokeObjectURL(u); S.res = null; $('printPages').innerHTML = ''; };
   async function show(res) {
     if (S.res && S.res !== res) dropRes();
     S.res = res; S.sel = null; S.page = 0; S.runMode = res.mode || 'marks';
@@ -626,10 +626,10 @@
     renderLegend(F);
     renderProgress();
     if (!F.length) { list.innerHTML = '<div class="empty">表示する項目はありません</div>'; return; }
-    list.innerHTML = F.map(f => {
+    list.innerHTML = F.map((f, k) => {
       const v = S.verdict[f.id] || {}, [title, todo] = verdictOf(f);
       return `<div class="item ${S.sel === f.id ? 'sel' : ''} ${isLight(f) ? 'light' : ''}" data-id="${+f.id}" style="--c: var(--c-${colorOf(f)})">
-        <div class="hd"><span class="selmark">選択中</span><span class="tag" title="${esc(todo)}">${esc(title)}</span><span class="todo ${f.cat === 'J' || f.rec || f.merge ? 'keep' : ''}">${esc(todo)}</span><span class="pg" title="${esc(pageLabel(f.page))}">p.${+f.page}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
+        <div class="hd"><span class="pnum">${k + 1}</span><span class="selmark">選択中</span><span class="tag" title="${esc(todo)}">${esc(title)}</span><span class="todo ${f.cat === 'J' || f.rec || f.merge ? 'keep' : ''}">${esc(todo)}</span><span class="pg" title="${esc(pageLabel(f.page))}">p.${+f.page}${f.ref ? ' ' + esc(f.goneN && f.refs.length > 1 ? `${f.refs[0]}〜${f.refs[f.refs.length - 1]}` : f.refs ? f.refs.slice(0, 3).join('・') + (f.refs.length > 3 ? ' ほか' : '') : f.ref) : ''}</span></div>
         ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${+f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta" title="原稿のうち載せない部分なら OK にしてください">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${+f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}</div>` : ''}${markOf(f)}
         ${itemFlip(f) ? `<div class="flipbar"><button class="btn small flipb" title="${esc(itemFlip(f).label)}と成果物を同じ所に重ねて、交互に表示します（キー：P）。ページの表示も同じように切り替わります">${S.flip ? 'パタパタを止める' : 'パタパタで見る'}</button></div>` : ''}
         <div class="crops">${f.old ? '<figure><canvas data-side="O" width="300" height="130"></canvas><figcaption>旧版</figcaption></figure>' : ''}${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
@@ -957,16 +957,68 @@
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '校正結果.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  //   印刷では、選んだ項目の色(オレンジ)を使わない(報告書には、項目の色だけを出す)
-  $('print').onclick = async () => {
+  //   印刷用のページ全体: 項目のある結果のページごとに、原稿と成果物を並べて描き、項目の枠(項目の色)と一覧の番号を付ける(画面には出さない)。
+  //   縦に長いページ(ランディングページなど)は、用紙1枚に収まる高さで分けて載せる
+  async function buildPrintPages() {
+    const box = $('printPages'); box.innerHTML = '';
+    const F = S.res.findings.filter(visible).sort(cmp), num = new Map(F.map((f, k) => [f.id, k + 1]));
+    const css = getComputedStyle(document.documentElement), color = f => css.getPropertyValue('--c-' + colorOf(f)).trim();
+    const blocks = [];
+    for (let i = 0; i < S.imgs.length; i++) {
+      const FS = F.filter(f => f.page === i + 1 && f.cat !== 'F2');
+      if (!FS.length) continue;
+      await ensure(i);
+      const im = S.imgs[i]; if (!im.L && !im.R) continue;
+      const W = 2000, gap = 40, top = 50, two = !!(im.L && im.R), half = two ? (W - gap) / 2 : W, sides = [];
+      if (im.L) sides.push({ k: 'L', img: im.L, w: im.lw, h: im.lh, s: half / im.lw, ox: 0, cap: `原稿 ${srcName(i + 1)}` });
+      if (im.R) sides.push({ k: 'R', img: im.R, w: im.rw, h: im.rh, s: half / im.rw, ox: two ? half + gap : 0, cap: `成果物 ${newPlace(i + 1) || ''}` });
+      const H = Math.ceil(top + Math.max(...sides.map(x => x.h * x.s)));
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+      ctx.font = 'bold 28px sans-serif'; ctx.fillStyle = '#333'; ctx.textBaseline = 'top';
+      for (const x of sides) { ctx.fillText(x.cap, x.ox, 8); ctx.drawImage(x.img, x.ox, top, x.w * x.s, x.h * x.s); ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.strokeRect(x.ox, top, x.w * x.s, x.h * x.s); }
+      const R = sides.find(x => x.k === 'R');
+      if (im.region && R) { ctx.setLineDash([10, 6]); ctx.strokeStyle = css.getPropertyValue('--accent').trim(); ctx.lineWidth = 2; ctx.strokeRect(R.ox + im.region[0] * R.s, top + im.region[1] * R.s, (im.region[2] - im.region[0]) * R.s, (im.region[3] - im.region[1]) * R.s); ctx.setLineDash([]); }
+      //   枠と番号(番号は、その側の最初の枠の左上に1つ)
+      ctx.font = 'bold 24px sans-serif'; ctx.textBaseline = 'middle';
+      for (const f of FS) for (const x of sides) {
+        const bs = x.k === 'L' ? [...marks(f, 'L'), ...(f.moreBoxes || [])] : [...marks(f, 'R'), ...(f.moreNboxes || [])];
+        if (!bs.length) continue;
+        const col = color(f); ctx.strokeStyle = col; ctx.lineWidth = 3;
+        const rs = bs.map(b => [x.ox + b[0] * x.s - 4, top + b[1] * x.s - 4, (b[2] - b[0]) * x.s + 8, (b[3] - b[1]) * x.s + 8]);
+        for (const r of rs) ctx.strokeRect(...r);
+        const t = String(num.get(f.id)), tw = ctx.measureText(t).width + 14, th = 30;
+        const lx = Math.min(Math.max(x.ox, rs[0][0]), x.ox + x.w * x.s - tw), ly = Math.max(top, rs[0][1] - th);
+        ctx.fillStyle = col; ctx.fillRect(lx, ly, tw, th); ctx.fillStyle = '#fff'; ctx.fillText(t, lx + 7, ly + th / 2 + 1);
+      }
+      //   用紙(A4 縦。見出し・凡例の分を残す)に収まる高さごとに分ける
+      const seg = Math.round(W * 1.25), parts = [];
+      for (let y = 0; y < H; y += seg) {
+        const h = Math.min(seg, H - y), p = document.createElement('canvas'); p.width = W; p.height = h;
+        p.getContext('2d').drawImage(c, 0, y, W, h, 0, 0, W, h); parts.push(p.toDataURL('image/jpeg', 0.88));
+      }
+      blocks.push(parts.map((u, k) => `<div class="ppage"><h3>${esc(pageLabel(i + 1))}${parts.length > 1 ? `（${k + 1}/${parts.length}）` : ''}</h3><img src="${u}" alt=""></div>`).join(''));
+      await PC.tick();
+    }
+    box.innerHTML = blocks.join('');
+    //   最初のページの上に、枠の色と番号の見方
+    if (box.firstElementChild) box.firstElementChild.insertAdjacentHTML('afterbegin', '<p class="pplegend">ページ全体（枠の色：赤＝直す必要がありそう／青緑＝確認だけ／灰＝参考。枠の番号は一覧の番号）</p>');
+  }
+  //   印刷では、選んだ項目の色(オレンジ)を使わない(報告書には、項目の色だけを出す)。withPages: ページ全体も出す
+  const doPrint = async withPages => {
     closeMenu(); if (!okToExport('印刷')) return; if (S.only) setOnly(null);
     for (let i = 0; i < S.imgs.length; i++) await ensure(i);
+    document.body.style.cursor = 'wait';
+    try { if (withPages) await buildPrintPages(); else $('printPages').innerHTML = ''; } finally { document.body.style.cursor = ''; }
     const keep = S.sel; S.sel = null; document.querySelectorAll('.item').forEach(drawCrops); S.sel = keep;
     const nb = $('notesBox'), wasOpen = nb.open; nb.open = true;
     window.print();
     nb.open = wasOpen;
     const el = keep != null && document.querySelector(`.item[data-id="${keep}"]`); if (el) drawCrops(el);
   };
+  $('print').onclick = () => doPrint(true);
+  $('printList').onclick = () => doPrint(false);
 
   // ---- 結果の保存と、保存した結果を開く ----
   //   ファイル(.kousei): 1行目「KOUSEI-TOOL-RESULT 1」(1は版)、2行目に JSON のバイト数、続けて JSON(UTF-8)、そのあとに表示用の画像をそのままつなげる

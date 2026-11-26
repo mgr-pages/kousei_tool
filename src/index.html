@@ -215,6 +215,9 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .viewer .tabs .btn.on { background: var(--accent); color: #fff; border-color: var(--accent) }
 #pinfo { margin-bottom: 6px }
 #pinfo:empty { display: none }
+/* 印刷だけで使う: 一覧の番号と、ページ全体(項目の枠と番号) */
+.item .pnum { display: none; min-width: 1.8em; padding: 0 5px; margin-right: 6px; border-radius: 4px; background: #333; color: #fff; font-weight: 700; font-size: 12px; text-align: center }
+#printPages { display: none }
 .viewer .cap { display: grid; grid-template-columns: 1fr 1fr; font-size: 12px; color: var(--sub); text-align: center; margin-bottom: 4px }
 .viewer .cap.one { grid-template-columns: 1fr }
 .viewer .scroll { max-height: calc(100vh - 130px); overflow: auto; border-radius: 10px; background: #eef1f6 }
@@ -244,6 +247,10 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
   .card { box-shadow: none } .summary { grid-template-columns: 1fr 1fr } .fnote { display: none !important }
   .crops canvas { max-height: 38mm; object-fit: contain } .item, .card { border-color: #bbb } .item.sel { outline: none; background: #fff } .item .selmark { display: none !important }
   .flipbar { display: none !important } .crops.flipping figure { display: block !important } .crops figure.flipfig { display: none !important }
+  .item .pnum { display: inline-block }
+  #printPages { display: block } #printPages:empty { display: none }
+  .ppage { break-before: page; break-inside: avoid } .ppage h3 { font-size: 12pt; margin: 0 0 2mm } .ppage img { display: block; width: 100%; max-height: 240mm; object-fit: contain; object-position: left top }
+  .pplegend { font-size: 10pt; color: #444; margin: 0 0 2mm }
 }
 </style>
 </head>
@@ -304,7 +311,8 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
         <div class="menu-pop" id="savePop" hidden>
           <button id="saveRes" title="あとでこのツールで開いて、続きをする・人に渡す（照合し直さずに開けます）"><b>結果を保存</b></button>
           <button id="csv" title="一覧を Excel などの表計算ソフトで使う"><b>CSVで保存</b></button>
-          <button id="print" title="報告書として読む・残す（ツールでは開けません）"><b>印刷・PDFで保存</b></button>
+          <button id="print" title="報告書として読む・残す。一覧に加えて、ページ全体（項目の枠と一覧の番号つき）も出します（ツールでは開けません）"><b>印刷・PDFで保存</b></button>
+          <button id="printList" title="ページ全体を付けず、結果の概要と一覧だけを出します"><b>印刷・PDFで保存（一覧だけ）</b></button>
         </div>
       </div>
       <button class="btn" id="reset2" title="入れたファイルと結果を空にして、最初の状態に戻します（詳細設定はそのまま）">新しい校正</button>
@@ -320,6 +328,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
         <div class="legend" id="legend"></div>
       </div>
     </div>
+    <div id="printPages"></div>
   </section>
 </main>
 <!--ASSETS-->
