@@ -1346,11 +1346,14 @@
   // ---- 旧版(前回の成果物)との比べ合わせ ----
   //   旧版の各ページが成果物のどのページ・範囲に当たるかを求め、字の並びで対応づける(同じレイアウトなら、同じ位置の同じ字で直す: posFirst)
   //   返り値: 成果物のページ → { B, st: 字ごとに 0=旧版にない・1=旧版と同じ・2=旧版の別の字から変わった, gone: 旧版から消えた字の続き, maps }
-  async function oldDiff(oldDoc, newDoc, NQ, prog, JP) {
+  //   step(知らせ, 進み 0〜1): ページの対応を調べる所と、旧版のページごとの比べ合わせに、見込みの時間(PC.COST)で割り振る
+  async function oldDiff(oldDoc, newDoc, NQ, step, JP) {
     const src = { numPages: oldDoc.numPages, page: p => ({ doc: oldDoc, i: p }), label: () => null, image: async p => ({ img: await PC.renderPage(oldDoc, p, 300, false), dpi: 300 }) };
-    const pairs = await PC.pairPages(src, newDoc, (s, f) => prog('旧版：' + s, 0.94 + 0.03 * f)), out = new Map();
+    const C = PC.COST, n = oldDoc.numPages, wp = C.pairNew * newDoc.numPages + C.pairOld * n, a = wp / (wp + C.oldCmp * n);
+    const pairs = await PC.pairPages(src, newDoc, (s, f) => step('旧版との対応：' + s, a * f), '旧版'), out = new Map();
     for (let p = 0; p < pairs.length; p++) {
-      const pr = pairs[p];
+      const pr = pairs[p], at = a + (1 - a) * p / n, prog = s => step(s, at);
+      prog(`旧版 ${p + 1}/${n} ページを成果物と比べています`);
       if (pr.q < 0) continue;
       if (!out.has(pr.q)) { const B = NQ.has(pr.q) ? NQ.get(pr.q).B : JP && JP[pr.q] ? JP[pr.q].B : await PC.pageText(newDoc, pr.q); out.set(pr.q, { B, st: new Uint8Array(B.chars.length), oc: [], used: new Uint8Array(B.chars.length), gone: [], maps: [], moved: [] }); }
       const o = out.get(pr.q), A = await PC.pageText(oldDoc, p);
@@ -2214,9 +2217,41 @@
   PC.analyze = async opts => {
     const { marks: src, newDoc } = opts, prog = opts.progress || (() => {});
     const cb = new PC.Codebook(), P = [], npages = src.numPages, warn = [];
+    // 進み具合のバー: 段階ごとの見込みの時間(PC.COST)で割り振る(PC.progressPlan)。照合の方法(原稿・旧版・成果物だけ)で通る段階が違うので、
+    //   通る段階だけを並べる。原稿のページの種類は、最初はファイルごとに1ページ目で決め、ページの対応が分かったら(対応のないページ・
+    //   レイアウトの違うページ)残りを割り振り直す
+    const C = PC.COST, nNew = newDoc.numPages, oldDoc = opts.oldDoc, nOld = oldDoc ? oldDoc.numPages : 0, G = PC.progressPlan(prog);
+    const costKind = async p => {
+      const it = src.page(p);
+      if (it.virt) return 'data';
+      if (!it.doc) return 'scan';
+      if ((await src.kind(p)) === 'annot') return 'annot';
+      return (await PC.isDigitalPage(it.doc, it.i)) ? 'digital' : 'scan';
+    };
+    const kinds = [];
+    for (const part of src.parts || []) { const k = part.pages ? await costKind(part.start) : null; for (let j = 0; j < part.pages; j++) kinds.push(src.page(part.start + j).virt ? 'data' : k); }
+    while (kinds.length < npages) kinds.push('scan');
+    const pageCost = (p, pairs) => {
+      const k = kinds[p], pr = pairs && pairs[p];
+      if (pr && pr.q < 0) return C.page.none;
+      if (pr && !pr.same && k !== 'data') return src.page(p).doc ? C.page.content : C.page.none;
+      return C.page[k === 'scan' && oldDoc ? 'scan3' : k];
+    };
+    const needOldP = pairs => !!oldDoc && kinds.some((k, p) => (k === 'scan' || k === 'digital') && (!pairs || (pairs[p].q >= 0 && pairs[p].same)));
+    const plan = pairs => G.plan([
+      ['pair', !pairs && npages ? C.pairNew * nNew + kinds.reduce((t, k) => t + C.pairSrc[k], 0) + C.pairMatch * nNew * npages : 0],
+      ['oldp', needOldP(pairs) ? C.pairNew * nNew + C.pairOld * nOld : 0],
+      ...kinds.map((_, p) => ['page' + p, pageCost(p, pairs)]),
+      ['old', oldDoc ? C.pairNew * nNew + (C.pairOld + C.oldCmp) * nOld : 0],
+      ['shape', C.shape * nNew + 0.05],
+      ['looks', oldDoc ? C.oldLook * nOld : 0],
+      ['check', C.checkBase + C.check * nNew],
+      ['final', C.final + (oldDoc ? C.oldThumb * nOld : 0)],
+    ]);
+    plan(null);
     // 1) 原稿の各ページが、成果物のどのページのどの範囲に当たるか
-    const W0 = 0.15;
-    const pairs = npages ? await PC.pairPages(src, newDoc, (s, f) => prog(s, W0 * f)) : [];   // 原稿がなければ、成果物だけをチェックする
+    const pairs = npages ? await PC.pairPages(src, newDoc, (s, f) => G.at('pair', s, f)) : [];   // 原稿がなければ、成果物だけをチェックする
+    if (npages) plan(pairs);
     // 成果物のページの描画・文字データ・書き込みは、内容で照合するページのために1回だけ作る
     const NQ = new Map();
     const newPage = async q => {
@@ -2232,13 +2267,13 @@
     let OLDP = null; const s3 = [];
     if (opts.oldDoc && npages) {
       const osrc = { numPages: opts.oldDoc.numPages, page: p => ({ doc: opts.oldDoc, i: p }), label: () => null, image: async p => ({ img: await PC.renderPage(opts.oldDoc, p, 300, false), dpi: 300 }) };
-      for (let p = 0; p < npages; p++) if (!src.page(p).virt && pairs[p].q >= 0 && pairs[p].same && (await src.kind(p)) !== 'annot') { OLDP = await PC.pairPages(osrc, newDoc, (s, f) => prog('旧版：' + s, W0 * f)); break; }
+      for (let p = 0; p < npages; p++) if (!src.page(p).virt && pairs[p].q >= 0 && pairs[p].same && (await src.kind(p)) !== 'annot') { OLDP = await PC.pairPages(osrc, newDoc, (s, f) => G.at('oldp', '旧版との対応：' + s, f), '旧版'); break; }
     }
     //   成果物のページ q に、大きさ・位置がそろって当たる旧版のページ(なければ null)
     const sameOld = q => { if (!OLDP) return null; const i = OLDP.findIndex(x => x.q === q && x.same && x.T && Math.abs(x.T[0] - 1) < 0.01 && Math.abs(x.T[1]) < 0.01 && Math.abs(x.T[2]) < 3 && Math.abs(x.T[3]) < 3 && Math.abs((x.T.length > 4 ? x.T[4] : x.T[0]) - 1) < 0.01); return i >= 0 ? { p: i, pr: OLDP[i] } : null; };
     // 2) ページごとに照合: 同じレイアウトなら字形を重ねて比べ、レイアウトが違えば文字データの内容で比べる
     for (let p = 0; p < npages; p++) {
-      const step = (s, f) => prog(`${p + 1} / ${npages} ページ：${s}`, W0 + (1 - W0) * 0.97 * (p + f) / npages);
+      const step = (s, f) => G.at('page' + p, `${p + 1} / ${npages} ページ：${s}`, f);
       step('描画', 0.01); await PC.tick();
       const pr = pairs[p], it = src.page(p), label = src.label(p);
       const put = d => { d.src = p; d.label = label; P.push(d); return d; };
@@ -2310,20 +2345,20 @@
     // 成果物の全ページの文字データ(商品ごとの照合・成果物だけで見るチェックに使う)
     const JP = [];
     for (let q = 0; q < newDoc.numPages; q++) JP.push({ q, B: NQ.has(q) ? NQ.get(q).B : await PC.pageText(newDoc, q) });
-    prog('表の商品ごとの照合', 0.93); await PC.tick();
+    G.at('old', '表の商品ごとの照合'); await PC.tick();
     await mergePages(P, src, JP, newDoc, NQ, warn);
     await recordPages(P, src, JP, newDoc, NQ);
     // 旧版(任意)があれば、成果物の字が旧版から変わったかを求める(原稿のない部分の変化・前回のままの見分けに使う)
-    const OLD = opts.oldDoc ? await oldDiff(opts.oldDoc, newDoc, NQ, prog, JP) : null;
+    const OLD = opts.oldDoc ? await oldDiff(opts.oldDoc, newDoc, NQ, (s, f) => G.at('old', s, f), JP) : null;
     if (OLD) for (const d of P) if (d.kind === 'content' && OLD.byQ.has(d.q)) d.oldSt = OLD.byQ.get(d.q).st;
     leftovers(P, NQ, OLD && OLD.byQ);
     if (OLD) await oldChanges(P, OLD, newDoc);
     //   文字データのない文字(図形の文字・ロゴ)の所: 文字としては確かめていない所・旧版から見た目が変わった所
-    prog('文字データのない文字の所を調べています', 0.975); await PC.tick();
-    const SH = await shapeSpots(P, newDoc, JP, OLD ? { ...OLD, doc: opts.oldDoc } : null, f => prog('文字データのない文字の所を調べています', 0.975 + 0.008 * f));
+    G.at('shape', '文字データのない文字の所を調べています'); await PC.tick();
+    const SH = await shapeSpots(P, newDoc, JP, OLD ? { ...OLD, doc: opts.oldDoc } : null, f => G.at('shape', '文字データのない文字の所を調べています', f));
     if (SH.total) warn.push(`文字が図形になっていて文字データのない所が ${SH.total}か所あり、文字としては確かめていません（一覧の「文字として確かめていない所」。見た目で比べたページは除く）`);
     //   旧版から見た目が変わった所(写真・図版・色・線など。文字の変化・字の移動で説明できない描画の違い)
-    if (OLD) { prog('旧版から見た目が変わった所を調べています', 0.983); await PC.tick(); await oldLooks(P, OLD, newDoc, opts.oldDoc, f => prog('旧版から見た目が変わった所を調べています', 0.983 + 0.002 * f)); }
+    if (OLD) { G.at('looks', '旧版から見た目が変わった所を調べています'); await PC.tick(); await oldLooks(P, OLD, newDoc, opts.oldDoc, f => G.at('looks', '旧版から見た目が変わった所を調べています', f)); }
     //   旧版と成果物の注釈(コメント・図形などの書き込み)の違い
     const AR = OLD ? await oldAnnots(P, OLD, newDoc, opts.oldDoc, NQ, npages > 0) : null;
     if (AR && AR.nw) warn.push(`成果物のPDFに、旧版にない注釈（コメント・図形などの書き込み）が ${AR.nw}件あります（一覧の「指示・書き込みの確認」の中）。校正の赤字なら、このPDFを「原稿」の欄に入れて、直した成果物と比べると、指示どおりに直っているかを確かめられます`);
@@ -2350,8 +2385,9 @@
     if (lost.length && npages) warn.push(`成果物の${spans(lost)}ページ目は、対応する原稿のページが見つかりませんでした`);
     // 3) 成果物だけを読んで、問題がありそうな所(ページの端の切れ端・かっこ・日付・表記ゆれなど。原稿とは照らし合わせない)。項目は、その成果物のページを表示している結果のページに付ける
     //   (見開きの片側だけを照合したページは、その側にある項目だけ。どこにも表示していない成果物のページは「成果物だけ」のページを足す)
-    prog('辞書を読み込み、成果物だけで文字・表記を確認', 0.985); await PC.tick();
+    G.at('check', '辞書を読み込んでいます'); await PC.tick();
     const TK = await PC.tokenizer();
+    G.at('check', '成果物だけで文字・表記を確認しています', C.checkBase / (C.checkBase + C.check * nNew)); await PC.tick();
     if (!TK) warn.push('辞書を読み込めなかったため、成果物だけのチェックの一部（表記ゆれの一部・助詞の続き方など）を行っていません');
     const pname = q => { const n = PC.pageOf(newDoc.parts, q); return n ? `${newDoc.parts.length > 1 ? n.name + ' ' : ''}${n.page}ページ` : `${q + 1}ページ`; };   // 成果物のページの名前(ファイルが複数なら名前も)
     for (const x of PC.jcheck(JP, TK, pname).sort((a, b) => a.q - b.q)) {   // 成果物のページの順に(「成果物だけ」のページもこの順に足す)
@@ -2370,7 +2406,7 @@
     }
 
     if (window.__pcDebug) PC._last = P;   // 自動テストでの調査用
-    prog('照合', 0.97); await PC.tick();
+    G.at('final', '照合の結果を突き合わせています'); await PC.tick();
     // 照合: 変更 × 赤字の指示箇所
     const meets = (set, a, b) => { for (let k = a; k < b; k++) if (set.has(k)) return true; return false; };
     //   位置での結びつけ(注釈PDFのページ): マーカーの範囲が、変化の原稿側・成果物側の枠に重なる(3pt以内)。
@@ -2650,7 +2686,8 @@
         Object.assign(F[F.length - 1], { lint: { c: l.c, want: l.want, ctx: l.ctx }, onNew: !ob });
       }
     });
-    prog('結果をまとめています', 1);
+    const fin = C.final / (C.final + (opts.oldDoc ? C.oldThumb * nOld : 0));
+    G.at('final', '結果をまとめています', fin);
     // 全体の直し(推定を含む)の一覧。□(推定できなかった字)を含む語は、修正後に残っていた形で示す
     const shown = r => { if (!r.frm.includes('□')) return r.frm; const e = leaks.find(l => l.to === r.to && !l.frm.includes('□')); return e ? e.frm : r.frm.replace(/□+/g, '…'); };
     //   パタパタ表示の相手(flip): 成果物のページに同じレイアウトの旧版のページがあれば旧版(old: 旧版のページの番号、M: 位置合わせ)、
@@ -2692,7 +2729,13 @@
     }
     // 旧版のページの表示用の画像(旧版から変わった所の項目と、パタパタ表示で使うものだけ)
     const oldPages = [];
-    if (opts.oldDoc) for (const p of new Set([...F.filter(f => f.old).map(f => f.old.p), ...pages.filter(pg => pg.flip && pg.flip.old != null).map(pg => pg.flip.old)])) oldPages[p] = await toThumb(await PC.renderPage(opts.oldDoc, p, PC.DPI, !!(AR && AR.showOld.has(p))));
+    if (opts.oldDoc) {
+      const want = [...new Set([...F.filter(f => f.old).map(f => f.old.p), ...pages.filter(pg => pg.flip && pg.flip.old != null).map(pg => pg.flip.old)])];
+      for (const [k, p] of want.entries()) {
+        G.at('final', `旧版の表示用の画像を作成（${k + 1}/${want.length}）`, fin + (1 - fin) * k / Math.max(1, nOld));
+        oldPages[p] = await toThumb(await PC.renderPage(opts.oldDoc, p, PC.DPI, !!(AR && AR.showOld.has(p))));
+      }
+    }
     return { findings: F, pages, oldPages, rules: rules.filter(r => r.check === '未統一').map(r => ({ frm: shown(r), to: r.to, how: r.how })), warn };
   };
 })();

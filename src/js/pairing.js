@@ -164,11 +164,16 @@
   }
 
   // 返り値: 原稿のページごとに { q: 成果物のページ番号(なければ -1), T, region, same, crop, score, how }
-  PC.pairPages = async (src, newDoc, progress = () => {}) => {
+  //   name: 知らせに出す原稿の呼び名(旧版のページの対応を調べるときは「旧版」)。進み具合(0〜1)は、段階ごとの見込みの時間(PC.COST)で割り振る
+  PC.pairPages = async (src, newDoc, progress = () => {}, name = '原稿') => {
+    const C = PC.COST, wN = C.pairNew, wS = p => { const it = src.page(p); return it.virt ? C.pairSrc.data : it.doc ? C.pairSrc.annot : C.pairSrc.scan; };
+    const wM = C.pairMatch * newDoc.numPages, nS = src.numPages, cumS = [0];
+    for (let p = 0; p < nS; p++) cumS.push(cumS[p] + wS(p));
+    const tot = wN * newDoc.numPages + cumS[nS] + wM * nS;
     const N = await cluesOf(async q => {
       const img = await PC.renderPage(newDoc, q, VDPI, false), t = await PC.pageText(newDoc, q);
       return { w: t.w, h: t.h, orb: orbOf(img), text: t.chars.length ? t : null };
-    }, newDoc.numPages, k => progress(`成果物 ${k + 1}/${newDoc.numPages} ページの特徴を読み取り`, 0.5 * (k + 1) / (newDoc.numPages + src.numPages)));
+    }, newDoc.numPages, k => progress(`成果物 ${k + 1}/${newDoc.numPages} ページの特徴を読み取り`, wN * (k + 1) / tot));
     const M = await cluesOf(async p => {
       const it = src.page(p);
       if (it.virt) { const t = it.virt.text; return { w: t.w, h: t.h, orb: null, text: t, blocks: it.virt.blocks, image: false, images: [], free: true }; }
@@ -178,14 +183,14 @@
       }
       const { img } = await src.image(p), k = 1000 / Math.max(img.w, img.h), small = shrink(img, Math.round(img.w * k), Math.round(img.h * k));
       return { w: small.w * PT, h: small.h * PT, orb: orbOf(small), text: null, image: true };
-    }, src.numPages, k => progress(`原稿 ${k + 1}/${src.numPages} ページの特徴を読み取り`, 0.5 * (newDoc.numPages + k + 1) / (newDoc.numPages + src.numPages)));
+    }, src.numPages, k => progress(`${name} ${k + 1}/${src.numPages} ページの特徴を読み取り`, (wN * newDoc.numPages + cumS[k + 1]) / tot));
     // 候補: ページの数が同じなら、まず同じ番号どうし(同じレイアウトと確かめられれば、ほかとは比べない)
     const cand = [], done = new Set();
     if (src.numPages === newDoc.numPages) for (let p = 0; p < src.numPages; p++) { const r = pairOf(M[p], N[p]); if (r && r.same) { cand.push({ p, q: p, ...r }); done.add(p); } }
     for (let p = 0; p < src.numPages; p++) {
       if (done.has(p)) continue;
       for (let q = 0; q < newDoc.numPages; q++) { const r = pairOf(M[p], N[q]); if (r) cand.push({ p, q, ...r }); }
-      progress(`ページの対応を調べています（原稿 ${p + 1}/${src.numPages}）`, 0.5 + 0.5 * (p + 1) / src.numPages);
+      progress(`ページの対応を調べています（${name} ${p + 1}/${src.numPages}）`, (wN * newDoc.numPages + cumS[nS] + wM * (p + 1)) / tot);
       await PC.tick();
     }
     // 手がかりの多い組から決める。同じ成果物ページで範囲が重なる組は、あとのほうを捨てる

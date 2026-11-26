@@ -327,19 +327,22 @@
   const removeAt = (kind, i) => { S.lists[kind].splice(i, 1); S.doneMsg = ''; refresh(); };
   const clearList = kind => { S.lists[kind] = []; S.doneMsg = ''; refresh(); };
   const total = kind => S.lists[kind].reduce((n, e) => n + (e.pages || 0), 0);
-  // 処理時間の目安(秒): 検証環境で1件ずつ測った時間(A4 1ページあたり。紙のスキャン 約13秒(旧版もあるとき 約10秒)、
-  //   スキャンでないPDF 約8秒、注釈を入れたPDF 約4秒、データ原稿・成果物 約0.5秒、旧版 約1.5秒)に合わせた見積もり。
+  // 処理時間の目安(秒): 照合の段階ごとの見込みの時間(PC.COST。A4 1ページあたり。照合中の進み具合のバーの割り振りと同じもの)を、
+  //   入れたファイルの種類・ページ数・大きさ(A4 を 1)で足し合わせる。原稿の種類は、ファイルの1ページ目で決めたもの(e.mk)。
   //   パソコンの速さで変わるため、処理中は進み具合から見直す(progress)
   const estimateSec = () => {
-    const A = e => e.area || 1, old = S.lists.old.length > 0;
-    let t = 2;
-    for (const e of S.lists.nw) t += 0.5 * (e.pages || 0) * A(e);
-    for (const e of S.lists.old) t += 1.5 * (e.pages || 0) * A(e);
+    const C = PC.COST, A = e => e.area || 1, old = S.lists.old.length > 0, sum = (L, f) => L.reduce((t, e) => t + f(e), 0);
+    const nNew = sum(S.lists.nw, e => (e.pages || 0) * A(e)), nOld = sum(S.lists.old, e => (e.pages || 0) * A(e));
+    const kindOf = e => (PC.dataKind(e) ? 'data' : !PC.isPdf(e) ? 'scan' : e.mk || 'scan');
+    let t = C.base + C.checkBase + (C.check + C.shape) * nNew + C.final;
+    if (S.lists.marks.length) t += C.pairNew * nNew;
     for (const e of S.lists.marks) {
-      const n = e.pages || 0, scan = old ? 10 : 13;
-      if (PC.dataKind(e)) t += 0.5 * n + 1;
-      else if (!PC.isPdf(e)) t += scan * n;   // 画像(紙のスキャン)
-      else t += (e.mk === 'annot' ? 4 : e.mk === 'digital' ? 8 : scan) * A(e) * n;
+      const k = kindOf(e), n = (e.pages || 0) * (k === 'data' ? 1 : A(e));
+      t += n * (C.pairSrc[k] + C.page[k === 'scan' && old ? 'scan3' : k]);
+    }
+    if (old) {
+      t += C.pairNew * nNew + (C.pairOld + C.oldCmp + C.oldLook + C.oldThumb) * nOld;
+      if (S.lists.marks.some(e => ['scan', 'digital'].includes(kindOf(e)))) t += C.pairNew * nNew + C.pairOld * nOld;   // 紙の赤字原稿と旧版: 旧版のページの対応をもう1回
     }
     return t;
   };

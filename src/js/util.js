@@ -8,6 +8,37 @@ PC.S = PC.DPI / 72;
 // 処理の途中で画面を更新できるよう、ときどき制御を返す
 PC.tick = () => new Promise(r => setTimeout(r, 0));
 
+// 処理時間の見込み(秒。A4 1ページあたり。検証環境で照合の段階ごとに測った時間)。照合前の目安(ui.js)と、照合中の進み具合のバーの
+//   割り振り(PC.progressPlan)の両方に使う(パソコンの速さで変わるが、段階どうしの割合はおおむね変わらない)
+//   pairNew・pairSrc・pairOld: ページの対応を調べるための特徴の読み取り(成果物・原稿の種類ごと・旧版)。pairMatch: 原稿1ページと成果物1ページの組を比べる
+//   page: 原稿1ページの照合(種類ごと。scan3 は紙の赤字原稿を旧版と成果物のPDFどうしで比べるもの、content はレイアウトの違う原稿、data はデータファイルのページ)
+//   oldCmp: 旧版1ページと成果物の字の比べ合わせ。oldLook: 旧版から見た目が変わった所。oldThumb: 旧版の表示用の画像
+//   check: 成果物だけのチェック(辞書の読み込み checkBase ＋ 成果物1ページあたり)。shape: 文字データのない文字の所。final: 結果のまとめ
+PC.COST = {
+  base: 1, pairNew: 0.12, pairSrc: { annot: 0.45, digital: 0.45, scan: 0.35, data: 0.02 }, pairOld: 0.45, pairMatch: 0.002,
+  page: { annot: 4, digital: 10, scan: 13, scan3: 12, content: 1.5, data: 0.3, none: 0.2 },
+  oldCmp: 0.4, oldLook: 0.3, oldThumb: 0.17, checkBase: 1.2, check: 0.08, shape: 0.015, final: 0.2,
+};
+
+// 進み具合のバーの割り振り: これからの段階を見込みの秒数で並べ(plan)、各段階の中の進み(0〜1)を、その段階の幅に写して知らせる(at)。
+//   段階の中身が分かった所で並べ直すと、いまのバーの位置から先を割り振り直す(バーは戻らない)。知らない段階は位置を変えずに文だけ知らせる
+PC.progressPlan = report => {
+  let pos = 0, span = new Map();
+  return {
+    plan(parts) {
+      const L = parts.filter(([, w]) => w > 0), tot = L.reduce((s, [, w]) => s + w, 0);
+      span = new Map(); let a = pos;
+      for (const [k, w] of L) { const b = a + (1 - pos) * w / tot; span.set(k, [a, b]); a = b; }
+    },
+    at(k, msg, f = 0) {
+      const s = span.get(k);
+      if (s) pos = Math.max(pos, s[0] + (s[1] - s[0]) * Math.max(0, Math.min(1, f)));
+      report(msg, Math.min(pos, 0.999));
+    },
+    done(msg) { pos = 1; report(msg, 1); },
+  };
+};
+
 // 決まった乱数(同じ入力なら同じ結果になるように)
 PC.prng = seed => () => {
   seed = (seed + 0x6D2B79F5) | 0;
