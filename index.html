@@ -8090,9 +8090,29 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
         const a = PC.center(o.moved[i]), c = PC.center(o.moved[i + 1]);
         dv.set(j, { t: [c[0] - a[0], c[1] - a[1]], p: o.movedP[i >> 1], ob: o.moved[i] });
       }
-      if (dv.size) for (const [s0, e0] of PC.blocksOf(C, o.B.items)) {
-        let edited = false; for (let j = s0; j < e0 && !edited; j++) edited = o.st[j] !== 1;
-        if (edited) continue;
+      //   文字の送り(直した段落から後ろへ続く送り)を除く: 段落ごとに、直したもの(edit)・動いたもの(move)・動かないもの(still)に分け、
+      //   直した段落と、並び(文字データの順)でとなり合い、旧版か成果物で接している(字の大きさの2倍以内)動いた段落は、送られただけとみなす。
+      //   送られただけの段落ととなり合い、接している動いた段落も同じ(段から段へ送られた所まで、たどる)。字の枠ごと動かした所は、まわりの段落を
+      //   直していないので残る
+      const BLK = PC.blocksOf(C, o.B.items), bnb = [], bob = [], bsz = [];
+      const bst = BLK.map(([s0, e0], b) => {
+        let edited = false, moved = false;
+        for (let j = s0; j < e0; j++) { if (o.st[j] !== 1) edited = true; else if (dv.has(j)) moved = true; }
+        const cs = C.slice(s0, e0); bnb[b] = PC.union(cs.map(c => c.box)); bob[b] = PC.union(cs.map((c, i) => (dv.get(s0 + i) || { ob: c.box }).ob));
+        bsz[b] = Math.max(...cs.map(c => Math.min(c.box[2] - c.box[0], c.box[3] - c.box[1])));
+        return edited ? 'edit' : moved ? 'move' : 'still';
+      });
+      const touch = (b, c) => { const d = 2 * Math.max(bsz[b], bsz[c]); return PC.gap(bnb[b], bnb[c]) <= d || PC.gap(bob[b], bob[c]) <= d; };
+      const pushed = new Set();
+      for (let grown = true; grown;) {
+        grown = false;
+        BLK.forEach((_, b) => {
+          if (bst[b] !== 'move' || pushed.has(b)) return;
+          if ([b - 1, b + 1].some(c => c >= 0 && c < BLK.length && (bst[c] === 'edit' || pushed.has(c)) && touch(b, c))) { pushed.add(b); grown = true; }
+        });
+      }
+      if (dv.size) for (const [b, [s0, e0]] of BLK.entries()) {
+        if (bst[b] !== 'move' || pushed.has(b)) continue;
         for (let a0 = s0; a0 < e0;) {
           let a1 = a0 + 1; while (a1 < e0 && C[a1].it === C[a0].it) a1++;
           let t = null, p = -1, ok = true;
