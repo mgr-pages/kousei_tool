@@ -148,6 +148,7 @@
         : [`${prev}の注釈（成果物にない）`, `${prev}のPDFに付いていた注釈（コメント・図形などの書き込み）が、成果物にはありません。直す指示なら、旧版を「原稿」の欄に入れると、指示どおりに直っているかを確かめられます`];
     }
     if (f.cat === 'U') return ['文字として確かめていない', UWHY[f.why] || UWHY.none];
+    if (f.fromOld && f.para) return [S.runMode === 'old' ? '前回から変わった' : '指示にない変更（旧版から）', `同じ段落の中の違い ${+f.para}か所を、1件にまとめています（下に所ごとの旧→新。ページの枠は違う所ごと）。意図した変更か確認`];
     if (f.fromOld && f.cat === 'V') return ['書き方だけ変わった', `${S.runMode === 'old' ? '前回の成果物' : '旧版'}から、全角・半角などの書き方だけが変わっています。意図した変更か確認`];
     if (f.fromOld && S.runMode === 'old') return ['前回から変わった', f.fromOld === 'del' ? '前回の成果物にあった文字がなくなっています。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '前回の成果物から変わっています。意図した変更か確認' : '前回の成果物にない文字があります。意図した追加か確認'];
     if (f.fromOld) return ['指示にない変更（旧版から）', f.fromOld === 'del' ? '旧版にあった文字がなくなっています（原稿のない部分）。意図した削除か確認' : (f.segs || []).some(g => g[0] === '-') ? '旧版から変わっています（原稿のない部分）。意図した変更か確認' : '旧版にない文字があります（原稿のない部分）。意図した変更か確認'];
@@ -198,8 +199,9 @@
     }
     return G;
   }
-  function diffRows(segs, from = '原稿') {
-    const G = groupsOf(PC.numberSegs(segs)), nx = G.filter(g => g.t === 'x').length;
+  //   maxg: 出す違いの所の数(それより多いと「ほか○か所」)。段落ごとにまとめた件は、すべて出す
+  function diffRows(segs, from = '原稿', maxg = MAXG) {
+    const G = groupsOf(PC.numberSegs(segs)), nx = G.filter(g => g.t === 'x').length, MAXG = maxg;
     let o = '', n = '', shown = 0;
     for (let i = 0; i < G.length; i++) {
       const g = G[i];
@@ -226,7 +228,7 @@
       const n = [f.s3.nt ? `文字 ${+f.s3.nt}か所` : '', f.s3.nr ? `見た目 ${+f.s3.nr}か所` : ''].filter(Boolean).join('・');
       return `<div class="what">${at} → 近くが旧版から変わっています${n ? `（${n}）` : ''}。赤字どおりか、切り抜きで確認</div>`;
     }
-    if (f.segs && !f.same) return diffRows(f.segs, f.fromOld ? '旧版' : '原稿');
+    if (f.segs && !f.same) return diffRows(f.segs, f.fromOld ? '旧版' : '原稿', f.para ? Infinity : MAXG);
     if (f.same) return `<div class="what">文字は同じで、${f.color ? '色' : '見た目（書体・太さ・位置・色など）'}だけが違います</div>`;
     if (f.cat === 'B' || f.cat === 'B2') return f.ins ? `<div class="what">${q(geta(f.ins[0]))}と${q(geta(f.ins[1]))}の間に入れる赤字 → 修正後も何も入っていません</div>` : `<div class="what">${f.show ? '赤字の箇所 ' + q(geta(f.show)) : 'この位置の赤字'} → 修正後も変わっていません</div>`;
     if (f.cat === 'D') {   // 指示(全体指示・以下同様)と、修正後の状態を分けて示す

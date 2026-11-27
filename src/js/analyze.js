@@ -1577,7 +1577,7 @@
     for (const [q, o] of OLD.byQ) {
       const ds = P.filter(d => d.q === q && d.kind !== 'none' && d.kind !== 'newonly');
       const covered = b => { const [x, y] = PC.center(b); return ds.some(d => { const R = d.kind === 'content' ? d.pr.region : d.kind === 'records' ? d.cov : d.crop || [0, 0, 1e9, 1e9]; return R && x >= R[0] && x <= R[2] && y >= R[1] && y <= R[3]; }); };
-      const items = [], noContent = !ds.some(d => d.kind === 'content');
+      const items = [], dels = [], noContent = !ds.some(d => d.kind === 'content');
       // 数字のまとまりの中の違いは、まとまり全体を1件にする(「4,730」→「5,060」を「4→5」「730→060」の2件にしない)。
       //   数字のまとまりの中(と直後)で消えた旧版の数字・区切りも、同じ件に入れる(goneIn: 成果物の字の番号 → その前で消えた字)
       const C = o.B.chars, spans = noContent ? numberSpans(C) : [], spanOf = new Int32Array(C.length).fill(-1), goneIn = new Map();
@@ -1597,7 +1597,8 @@
         const nearOk = n => { if (!mb) return true; if (ident) return false; const [a0, a1, b0, b1, c0, c1, d0, d1] = along(n, mb), h = Math.max(1, Math.min(c1 - c0, d1 - d0)); return Math.min(c1, d1) - Math.max(c0, d0) >= 0.5 * h && Math.max(a0 - b1, b0 - a1) <= 2 * Math.max(c1 - c0, d1 - d0); };
         const nb = g.near && nearOk(g.near) ? [g.near[0] - 1, g.near[1], g.near[0] + 1, g.near[3]] : mb || PC.mapBox(T, ob);
         if (covered(nb)) continue;
-        items.push({ kind: 'del', text, segs: [['-', text]], nbox: nb, old: { p: g.p, box: px(ob), T }, ocr: g.cs.some(c => c.ocr) });
+        const it = { kind: 'del', text, segs: [['-', text]], nbox: nb, old: { p: g.p, box: px(ob), T }, ocr: g.cs.some(c => c.ocr) };
+        if (noContent && C.length) dels.push({ it, at: g.at }); else items.push(it);   // 原稿のないページは、あとで段落ごとにまとめる(at: 並びの位置)
       }
       if (noContent) {   // 原稿がまったく当たらないページ(または同じレイアウトの原稿の外): 旧版にない字の続き
         // 違いのある数字のまとまりは、まとまり全体を続きに入れる
@@ -1606,29 +1607,73 @@
         const inRun = j => o.st[j] !== 1 || (spanOf[j] >= 0 && hot.has(spanOf[j]));
         let run = [];
         const push = (segs, t, s) => { const g = segs[segs.length - 1]; if (g && g[0] === t) g[1] += s; else segs.push([t, s]); };
+        const spots = [];   // 違いの所(字の続き・消えた字)。あとで段落(まとまり)ごとにまとめる
         const flush = () => {
           if (run.length && run.some(j => o.st[j] !== 1) || run.some(j => goneIn.has(j)) || (run.length && goneIn.has(run[run.length - 1] + 1))) {   // 記号だけの変化(「、」→「。」など)も出す
             const nb = PC.union(run.map(j => C[j].box)), m = o.maps.find(x => !x.noText) || o.maps[0];   // 旧版の切り抜きは、文字データのある旧版のページから
             // 前後の同じ字(同じまとまりの6字まで)を添え、置き換わった字は旧版の字→成果物の字で示す
-            const it = C[run[0]].it, segs = [];
+            const it = C[run[0]].it, core = [];
             const pre = []; for (let j = run[0] - 1; j >= 0 && pre.length < 6 && C[j].it === it && o.st[j] === 1; j--) pre.unshift(C[j].c);
             const last = run[run.length - 1], post = []; for (let j = last + 1; j < C.length && post.length < 6 && C[j].it === it && o.st[j] === 1; j++) post.push(C[j].c);
-            if (pre.length) segs.push(['=', pre.join('')]);
             for (const j of run) {
-              if (j !== run[0] && (C[j].sp || C[j].it !== C[j - 1].it) && PC.DIGC.test(C[j].c) && PC.DIGC.test(C[j - 1].c)) push(segs, '=', ' ');   // 空白・まとまりの切れ目をはさむ数字どうし(日付と時刻など)は、空白で分けて示す
-              if (goneIn.has(j)) push(segs, '-', goneIn.get(j));
-              if (o.st[j] === 1) push(segs, '=', C[j].c);
-              else { if (o.st[j] >= 2 && o.oc[j]) push(segs, '-', o.oc[j]); push(segs, '+', C[j].c); }
+              if (j !== run[0] && (C[j].sp || C[j].it !== C[j - 1].it) && PC.DIGC.test(C[j].c) && PC.DIGC.test(C[j - 1].c)) push(core, '=', ' ');   // 空白・まとまりの切れ目をはさむ数字どうし(日付と時刻など)は、空白で分けて示す
+              if (goneIn.has(j)) push(core, '-', goneIn.get(j));
+              if (o.st[j] === 1) push(core, '=', C[j].c);
+              else { if (o.st[j] >= 2 && o.oc[j]) push(core, '-', o.oc[j]); push(core, '+', C[j].c); }
             }
-            if (goneIn.has(last + 1) && spanAt(last + 1) >= 0 && spanOf[last + 1] !== spanOf[last]) push(segs, '-', goneIn.get(last + 1));
-            if (post.length) push(segs, '=', post.join(''));
+            if (goneIn.has(last + 1) && spanAt(last + 1) >= 0 && spanOf[last + 1] !== spanOf[last]) push(core, '-', goneIn.get(last + 1));
+            const segs = [];
+            for (const [t, x] of [...(pre.length ? [['=', pre.join('')]] : []), ...core, ...(post.length ? [['=', post.join('')]] : [])]) push(segs, t, x);
             const kind = segs.some(g => g[0] === '+') ? 'add' : 'del', variant = run.every(j => o.st[j] === 1 || o.st[j] === 3) && !run.some(j => goneIn.has(j)) && !goneIn.has(last + 1);   // 書き方だけの変化
-            if (!covered(nb)) items.push({ kind, variant, text: run.map(j => C[j].c).join(''), segs, nbox: nb, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.Tr || m.T), nb)), T: m.Tr || m.T } : null, ocr: run.some(j => C[j].ocr) });
+            if (!covered(nb)) spots.push({ a: run[0], z: last, item: { kind, variant, text: run.map(j => C[j].c).join(''), segs, nbox: nb, old: m ? { p: m.p, box: px(PC.mapBox(PC.invT(m.Tr || m.T), nb)), T: m.Tr || m.T } : null, ocr: run.some(j => C[j].ocr) } });
           }
           run = [];
         };
         C.forEach((c, j) => { if (inRun(j)) { if (run.length && (C[run[run.length - 1]].it !== c.it && PC.gap(C[run[run.length - 1]].box, c.box) > 2 * (c.box[3] - c.box[1]) || run[run.length - 1] !== j - 1)) flush(); run.push(j); } else flush(); });
         flush();
+        //   段落(まとまり。PC.blocksOf)ごとにまとめる: 同じ段落に違いの所が2つ以上あれば1件にし、その中に旧→新を所ごとに示す
+        //   (書き直した段落が、字の続きごとに何件にも分かれると、確かめて直す手間が増え、見逃しやすくなるため)。1つだけの段落は、これまでと同じ1件
+        const blk = new Int32Array(C.length).fill(-1);
+        PC.blocksOf(C, o.B.items).forEach(([s0, e0], b) => { for (let j = s0; j < e0; j++) blk[j] = b; });
+        //   消えた字の置き場所(成果物の字の番号。その字の前で消えた): 字の並びの比べ合わせで分かる位置(at)。ただし、その字が、印の位置にいちばん近い字と
+        //   別の段落なら(段落の終わりで消えた字の続きが、次の段落の頭に当たったときなど)、近い字の前か後ろ。字の高さの3倍より離れていれば、まとめず1件のまま
+        const delAt = new Map(), addDel = (j, t) => delAt.set(j, [...(delAt.get(j) || []), t]);
+        for (const [j, t] of goneIn) addDel(j, t);
+        for (const { it, at } of dels) {
+          const [x, y] = PC.center(it.nbox); let n = -1, bd = Infinity;
+          C.forEach((c, i) => { const [cx, cy] = PC.center(c.box), dd = Math.hypot(cx - x, cy - y); if (dd < bd) { bd = dd; n = i; } });
+          const h = n >= 0 ? Math.max(1, Math.min(C[n].box[3] - C[n].box[1], C[n].box[2] - C[n].box[0])) : 1;
+          if (n < 0 || bd > 3 * h) { items.push(it); continue; }
+          let j = at;
+          if (!(j >= 0 && j < C.length && blk[j] === blk[n])) { const cn = PC.center(C[n].box), vert = (o.B.items[C[n].it] || {}).vert; j = (vert ? y <= cn[1] : x <= cn[0]) ? n : n + 1; }
+          addDel(j, it.text);
+          spots.push({ a: j, z: j - 1, item: it, del: true, b: blk[Math.min(j, C.length - 1)] });
+        }
+        for (const sp of spots) if (!sp.del) sp.b = blk[sp.a];
+        const groups = new Map();
+        for (const sp of spots) (groups.get(sp.b) || groups.set(sp.b, []).get(sp.b)).push(sp);
+        for (const [b, g] of groups) {
+          if (g.length === 1) { items.push(g[0].item); continue; }
+          //   旧→新は、段落の中の最初の違いから最後の違いまでを、字ごとに組み立てる(消えた字は並びの位置に。変わっていない字はそのまま)
+          const a0 = Math.min(...g.map(sp => sp.a)), z0 = Math.max(...g.map(sp => sp.z)), segs = [];
+          const pre = []; for (let j = a0 - 1; j >= 0 && pre.length < 6 && blk[j] === b && o.st[j] === 1; j--) pre.unshift(C[j].c);
+          const post = []; for (let j = z0 + 1; j < C.length && post.length < 6 && blk[j] === b && o.st[j] === 1 && !delAt.has(j); j++) post.push(C[j].c);
+          if (pre.length) push(segs, '=', pre.join(''));
+          for (let j = a0; j <= z0; j++) {
+            if (j !== a0 && (C[j].sp || C[j].it !== C[j - 1].it) && PC.DIGC.test(C[j].c) && PC.DIGC.test(C[j - 1].c)) push(segs, '=', ' ');
+            for (const t of delAt.get(j) || []) push(segs, '-', t);
+            if (o.st[j] === 1) push(segs, '=', C[j].c);
+            else { if (o.st[j] >= 2 && o.oc[j]) push(segs, '-', o.oc[j]); push(segs, '+', C[j].c); }
+          }
+          for (const t of delAt.get(z0 + 1) || []) push(segs, '-', t);
+          if (post.length) push(segs, '=', post.join(''));
+          const its = g.sort((p, q) => p.a - q.a).map(sp => sp.item), olds = its.map(x => x.old).filter(Boolean), p0 = olds.length ? olds[0].p : null;
+          items.push({
+            kind: segs.some(x => x[0] === '+') ? 'add' : 'del', variant: its.every(x => x.variant), text: its.map(x => x.text).join('…'),
+            segs, nbox: PC.union(its.map(x => x.nbox)), pnb: its.map(x => x.nbox), spots: g.length,
+            old: olds.length ? { p: p0, box: PC.union(olds.filter(x => x.p === p0).map(x => x.box)), T: olds[0].T } : null, ocr: its.some(x => x.ocr),
+          });
+        }
       }
       for (const x of items) {
         let d = ds.find(d => !d.crop) || ds.find(d => d.crop && PC.center(x.nbox)[0] >= d.crop[0] && PC.center(x.nbox)[0] <= d.crop[2]) || P.find(e => e.kind === 'newonly' && e.q === q);
@@ -1638,7 +1683,8 @@
           P.push(d);
         }
         const o0 = d.crop ? [d.crop[0], d.crop[1]] : [0, 0];
-        (d.olds || (d.olds = [])).push({ ...x, nbox: [(x.nbox[0] - o0[0]) * k, (x.nbox[1] - o0[1]) * k, (x.nbox[2] - o0[0]) * k, (x.nbox[3] - o0[1]) * k], old: x.old && { p: x.old.p, box: x.old.box, M: pxM(x.old.T, o0) } });
+        const rel = b => [(b[0] - o0[0]) * k, (b[1] - o0[1]) * k, (b[2] - o0[0]) * k, (b[3] - o0[1]) * k];
+        (d.olds || (d.olds = [])).push({ ...x, nbox: rel(x.nbox), pnb: x.pnb ? x.pnb.map(rel) : null, old: x.old && { p: x.old.p, box: x.old.box, M: pxM(x.old.T, o0) } });
       }
     }
   }
@@ -2943,7 +2989,8 @@
       if (d.kind === 'scan3') scan3Findings(d, p, add);
       for (const x of d.olds || []) {   // 旧版から変わった所(原稿のない部分): 指示にない変更
         const f = add(p + 1, x.variant ? 'V' : 'C2', x.nbox, x.text, x.variant ? '旧版から書き方だけ変わった所（全角・半角など）' : '旧版から変わった所（原稿のない部分）', '', '', x.nbox);
-        Object.assign(f, { onNew: true, newOnly: true, fromOld: x.kind, segs: x.segs, same: false, pnboxes: [x.nbox], old: x.old });
+        Object.assign(f, { onNew: true, newOnly: true, fromOld: x.kind, segs: x.segs, same: false, pnboxes: x.pnb || [x.nbox], old: x.old });
+        if (x.spots > 1) f.para = x.spots;   // 同じ段落の違いの所をまとめた件(所の数)
         if (x.ocr) f.ocr = true;
       }
       if (d.unread) {   // 文字データのない文字(図形の文字・ロゴ)の所: 文字としては確かめていない所。ページごとに1件(大きい所から)
