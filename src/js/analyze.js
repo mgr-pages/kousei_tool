@@ -2886,6 +2886,50 @@
   }
 
   // opts: { marks: PC.markSource(...), newDoc, progress(msg, frac) }
+  // ---- 同じ所を指す、旧版との比べ合わせの項目を1件にまとめる ----
+  //   文字の違い・見た目の違い・移動・図形の文字の項目のうち、違う所ごとの枠どうしが重なるか 2pt 以内に接するものを、つながるかぎりまとめる
+  //   (同じ所に2つ以上の項目があると、同じ所を何度も確かめることになり、手間が増え、見逃しもしやすくなる)。ただし、まとめた枠がその
+  //   ページの 15% を超えるならまとめない(1件に入れすぎて、かえって確かめにくくならないように。大きな移動の範囲などは、そのまま1件)。
+  //   まとめた項目は、中の項目(parts)を位置の順に持ち、違う所ごとの枠をすべて描く。一覧での種類は、文字の違いがあればその項目の種類。
+  //   成果物だけで見るチェック・注釈の違いは、観点が違うのでまとめない
+  const SAME = { kinds: new Set(['add', 'del', 'look', 'move', 'shape']), gap: 2, cap: 0.15 };
+  function mergeSame(F, pages) {
+    const M2 = SAME.gap * PC.S, area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+    const boxesOf = f => [...(f.pnboxes && f.pnboxes.length ? f.pnboxes : [f.nbox]), ...(f.moreNboxes || [])].filter(Boolean);
+    const touch = (a, b) => a.some(p => b.some(q => Math.min(p[2], q[2]) + M2 > Math.max(p[0], q[0]) && Math.min(p[3], q[3]) + M2 > Math.max(p[1], q[1])));
+    const byPage = new Map(), drop = new Set();
+    for (const f of F) if (SAME.kinds.has(f.fromOld) && f.nbox) (byPage.get(f.page) || byPage.set(f.page, []).get(f.page)).push(f);
+    const rank = { add: 0, del: 0, look: 1, move: 2, shape: 3 }, pos = (a, b) => a.nbox[1] - b.nbox[1] || a.nbox[0] - b.nbox[0];
+    for (const [pg, fs] of byPage) {
+      const im = pages[pg - 1], A = im && im.right ? im.right.w * im.right.h : Infinity;   // そのページの面積(画素)
+      const gs = fs.map(f => ({ fs: [f], bs: boxesOf(f) }));
+      for (let merged = true; merged;) {
+        merged = false;
+        for (let i = 0; i < gs.length && !merged; i++) for (let j = i + 1; j < gs.length; j++) {
+          if (!touch(gs[i].bs, gs[j].bs) || area(PC.union([...gs[i].bs, ...gs[j].bs])) > SAME.cap * A) continue;
+          gs[i] = { fs: [...gs[i].fs, ...gs[j].fs], bs: [...gs[i].bs, ...gs[j].bs] }; gs.splice(j, 1); merged = true; break;
+        }
+      }
+      for (const g of gs) {
+        if (g.fs.length < 2) continue;
+        const base = g.fs.slice().sort((a, b) => rank[a.fromOld] - rank[b.fromOld] || pos(a, b))[0];
+        //   中の項目: 表示に使うものだけを写す(位置の順)
+        base.parts = g.fs.slice().sort(pos).map(f => ({ cat: f.cat, fromOld: f.fromOld, show: f.show, how: f.how, segs: f.segs, same: f.same, para: f.para, ocr: f.ocr, fill: f.fill, fills: f.fills, lookText: f.lookText, inMove: f.inMove, replaced: f.replaced, moveSame: f.moveSame, moveText: f.moveText, shape: f.shape, nbox: f.nbox }));
+        const seen = new Set();
+        base.pnboxes = g.bs.filter(b => { const k = b.map(Math.round).join(','); if (seen.has(k)) return false; seen.add(k); return true; });
+        base.moreNboxes = []; base.nbox = PC.union(g.bs).map(Math.trunc); base.box = base.nbox.slice();
+        base.kinds = [...new Set(g.fs.map(f => f.fromOld === 'del' ? 'add' : f.fromOld))];
+        if (g.fs.some(f => f.ocr)) base.ocr = true;
+        //   旧版の切り抜き: 同じ旧版のページ・同じ位置合わせの項目の、旧版の所をまとめる(動かした所は位置合わせが違うので、まとめない)
+        const sameM = o => o && base.old && o.p === base.old.p && JSON.stringify(o.M) === JSON.stringify(base.old.M);
+        if (base.old && base.old.box) { const ob = g.fs.map(f => f.old).filter(o => sameM(o) && o.box).map(o => o.box); if (ob.length) base.old = { ...base.old, box: PC.union(ob) }; }
+        for (const f of g.fs) if (f !== base) drop.add(f);
+      }
+    }
+    if (!drop.size) return;
+    const keep = F.filter(f => !drop.has(f));
+    F.length = 0; keep.forEach((f, i) => { f.id = i; F.push(f); });
+  }
   PC.analyze = async opts => {
     const { marks: src, newDoc } = opts, prog = opts.progress || (() => {});
     const cb = new PC.Codebook(), P = [], npages = src.numPages, warn = [];
@@ -3421,6 +3465,7 @@
       }
     }
     const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null, flip: flipOf(d) }));
+    mergeSame(F, pages);
     // 仕上がり(トンボ)の外にある項目に印を付ける(詳細設定で、ページ情報などを結果から外せるように)
     //   仕上がりは成果物のPDFに書かれた TrimBox(ページの外枠と同じなら外はない)。項目の成果物での位置の中心で見る
     //   違う字の枠(pnboxes)があれば、そのすべてが外のものだけ(内側の字を含む項目は、外の項目として隠さない)

@@ -5,7 +5,9 @@
 #   ・ブロックF(旧版2ページ目から移した): 「移動した所」1件(2ページ目から)。置き換わったブロックE は「置き換わった所」1件
 #   ・動かしただけのブロックA・B のまわりに、ほかの見た目の違いの項目が出ない(動かしただけで何件も出ないこと)
 import json, sys
-F = json.load(open(sys.argv[1], encoding='utf-8'))
+F0 = json.load(open(sys.argv[1], encoding='utf-8'))
+#   同じ所をまとめた項目(parts のあるもの)は、中の項目に分けて数える(まとめても、中の項目の中身はそのまま残るので、同じ見方で確かめる)
+F = [dict(p, page=f['page'], nbox=p.get('nbox') or f['nbox']) for f in F0 for p in (f.get('parts') or [f])]
 k = 200 / 72
 box = lambda x0, y0, x1, y1: [x0 * k, y0 * k, x1 * k, y1 * k]
 A, B, FB = box(50, 80, 380, 250), box(420, 70, 640, 160), box(470, 300, 770, 470)   # 成果物での位置(pt → 200dpi の画素)
@@ -24,4 +26,4 @@ ok = {
     '動かしただけの A・B に、ほかの見た目の違いが出ない': not [f for f in looks if ov(f['nbox'], A) or ov(f['nbox'], B)],
 }
 for n, v in ok.items(): print(f"  {n}: {'OK' if v else 'NG'}")
-print('移動の試験:', 'すべて OK' if all(ok.values()) else f"{sum(not v for v in ok.values())}項目 NG", f"（項目 {len(F)}件・移動 {len(mv)}件・見た目 {len(looks)}件・置き換わり {len(rp)}件・文字 {len(txt)}件）")
+print('移動の試験:', 'すべて OK' if all(ok.values()) else f"{sum(not v for v in ok.values())}項目 NG", f"（項目 {len(F0)}件（中の項目 {len(F)}件）・移動 {len(mv)}件・見た目 {len(looks)}件・置き換わり {len(rp)}件・文字 {len(txt)}件）")

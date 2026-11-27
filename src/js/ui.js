@@ -115,7 +115,13 @@
     all: { run: '照合', note: '' },
   };
   const modeOf = () => (S.lists.marks.length ? (S.lists.old.length ? 'all' : 'marks') : S.lists.old.length ? 'old' : 'new');
+  //   同じ所をまとめた項目(旧版との比べ合わせ): 中の種類の名前
+  const PARTK = { add: '文字', look: '見た目', move: '移動', shape: '図形の文字' };
   function verdictOf(f) {
+    if (f.parts && f.parts.length > 1) {   // 同じ所の変化をまとめた項目(文字・見た目・移動など)
+      const prev = S.runMode === 'old' ? '前回' : '旧版', ks = (f.kinds || []).map(k => PARTK[k]).filter(Boolean);
+      return [`${prev}から変わった所（${ks.join('・') || 'まとめ'}）`, `同じ所の変化 ${f.parts.length}件を1件にまとめています（枠は変わった所ごと）。それぞれ意図した変更か、切り抜き（パタパタ・差分を赤で）で確認`];
+    }
     if (f.merge) {   // 差し込み印刷(名刺など)の行ごとの照合
       const r = f.merge;
       if (r.kind === 'ok') return ['原稿の表と一致', `原稿の表の${r.rn}行目の${r.fields.join('・')}が、このページにあります（自動で確認済み）`];
@@ -219,6 +225,7 @@
   const UWHY = { src: '文字が図形になっていて文字データがないため、原稿とは文字で比べていません。目で確認', old: '文字が図形になっていて文字データがないため、成果物だけのチェックをしていません。旧版とはページの大きさ・位置がそろわず、見た目でも比べていません。目で確認', none: '文字が図形になっていて文字データがないため、成果物だけのチェック（表記・日付など）をしていません。目で確認' };
   // 項目の中身: 何が違うか(どの種類でも、なるべく短く)
   function whatHtml(f) {
+    if (f.parts && f.parts.length > 1) return `<div class="parts">${f.parts.map(p => `<div class="part"><span class="pk">${esc(PARTK[p.fromOld === 'del' ? 'add' : p.fromOld] || '')}</span>${whatHtml({ ...p, parts: null }) || `<div class="what">${esc(p.show || '')}</div>`}</div>`).join('')}</div>`;
     const q = s => `「${esc(clipMid(s || ''))}」`;
     if (f.cat === 'J') { const [a, z] = f.j.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.show)}</mark>${z}</span>${f.j.want ? `<span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.j.want)}</ins>${z}</span>` : ''}</div>`; }
     if (f.lint) { const [a, z] = f.lint.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.lint.c)}</mark>${z}</span><span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.lint.want)}</ins>${z}</span></div>`; }
@@ -260,6 +267,7 @@
   function swatch(c) { return `<span class="sw" style="background:${hex(c)}"></span>${hex(c)}`; }
   // CSV用の短い文: 「旧→新」をか所ごとに
   function diffText(f) {
+    if (f.parts && f.parts.length > 1) return f.parts.map(p => `[${PARTK[p.fromOld === 'del' ? 'add' : p.fromOld] || ''}] ${diffText({ ...p, parts: null })}`).join(' ／ ');
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
     if (f.textSame) return '文字データは同じ（字形・位置の違い）';
     if (f.cat === 'U') return `文字が図形の所 ${+f.spotN || 1}か所（文字として確かめていない）`;
@@ -1206,7 +1214,8 @@
     const flipOf = fl => (fl && typeof fl === 'object' ? (int(fl.old) != null ? { old: int(fl.old), M: m5(fl.M) } : fl.src ? { src: true } : null) : null);
     const pages = r.pages.map(pg => { pg = pg && typeof pg === 'object' ? pg : {}; return { kind: str(pg.kind), q: int(pg.q) ?? -1, src: int(pg.src), label: pg.label == null ? null : str(pg.label), crop: box4(pg.crop), region: box4(pg.region), left: img(pg.left), right: img(pg.right), base: img(pg.base), flip: flipOf(pg.flip) }; });
     const P = Math.max(1, pages.length);
-    const findings = r.findings.map((f0, i) => {
+    //   (同じ所をまとめた項目の中の項目(parts)も、同じようにそろえる。中の項目の中には入れない)
+    const clean = (f0, i, deep) => {
       const f = f0 && typeof f0 === 'object' ? f0 : {}, g = { ...f, id: i, page: Math.min(P, Math.max(1, Math.round(num(f.page)) || 1)), cat: str(f.cat), label: str(f.label), box: box4(f.box) || [0, 0, 0, 0], nbox: box4(f.nbox), show: str(f.show), how: str(f.how), note: str(f.note), check: str(f.check) };
       for (const k of ['pboxes', 'pnboxes', 'moreBoxes', 'moreNboxes']) if (k in f) g[k] = Array.isArray(f[k]) ? f[k].map(box4).filter(Boolean) : [];
       for (const k of ['frm', 'to', 'byInstr', 'ref', 'dropText']) if (k in f) g[k] = str(f[k]);
@@ -1227,8 +1236,13 @@
       if ('fill' in f) g.fill = f.fill && typeof f.fill === 'object' ? { o: rgb(f.fill.o), n: rgb(f.fill.n) } : null;
       if ('fills' in f || g.fill) g.fills = Array.isArray(f.fills) ? f.fills.slice(0, 3).map(x => ({ o: rgb(x && x.o), n: rgb(x && x.n) })) : g.fill ? [g.fill] : [];
       for (const k of ['merge', 'rec']) if (f[k]) g[k] = typeof f[k] === 'object' ? { ...f[k], kind: str(f[k].kind), fields: Array.isArray(f[k].fields) ? f[k].fields.map(str) : [] } : null;
+      delete g.parts; delete g.kinds;
+      if (deep && Array.isArray(f.parts)) g.parts = f.parts.slice(0, 300).map((p, k) => clean(p, k, false));
+      if (deep && Array.isArray(f.kinds)) g.kinds = f.kinds.map(str).filter(k => ['add', 'look', 'move', 'shape'].includes(k));
+      for (const k of ['fromOld', 'para']) if (k in f) g[k] = k === 'para' ? num(f[k]) : str(f[k]);
       return g;
-    });
+    };
+    const findings = r.findings.map((f0, i) => clean(f0, i, true));
     const parts = a => (Array.isArray(a) ? a.map(x => ({ name: str(x && x.name), start: num(x && x.start), pages: num(x && x.pages) })) : null);
     return {
       findings, pages, oldPages: Array.isArray(r.oldPages) ? r.oldPages.map(img) : [],
