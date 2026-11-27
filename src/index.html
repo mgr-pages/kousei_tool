@@ -54,7 +54,13 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .badge.opt { background: #eef1f5; color: var(--sub) }
 /* 欄ごとの1行の説明(何を入れるか。形式の一覧はマウスを置くと出す) */
 .exts { margin: 8px 0 10px; font-size: 12px; color: var(--sub); line-height: 1.5; cursor: default }
-.pickrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
+.pickrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; position: relative }
+/* 入れられる形式の一覧: 説明の行・「ファイルを選ぶ」にマウスを置くと出す */
+.extpop { display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; background: #fff; border: 1px solid var(--line2); border-radius: var(--r-s); box-shadow: 0 8px 24px rgba(16, 24, 40, .16); padding: 10px 14px; font-size: 12.5px; color: var(--ink); white-space: nowrap }
+.extpop table { border-collapse: collapse; margin: 4px 0 6px }
+.extpop th { text-align: left; font-weight: 700; padding: 1px 12px 1px 0; color: var(--sub) }
+.extpop td { padding: 1px 0; font-family: ui-monospace, Menlo, Consolas, monospace }
+.exts:hover ~ .pickrow .extpop, .pickrow:hover .extpop, .pick:focus-within ~ .extpop { display: block }
 .pick { position: relative; display: inline-flex; align-items: center; gap: 6px; border-radius: 99px; background: #fff; color: var(--accent); border: 1px solid #b9cdf3; padding: 5px 14px; font-size: 13px; font-weight: 700; cursor: pointer }
 .pick:hover { background: var(--accent-soft) }
 .step.req:not(.has) .pick { background: var(--accent); color: #fff; border-color: var(--accent) }
@@ -191,6 +197,7 @@ ins { background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 7
 .more { color: var(--sub); font-size: 12px }
 .what { margin-top: 8px; font-size: 15px }
 .what.ng { color: var(--bad); font-weight: 700; font-size: 13px; margin-top: 2px }
+.what .sw { display: inline-block; width: 1.1em; height: 1.1em; margin: 0 4px 0 2px; vertical-align: -0.15em; border: 1px solid #888; border-radius: 3px }
 mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; border-radius: 4px }
 .show { font-weight: 700; word-break: break-all }
 .meta { font-size: 12px; color: var(--sub); margin-top: 2px }
@@ -232,8 +239,9 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
 .legend i { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--c); border-radius: 3px; margin-right: 3px; vertical-align: -1px }
 .legend .selk { color: var(--ink); font-weight: 700 } .legend .selk i { border-width: 3px; background: color-mix(in srgb, var(--sel) 18%, #fff) }
 /* パタパタ表示(旧版・原稿と成果物を同じ所で交互に出す) */
-#flipBtn { flex: none; font-weight: 700 }
+#flipBtn, #diffBtn { flex: none; font-weight: 700 }
 #flipBtn.on { background: var(--accent); color: #fff; border-color: var(--accent) }
+#diffBtn.on { background: #c62828; color: #fff; border-color: #c62828 }
 .flipcap { display: inline-flex; gap: 8px; align-items: center; justify-content: center; color: var(--sub) }
 .flipcap span { padding: 0 10px; border-radius: 99px; border: 1px solid var(--line2); color: var(--sub) }
 .flipcap span.on { background: #5b6475; border-color: #5b6475; color: #fff; font-weight: 700 }
@@ -328,7 +336,7 @@ mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; bo
     <div class="work">
       <div class="list" id="list"></div>
       <div class="viewer" id="viewer">
-        <div class="vbar"><div class="tabs" id="tabs"></div><button class="btn small" id="flipBtn" title="旧版（なければ原稿）と成果物を同じ所に重ねて、交互に表示します（あおり照合。キー：P）。変わった所だけが動いて見えます">パタパタ</button><div class="zoom"><button class="btn small" id="zOut" title="縮小">－</button><span id="zLbl">全体</span><button class="btn small" id="zIn" title="拡大（Ctrl を押しながらホイールでも拡大・縮小。拡大中はドラッグ・ホイールで動かせます）">＋</button></div></div>
+        <div class="vbar"><div class="tabs" id="tabs"></div><button class="btn small" id="flipBtn" title="旧版（なければ原稿）と成果物を同じ所に重ねて、交互に表示します（あおり照合。キー：P）。変わった所だけが動いて見えます">パタパタ</button><button class="btn small" id="diffBtn" hidden title="旧版（なければ原稿）と色の違う所を、成果物のページの上に赤く塗って表示します（キー：D）。ページ全体のどこが変わったかを一目で確かめられます">差分を赤で</button><div class="zoom"><button class="btn small" id="zOut" title="縮小">－</button><span id="zLbl">全体</span><button class="btn small" id="zIn" title="拡大（Ctrl を押しながらホイールでも拡大・縮小。拡大中はドラッグ・ホイールで動かせます）">＋</button></div></div>
         <div class="hint" id="pinfo"></div>
         <div class="cap" id="vcap"><div>原稿</div><div>成果物</div></div>
         <div class="scroll" id="vscroll"><canvas id="vcanvas"></canvas></div>

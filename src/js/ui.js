@@ -141,6 +141,8 @@
     if (f.fromOld === 'look' && f.replaced) return [S.runMode === 'old' ? '前回の中身が置き換わった' : '旧版の中身が置き換わった', `ここにあった${S.runMode === 'old' ? '前回' : '旧版'}の中身（写真・図・色・線など）が成果物になく、移ってきた中身（「移動した所」の項目）になっています。なくなってよいか確認`];
     if (f.fromOld === 'look' && f.inMove) return [S.runMode === 'old' ? '前回から移動した中の違い' : '旧版から移動した中の違い', '動かした範囲の中で、動かした元の所と重ねても違う所です。意図した変更か、切り抜き（パタパタ）で確認'];
     if (f.fromOld === 'look' && f.lookText) return [S.runMode === 'old' ? '前回から字の見た目が変わった' : '旧版から字の見た目が変わった', '字は同じで、色・太さ・書体などの見た目が変わっています。意図した変更か、切り抜き（パタパタ）で確認'];
+    if (f.fromOld === 'look' && f.fill) return [S.runMode === 'old' ? '前回から色が変わった' : '旧版から色が変わった', '地や囲みの塗りの色が変わっています（枠の範囲。上の字・線のふちの色の変わり方も含みます）。意図した変更か、切り抜き（パタパタ）で確認'];
+    if (f.fromOld === 'look' && f.fills && f.fills.length) return [S.runMode === 'old' ? '前回から見た目が変わった' : '旧版から見た目が変わった', '色・写真・図・線など、文字以外の見た目が変わっています（近い所の違いをまとめて1件。枠は違う所ごと）。意図した変更か、切り抜き（パタパタ）で確認'];
     if (f.fromOld === 'look') return [S.runMode === 'old' ? '前回から見た目が変わった' : '旧版から見た目が変わった', '写真・図・色・線など、文字以外の見た目が変わっています。意図した変更か、切り抜き（パタパタ）で確認'];
     if (f.fromOld === 'annot') {   // 旧版と成果物の注釈(コメント・図形などの書き込み)の違い
       const prev = S.runMode === 'old' ? '前回' : '旧版';
@@ -246,11 +248,16 @@
     if (f.fromOld === 'look' && f.replaced) return `<div class="what">前の中身がなく、${esc(f.show)}になっています</div>`;
     if (f.fromOld === 'look' && f.inMove) return '<div class="what">動かした範囲の中で、見た目（写真・図・色・線など）が違います</div>';
     if (f.fromOld === 'look' && f.lookText) return `<div class="what">${q(f.show)}の見た目（色・太さ・書体など）が変わっています（字は同じ）</div>`;
+    if (f.fromOld === 'look' && f.fill) return `<div class="what">色が変わっています：${f.fills.map(c => `${swatch(c.o)} → ${swatch(c.n)}`).join('、')}</div>`;
+    if (f.fromOld === 'look' && f.fills && f.fills.length) return `<div class="what">文字以外の見た目（写真・図・線など）と色が変わっています（色：${f.fills.map(c => `${swatch(c.o)} → ${swatch(c.n)}`).join('、')}）</div>`;
     if (f.fromOld === 'look') return '<div class="what">文字以外の見た目（写真・図・色・線など）が変わっています</div>';
     if (f.kind === 'layout' || f.kind === 'image') return `<div class="what">${esc(f.show.replace(/[（）]/g, ''))}</div>`;
     if (f.cat === 'C2' || f.cat === 'A' || f.cat === 'C1') return '<div class="what">見た目が変わっています（文字データがないため、切り抜きで確認）</div>';
     return f.show ? `<div class="what">${esc(clipMid(geta(f.show)))}</div>` : '';
   }
+  //   色の見本(色が変わった所): 小さな四角と #rrggbb
+  function hex(c) { return '#' + (c || [0, 0, 0]).map(v => Math.max(0, Math.min(255, +v || 0)).toString(16).padStart(2, '0')).join(''); }
+  function swatch(c) { return `<span class="sw" style="background:${hex(c)}"></span>${hex(c)}`; }
   // CSV用の短い文: 「旧→新」をか所ごとに
   function diffText(f) {
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
@@ -261,6 +268,8 @@
     if (f.fromOld === 'look' && f.replaced) return `前の中身がなく、${f.show}になっている`;
     if (f.fromOld === 'look' && f.inMove) return '移動した範囲の中の見た目の違い（写真・図・色・線など）';
     if (f.fromOld === 'look' && f.lookText) return `「${f.show}」の見た目の変化（色・太さ・書体など。字は同じ）`;
+    if (f.fromOld === 'look' && f.fill) return `色の変化（地・塗り）：${f.fills.map(c => `${hex(c.o)}→${hex(c.n)}`).join('、')}`;
+    if (f.fromOld === 'look' && f.fills && f.fills.length) return `見た目の変化（写真・図・線など）と色の変化：${f.fills.map(c => `${hex(c.o)}→${hex(c.n)}`).join('、')}`;
     if (f.fromOld === 'look') return '見た目の変化（写真・図・色・線など。文字以外）';
     if (f.fromOld === 'annot') return `${f.cat === 'W' ? '成果物だけの' : '旧版だけの'}${f.how}${f.show ? `「${f.show.replace(/\s*\n\s*/g, ' ／ ')}」` : ''}`;
     if (f.cat === 'J') return `${f.j.ctx[0]}【${f.show}】${f.j.ctx[1]}：${f.j.msg}${f.j.want ? `（候補「${f.j.want}」）` : ''}`;
@@ -278,7 +287,7 @@
   };
 
   const geta = s => String(s ?? '').replace(/□/g, '〓');   // スキャンで読めなかった字は「〓」(ゲタ)で示す
-  const S = { res: null, imgs: [], sel: null, page: 0, only: null, zoom: 1, vc: { L: null, R: null }, verdict: {}, key: '', lists: { marks: [], nw: [], old: [] }, loading: new Set(), flip: false, phase: 1 };
+  const S = { res: null, imgs: [], sel: null, page: 0, only: null, zoom: 1, vc: { L: null, R: null }, verdict: {}, key: '', lists: { marks: [], nw: [], old: [] }, loading: new Set(), flip: false, phase: 1, diff: false, diffs: new Map(), diffDone: new Map() };
 
   // ---- 入力: 各欄に複数のファイル。選んだときに中身を読み込んでおき(あとで元のファイルが変わっても照合できるように)、ページ数を数える ----
   const KIND = { marks: { input: 'fMarks', list: 'lMarks', tot: 'tMarks' }, nw: { input: 'fNew', list: 'lNew', tot: 'tNew' }, old: { input: 'fOld', list: 'lOld', tot: 'tOld' } };
@@ -414,10 +423,21 @@
   const EXTS = { marks: ['pdf', ...IMG_EXTS, ...PC.DATA_EXTS], nw: ['pdf'], old: ['pdf'] };
   //   欄ごとの1行の説明(何を入れるか)。入れられる形式(拡張子)の一覧は、その行にマウスを置くと出す(画面には並べない)
   const HINT = { marks: '赤字・指示を入れたもの（PDF・画像・Excel・Word など）', nw: '今回チェックするPDF', old: '前回の成果物のPDF（前回から変わった所も見ます）' };
+  //   入れられる形式の一覧: 説明の行と「ファイルを選ぶ」にマウスを置く(キーで選ぶ)と、種類ごとの拡張子の一覧を出す(ブラウザの小さな説明だけでは、
+  //   出るまで時間がかかり、「ファイルを選ぶ」の上では「ファイルが選択されていません」になって見えなかった)
+  const KINDNAME = { pdf: 'PDF', ...Object.fromEntries(IMG_EXTS.map(x => [x, '画像'])), ...PC.DATA_KINDS };
+  const extGroups = k => { const g = new Map(); for (const x of EXTS[k]) { const n = KINDNAME[x] || x.toUpperCase(); g.set(n, [...(g.get(n) || []), '.' + x]); } return [...g]; };
   document.querySelectorAll('.exts[data-kind]').forEach(el => {
-    const k = el.dataset.kind;
+    const k = el.dataset.kind, list = '入れられる形式：' + EXTS[k].map(x => '.' + x).join(' ');
     el.textContent = HINT[k];
-    el.title = '入れられる形式：' + EXTS[k].map(x => '.' + x).join(' ') + '。ここへドラッグしても入れられます';
+    el.title = list + '。ここへドラッグしても入れられます';
+    const inp = el.parentElement.querySelector('input[type=file]');
+    if (inp) inp.title = list;   // 「ファイルを選ぶ」の上の小さな説明も、形式の一覧にする
+    const pop = document.createElement('div');
+    pop.className = 'extpop'; pop.setAttribute('role', 'tooltip');
+    pop.innerHTML = '<b>入れられる形式</b><table>' + extGroups(k).map(([n, xs]) => `<tr><th>${esc(n)}</th><td>${esc(xs.join(' '))}</td></tr>`).join('') + '</table>' +
+      (k === 'marks' ? `<div class="hint">${esc(PC.OLD_EXTS.map(x => '.' + x).join(' '))} は、新しい形式で保存し直してから入れてください</div>` : '') + '<div class="hint">ファイルは、この欄へドラッグしても入れられます</div>';
+    el.parentElement.querySelector('.pickrow').appendChild(pop);
   });
   $('fMarks').accept = [...EXTS.marks.map(x => '.' + x), 'application/pdf', ...PC.OLD_EXTS.map(x => '.' + x)].join(',');   // 古い形式は、選ぶと直し方を知らせる
   $('fNew').accept = $('fOld').accept = '.pdf,application/pdf';
@@ -492,6 +512,7 @@
     //   パタパタ表示: 重ねて比べる相手(同じレイアウトの旧版・原稿)のあるページ・項目がなければ、ボタンを出さない
     const canFlip = res.pages.some((_, i) => pageFlip(i)) || res.findings.some(f => itemFlip(f));
     $('flipBtn').hidden = !canFlip; if (!canFlip && S.flip) setFlip(false);
+    S.diffs = new Map(); S.diffDone = new Map(); $('diffBtn').hidden = !res.pages.some((_, i) => pageFlip(i)); if ($('diffBtn').hidden && S.diff) setDiff(false);
     renderAll();
   }
   const renderAll = () => { renderSummary(); renderList(); drawPage(); };
@@ -563,9 +584,63 @@
     ctx.fillStyle = isA ? '#5b6475' : '#2f6fdb'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, 22, 11) : ctx.rect(x, y, w, 22); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(t, x + 9, y + 11.5); ctx.restore();
   };
+  // ---- 差分の赤い表示: 成果物のページの上に、相手(パタパタと同じ旧版・原稿)と色の違う所を赤く塗って出す(パタパタとは別の見方) ----
+  //   違う所: どれかの色の差が 40 を超え、相手のまわり 5×5 画素の色の範囲(±40)にも入らない画素(2画素ほどのずれ・字のふちのぼかし・
+  //   画像の圧縮のゆらぎは、違いにしない。照合の「見た目の違い」と同じ見方)。成果物は薄くし、違う画素を赤く(1画素ふくらませて)塗る。
+  //   表示用の画像(ページの縮小画像)で、ページごとに1回だけ作る
+  function setDiff(on) {
+    S.diff = !!on;
+    if (S.diff && S.flip) setFlip(false);
+    $('diffBtn').classList.toggle('on', S.diff); $('diffBtn').textContent = S.diff ? '差分を消す' : '差分を赤で';
+    drawPage();
+  }
+  function diffImage(i) {
+    const im = S.imgs[i], A = pageFlip(i);
+    if (!A || !im.R) return null;
+    if (!S.diffs.has(i)) S.diffs.set(i, (async () => {
+      const a = await loadImg(A.url), W = im.R.naturalWidth, H = im.R.naturalHeight, kk = W / im.rw;
+      const canvas = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return [c, c.getContext('2d', { willReadFrequently: true })]; };
+      const [cn, xn] = canvas(), [, xo] = canvas();
+      xn.drawImage(im.R, 0, 0, W, H); const N = xn.getImageData(0, 0, W, H).data;
+      xo.fillStyle = '#fff'; xo.fillRect(0, 0, W, H); drawAligned(xo, a, A, kk, 0, 0, 0, 0); const O = xo.getImageData(0, 0, W, H).data;
+      const T = 40, R = 2, m = new Uint8Array(W * H);
+      const outside = (P, Q, x, y) => {   // P の (x, y) の色が、Q のまわり 5×5 の色の範囲の外か
+        const p = 4 * (y * W + x);
+        for (let c = 0; c < 3; c++) {
+          let lo = 255, hi = 0;
+          for (let yy = Math.max(0, y - R); yy <= Math.min(H - 1, y + R); yy++) for (let xx = Math.max(0, x - R); xx <= Math.min(W - 1, x + R); xx++) { const v = Q[4 * (yy * W + xx) + c]; if (v < lo) lo = v; if (v > hi) hi = v; }
+          if (P[p + c] < lo - T || P[p + c] > hi + T) return true;
+        }
+        return false;
+      };
+      let n = 0;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const p = 4 * (y * W + x);
+          if (Math.abs(N[p] - O[p]) <= T && Math.abs(N[p + 1] - O[p + 1]) <= T && Math.abs(N[p + 2] - O[p + 2]) <= T) continue;
+          if (outside(N, O, x, y) || outside(O, N, x, y)) { m[y * W + x] = 1; n++; }
+        }
+        if (y % 64 === 63) await new Promise(r => setTimeout(r, 0));   // 画面が止まらないように
+      }
+      const out = xn.createImageData(W, H), D = out.data;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const p = 4 * (y * W + x);
+        let hit = m[y * W + x];
+        for (let yy = Math.max(0, y - 1); yy <= Math.min(H - 1, y + 1) && !hit; yy++) for (let xx = Math.max(0, x - 1); xx <= Math.min(W - 1, x + 1) && !hit; xx++) hit = m[yy * W + xx];
+        if (hit) { D[p] = 230; D[p + 1] = 0; D[p + 2] = 0; }
+        else for (let c = 0; c < 3; c++) D[p + c] = 255 - (255 - N[p + c]) * 0.3;
+        D[p + 3] = 255;
+      }
+      xn.putImageData(out, 0, 0);
+      return { canvas: cn, n, label: A.label };
+    })());
+    return S.diffs.get(i);
+  }
+  $('diffBtn').onclick = () => setDiff(!S.diff);
   const FLIP_MS = 650;
   function setFlip(on) {
     S.flip = !!on; S.phase = 1; clearInterval(S.flipT);
+    if (S.flip && S.diff) { S.diff = false; $('diffBtn').classList.remove('on'); $('diffBtn').textContent = '差分を赤で'; }
     if (S.flip) S.flipT = setInterval(() => { if (document.hidden || !S.res) return; S.phase ^= 1; flipTick(); }, FLIP_MS);
     $('flipBtn').classList.toggle('on', S.flip); $('flipBtn').textContent = S.flip ? 'パタパタを止める' : 'パタパタ';
     document.querySelectorAll('.item').forEach(updFlipFig);
@@ -660,7 +735,7 @@
         ${whatHtml(f)}${f.more ? `<div class="meta">同じ違いが全部で ${+f.more} か所あります（ページの表示で枠を確認）</div>` : ''}${f.vsOld && !f.fromOld ? `<div class="meta">旧版：${f.vsOld === 'same' ? (f.cat === 'T' ? '同じ（前回のまま。直っていない可能性）' : '同じ') : (f.cat === 'T' ? '旧版からも変わっています' : '旧版から変わっています（原稿にない変更）')}</div>` : ''}${f.goneN ? `<div class="meta" title="原稿のうち載せない部分なら OK にしてください">成果物に見当たらない${f.refs && f.refs.length ? '行' : 'まとまり'}が ${+f.goneN} 続いています${f.refs && f.refs.length ? `（${esc(f.refs[0])}〜${esc(f.refs[f.refs.length - 1])}）` : ''}</div>` : ''}${markOf(f)}
         ${itemFlip(f) ? `<div class="flipbar"><button class="btn small flipb" title="${esc(itemFlip(f).label)}と成果物を同じ所に重ねて、交互に表示します（キー：P）。ページの表示も同じように切り替わります">${S.flip ? 'パタパタを止める' : 'パタパタで見る'}</button></div>` : ''}
         <div class="crops">${f.old ? '<figure><canvas data-side="O" width="300" height="130"></canvas><figcaption>旧版</figcaption></figure>' : ''}${f.newOnly ? '' : '<figure><canvas data-side="L" width="300" height="130"></canvas><figcaption>原稿</figcaption></figure>'}<figure><canvas data-side="R" width="300" height="130"></canvas><figcaption>成果物${f.approx ? '（およその位置）' : ''}</figcaption></figure>${f.noteBox ? '<figure class="note"><canvas data-side="N" width="300" height="80"></canvas><figcaption>赤字の書き込み</figcaption></figure>' : ''}</div>
-        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}" title="キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目${itemFlip(f) ? '／P パタパタ' : ''}"></div>
+        <div class="judge"><button class="btn small ${v.v === 'ok' ? 'on' : ''}" data-v="ok">OK</button><button class="btn small ${v.v === 'fix' ? 'on' : ''}" data-v="fix">要修正</button><button class="btn small ${v.v === 'hold' ? 'on' : ''}" data-v="hold">保留</button><input placeholder="メモ" value="${esc(v.memo || '')}" title="キー：1 OK・2 要修正・3 保留／↑↓ 前後の項目${itemFlip(f) ? '／P パタパタ／D 差分を赤で' : ''}"></div>
       </div>`;
     }).join('');
     // 切り抜きは画面に入ったものから描く
@@ -725,10 +800,11 @@
   });
   //   P: パタパタ表示の切り替え(項目を選んでいなくても使える)
   document.addEventListener('keydown', ev => {
-    if (ev.key !== 'p' && ev.key !== 'P') return;
-    if (!S.res || $('results').classList.contains('hidden') || $('flipBtn').hidden || !$('savePop').hidden || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
+    const k = ev.key === 'p' || ev.key === 'P' ? 'flip' : ev.key === 'd' || ev.key === 'D' ? 'diff' : null;
+    if (!k) return;
+    if (!S.res || $('results').classList.contains('hidden') || $(k + 'Btn').hidden || !$('savePop').hidden || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
     if (ev.target && ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable="true"]')) return;
-    ev.preventDefault(); setFlip(!S.flip);
+    ev.preventDefault(); if (k === 'flip') setFlip(!S.flip); else setDiff(!S.diff);
   });
   $('flipBtn').onclick = () => setFlip(!S.flip);
   const save = () => { try { localStorage.setItem(S.key, JSON.stringify(S.verdict)); } catch (e) { /* 保存できない環境でも動作は続ける */ } };
@@ -736,7 +812,7 @@
   // 枠: 違う字が分かっていればその位置だけ(最大4か所)、なければ変わった範囲
   const marks = (f, side) => {
     if (side === 'L') return f.onNew ? [] : (f.pboxes && f.pboxes.length && !f.same ? f.pboxes.slice(0, MAXG) : [f.box]);
-    return f.pnboxes && f.pnboxes.length && !f.same ? f.pnboxes.slice(0, MAXG) : f.nbox ? [f.nbox] : [];
+    return f.pnboxes && f.pnboxes.length && !f.same ? f.pnboxes.slice(0, f.fromOld === 'look' || f.fromOld === 'move' ? 60 : MAXG) : f.nbox ? [f.nbox] : [];   // 見た目の違いは、まとめた所ごとの枠をすべて描く
   };
   // 切り抜きの範囲: 違う字のまわりに、字の大きさに合わせた余白を付ける(小さい字は大きく写るように、狭めに切る)
   function cropBox(f, side) { const bs = marks(f, side); return cropOf(bs.length ? bs : [side === 'R' && f.nbox ? f.nbox : f.box]); }
@@ -812,7 +888,17 @@
     $('tabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.p === S.page));
     //   パタパタ表示: 成果物の位置に旧版(原稿)を重ね、1つの表示で交互に出す(相手のないページは、ふつうに並べる)
     const im = S.imgs[S.page], fl = S.flip && im.R ? pageFlip(S.page) : null;
-    $('pinfo').textContent = S.flip && !fl ? 'このページはパタパタできません（重ねる旧版・原稿がありません）' : '';
+    //   差分の赤い表示: 作ってあれば成果物の代わりに出す(まだなら作ってから描き直す)
+    let dimg = null;
+    if (S.diff && im.R && pageFlip(S.page)) {
+      const pr = diffImage(S.page), done = S.diffDone || (S.diffDone = new Map());
+      if (done.has(S.page)) dimg = done.get(S.page);
+      else { const pg = S.page; pr.then(r => { done.set(pg, r); if (S.page === pg && S.diff) drawPage(); }); }
+    }
+    $('pinfo').textContent = S.flip && !fl ? 'このページはパタパタできません（重ねる旧版・原稿がありません）'
+      : S.diff && !pageFlip(S.page) ? 'このページは差分を出せません（重ねる旧版・原稿がありません）'
+      : S.diff && !dimg ? '差分を作っています…'
+      : dimg ? `赤：${dimg.label}と色の違う所（成果物は薄く表示）${dimg.n ? '' : '。違う所はありません'}` : '';
     //   原稿の画像がないページ(成果物だけ・旧版との比べ合わせ)は、成果物を幅いっぱいに出す
     const one = (!im.L && !!im.R) || !!fl, gap = 16, cw = $('vscroll').clientWidth - 2, dpr = window.devicePixelRatio || 1, half = one ? cw : (cw - gap) / 2;
     $('vcap').classList.toggle('one', one);
@@ -844,7 +930,7 @@
     else if (!one) label('原稿なし（成果物だけを確認）', half / 2);
     if (VR) clip(VR, () => {
       if (fl && S.phase === 0 && im.A) { ctx.fillStyle = '#fff'; ctx.fillRect(VR.ox, 0, VR.w, H); drawAligned(ctx, im.A, fl, VR.s, VR.x0, VR.y0, VR.ox, 0); }
-      else ctx.drawImage(im.R, VR.ox - VR.x0 * VR.s, -VR.y0 * VR.s, im.rw * VR.s, im.rh * VR.s);
+      else ctx.drawImage(dimg ? dimg.canvas : im.R, VR.ox - VR.x0 * VR.s, -VR.y0 * VR.s, im.rw * VR.s, im.rh * VR.s);
     });
     else label('対応する成果物のページなし', ox + half / 2);
     const css = getComputedStyle(document.documentElement), boxes = [];
@@ -859,7 +945,7 @@
     const rside = f => (fl && S.phase === 0 ? aBoxes(f, fl) : [...marks(f, 'R'), ...(f.moreNboxes || [])]);
     for (const f of FS) {
       if (f === sf) continue;
-      ctx.globalAlpha = sf ? 0.4 : 1; ctx.strokeStyle = css.getPropertyValue('--c-' + colorOf(f)); ctx.lineWidth = 1.5;
+      ctx.globalAlpha = sf || dimg ? 0.4 : 1; ctx.strokeStyle = css.getPropertyValue('--c-' + colorOf(f)); ctx.lineWidth = 1.5;   // 差分の赤い表示では、赤い所が見えるように薄く
       if (VL) clip(VL, () => { for (const b of [...marks(f, 'L'), ...(f.moreBoxes || [])]) put(VL, f.id, b, plain); });
       if (VR) clip(VR, () => { for (const n of rside(f)) put(VR, f.id, n, plain); });
     }
@@ -869,7 +955,7 @@
       const hi = dash => r => {
         ctx.save(); ctx.strokeStyle = ctx.fillStyle = SEL;
         ctx.globalAlpha = 0.3; ctx.lineWidth = 9; ctx.strokeRect(...r);   // まわりのにじみ(小さい枠でも目に入るように)
-        if (!fl) { ctx.globalAlpha = 0.16; ctx.fillRect(...r); }   // パタパタ表示では塗らない(中の字の変わり方が見えるように)
+        if (!fl && !dimg) { ctx.globalAlpha = 0.16; ctx.fillRect(...r); }   // パタパタ表示・差分の赤い表示では塗らない(中の変わり方が見えるように)
         ctx.globalAlpha = 1; ctx.lineWidth = 2.5; if (dash) ctx.setLineDash([5, 3]); ctx.strokeRect(...r);
         ctx.restore();
       };
@@ -1127,6 +1213,10 @@
       if (f.lint) g.lint = { c: str(f.lint.c), want: str(f.lint.want), ctx: pair(f.lint.ctx) };
       if (f.s3) g.s3 = { still: !!f.s3.still, far: !!f.s3.far, look: !!f.s3.look, nt: num(f.s3.nt), nr: num(f.s3.nr) };
       if (f.old) g.old = { p: int(f.old.p) ?? -1, box: box4(f.old.box), M: m5(f.old.M) };
+      //   色が変わった所の色(旧版・成果物。0〜255 の3つの数)
+      const rgb = c => (Array.isArray(c) ? [0, 1, 2].map(t => Math.max(0, Math.min(255, Math.round(num(c[t]) || 0)))) : [0, 0, 0]);
+      if ('fill' in f) g.fill = f.fill && typeof f.fill === 'object' ? { o: rgb(f.fill.o), n: rgb(f.fill.n) } : null;
+      if ('fills' in f || g.fill) g.fills = Array.isArray(f.fills) ? f.fills.slice(0, 3).map(x => ({ o: rgb(x && x.o), n: rgb(x && x.n) })) : g.fill ? [g.fill] : [];
       for (const k of ['merge', 'rec']) if (f[k]) g[k] = typeof f[k] === 'object' ? { ...f[k], kind: str(f[k].kind), fields: Array.isArray(f[k].fields) ? f[k].fields.map(str) : [] } : null;
       return g;
     });

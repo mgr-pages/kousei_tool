@@ -1355,7 +1355,7 @@
       const pr = pairs[p], at = a + (1 - a) * p / n, prog = s => step(s, at);
       prog(`旧版 ${p + 1}/${n} ページを成果物と比べています`);
       if (pr.q < 0) continue;
-      if (!out.has(pr.q)) { const B = NQ.has(pr.q) ? NQ.get(pr.q).B : JP && JP[pr.q] ? JP[pr.q].B : await PC.pageText(newDoc, pr.q); out.set(pr.q, { B, st: new Uint8Array(B.chars.length), oc: [], used: new Uint8Array(B.chars.length), gone: [], maps: [], moved: [] }); }
+      if (!out.has(pr.q)) { const B = NQ.has(pr.q) ? NQ.get(pr.q).B : JP && JP[pr.q] ? JP[pr.q].B : await PC.pageText(newDoc, pr.q); out.set(pr.q, { B, st: new Uint8Array(B.chars.length), oc: [], used: new Uint8Array(B.chars.length), gone: [], maps: [], moved: [], movedP: [] }); }
       const o = out.get(pr.q), A = await PC.pageText(oldDoc, p);
       //   旧版のページに文字データがない(全面が画像など)ときは、字で位置を合わせられないので、画像のずらし方で合わせ、見た目で比べる(oldLooks)
       //   (これまでは何も比べずに飛ばしていたため、画像が違っても0件になった)。成果物のページにだけ文字データがないときは、下の字の比べ合わせ
@@ -1420,7 +1420,7 @@
       let img = false;
       if (pr.same && !pr.Tr && eq.length < 10) { pr.Tr = await imageShift(oldDoc, p, newDoc, pr.q, pr.T); img = !!pr.Tr; }
       const Tm = pr.Tr || pr.T;
-      if (Tm) for (const [ob, nb] of eq) { const mb = PC.mapBox(Tm, ob); if (mb.some((v, t) => Math.abs(v - nb[t]) > 0.3)) o.moved.push(mb, nb); }
+      if (Tm) for (const [ob, nb] of eq) { const mb = PC.mapBox(Tm, ob); if (mb.some((v, t) => Math.abs(v - nb[t]) > 0.3)) { o.moved.push(mb, nb); o.movedP.push(p); } }   // movedP: その字の旧版のページ
       o.maps.push({ p, T: pr.T, Tr: pr.Tr || null, img });
       await PC.tick();
     }
@@ -1633,8 +1633,8 @@
         flush();
         //   段落(まとまり。PC.blocksOf)ごとにまとめる: 同じ段落に違いの所が2つ以上あれば1件にし、その中に旧→新を所ごとに示す
         //   (書き直した段落が、字の続きごとに何件にも分かれると、確かめて直す手間が増え、見逃しやすくなるため)。1つだけの段落は、これまでと同じ1件
-        const blk = new Int32Array(C.length).fill(-1);
-        PC.blocksOf(C, o.B.items).forEach(([s0, e0], b) => { for (let j = s0; j < e0; j++) blk[j] = b; });
+        const blk = new Int32Array(C.length).fill(-1), BL = PC.blocksOf(C, o.B.items);
+        BL.forEach(([s0, e0], b) => { for (let j = s0; j < e0; j++) blk[j] = b; });
         //   消えた字の置き場所(成果物の字の番号。その字の前で消えた): 字の並びの比べ合わせで分かる位置(at)。ただし、その字が、印の位置にいちばん近い字と
         //   別の段落なら(段落の終わりで消えた字の続きが、次の段落の頭に当たったときなど)、近い字の前か後ろ。字の高さの3倍より離れていれば、まとめず1件のまま
         const delAt = new Map(), addDel = (j, t) => delAt.set(j, [...(delAt.get(j) || []), t]);
@@ -1652,14 +1652,32 @@
         for (const sp of spots) if (!sp.del) sp.b = blk[sp.a];
         const groups = new Map();
         for (const sp of spots) (groups.get(sp.b) || groups.set(sp.b, []).get(sp.b)).push(sp);
-        for (const [b, g] of groups) {
+        //   並びでとなりの段落どうしで、近いもの(行の間が字の大きさの1.5倍以内で、横組みは横に、縦組みは縦に3割以上重なる)は、同じ件にまとめる
+        //   (見出しとその本文、続く項目などを書き直した所が、段落ごとに何件にも分かれないように)
+        const bbox = b => PC.union(C.slice(BL[b][0], BL[b][1]).map(c => c.box)), csz = b => { const x = C[BL[b][0]].box; return Math.min(x[2] - x[0], x[3] - x[1]) || 1; };
+        const vertB = b => !!(o.B.items[C[BL[b][0]].it] || {}).vert;
+        const nearB = (a, c) => {
+          if (vertB(a) !== vertB(c)) return false;
+          const A = bbox(a), B = bbox(c), h = 1.5 * Math.max(csz(a), csz(c)), v = vertB(a);
+          const gap = v ? Math.max(A[0], B[0]) - Math.min(A[2], B[2]) : Math.max(A[1], B[1]) - Math.min(A[3], B[3]);
+          const ov = v ? Math.min(A[3], B[3]) - Math.max(A[1], B[1]) : Math.min(A[2], B[2]) - Math.max(A[0], B[0]), wd = v ? Math.min(A[3] - A[1], B[3] - B[1]) : Math.min(A[2] - A[0], B[2] - B[0]);
+          return gap <= h && ov >= 0.3 * wd;
+        };
+        const runs = [];
+        for (const b of [...groups.keys()].sort((x, y) => x - y)) {
+          const last = runs[runs.length - 1];
+          if (b >= 1 && last && last[last.length - 1] === b - 1 && nearB(b - 1, b)) last.push(b); else runs.push([b]);
+        }
+        for (const bs of runs) {
+          const g = bs.flatMap(b => groups.get(b)), b = bs[0], bz = bs[bs.length - 1];
           if (g.length === 1) { items.push(g[0].item); continue; }
-          //   旧→新は、段落の中の最初の違いから最後の違いまでを、字ごとに組み立てる(消えた字は並びの位置に。変わっていない字はそのまま)
+          //   旧→新は、段落の中の最初の違いから最後の違いまでを、字ごとに組み立てる(消えた字は並びの位置に。変わっていない字はそのまま。段落の境は全角の空白で示す)
           const a0 = Math.min(...g.map(sp => sp.a)), z0 = Math.max(...g.map(sp => sp.z)), segs = [];
           const pre = []; for (let j = a0 - 1; j >= 0 && pre.length < 6 && blk[j] === b && o.st[j] === 1; j--) pre.unshift(C[j].c);
-          const post = []; for (let j = z0 + 1; j < C.length && post.length < 6 && blk[j] === b && o.st[j] === 1 && !delAt.has(j); j++) post.push(C[j].c);
+          const post = []; for (let j = z0 + 1; j < C.length && post.length < 6 && blk[j] === bz && o.st[j] === 1 && !delAt.has(j); j++) post.push(C[j].c);
           if (pre.length) push(segs, '=', pre.join(''));
           for (let j = a0; j <= z0; j++) {
+            if (j !== a0 && blk[j] !== blk[j - 1]) push(segs, '=', '　');
             if (j !== a0 && (C[j].sp || C[j].it !== C[j - 1].it) && PC.DIGC.test(C[j].c) && PC.DIGC.test(C[j - 1].c)) push(segs, '=', ' ');
             for (const t of delAt.get(j) || []) push(segs, '-', t);
             if (o.st[j] === 1) push(segs, '=', C[j].c);
@@ -1743,11 +1761,21 @@
       }
       return false;
     };
+    //   平らか: (x, y) のまわり 5×5 の色の幅(どの色も)が FILL.flat 以下(旧版の側は、旧版の外の画素を見ない)
+    const flatAt = (Q, x, y, oo) => {
+      for (let c = 0; c < 3; c++) {
+        let lo = 255, hi = 0;
+        for (let yy = Math.max(y0, y - RN); yy <= Math.min(y1 - 1, y + RN); yy++) for (let xx = Math.max(x0, x - RN); xx <= Math.min(x1 - 1, x + RN); xx++) { const j = yy * w + xx; if (oo && !ok[j]) continue; const v = Q[4 * j + c]; if (v < lo) lo = v; if (v > hi) hi = v; }
+        if (hi - lo > FILL.flat) return false;
+      }
+      return true;
+    };
     let cnt = 0;
+    const flat = new Uint8Array(w * h);
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
       const i = y * w + x; if (!ok[i]) continue;
       const p = 4 * i; if (Math.abs(nd[p] - O[p]) <= LOOK_TOL && Math.abs(nd[p + 1] - O[p + 1]) <= LOOK_TOL && Math.abs(nd[p + 2] - O[p + 2]) <= LOOK_TOL) continue;
-      if (outside(nd, O, x, y, i) || outside(O, nd, x, y, i)) { m[i] = 1; cnt++; }
+      if (outside(nd, O, x, y, i) || outside(O, nd, x, y, i)) { m[i] = 1; cnt++; if (flatAt(nd, x, y, false) && flatAt(O, x, y, true)) flat[i] = 1; }
     }
     if (!cnt) return [];
     //   文字の変化・字の移動で説明できる違いを除く
@@ -1758,12 +1786,23 @@
     }
     //   成果物の書き込みの帯(とそのふち 2画素)も除く
     if (skip) { const sk = PC.morph(skip, w, h, 'dilate', 5, 5); for (let i = 0; i < w * h; i++) if (sk[i]) m[i] = 0; }
-    //   近い違いをまとめ、違う画素の数が少ないまとまりは出さない
-    const g = PC.morph(m, w, h, 'dilate', 9, 9), cc = PC.cc(g, w, h), n = new Int32Array(cc.n), bx = Array.from({ length: cc.n }, () => [Infinity, Infinity, -1, -1]);
-    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-      const i = y * w + x; if (!m[i]) continue;
-      const l = cc.lab[i]; n[l]++; const q = bx[l]; if (x < q[0]) q[0] = x; if (y < q[1]) q[1] = y; if (x > q[2]) q[2] = x; if (y > q[3]) q[3] = y;
+    //   違いを分ける(下の FILL の説明): 色が変わった所(m から除く)・長い細い線(m から除いて ln へ)・それ以外(m に残る)。
+    //   分ける前の違い(m0)のまとまりも作る(移動の見分けは、これまでどおりのまとまりで行う。ページの 1/4 を超えるまとまりだけ、分けたものに置き換える)
+    const m0 = m.slice(), fills = fillUnits(m, flat, nd, O, w, h, x0, y0, x1, y1, cnt);
+    const lh = new Uint8Array(w * h), lv = new Uint8Array(w * h);   // 横の線・縦の線
+    {
+      const hl = PC.morph(m, w, h, 'open', FILL.line, 1), vl = PC.morph(m, w, h, 'open', 1, FILL.line), th = PC.morph(PC.morph(m, w, h, 'open', 7, 7), w, h, 'dilate', 3, 3);
+      for (let i = 0; i < w * h; i++) if (m[i] && !th[i]) { if (hl[i]) { lh[i] = 1; m[i] = 0; } else if (vl[i]) { lv[i] = 1; m[i] = 0; } }
     }
+    //   近い違いをまとめ、違う画素の数が少ないまとまりは出さない(長い細い線は、線どうしだけ 3×3 でつなぐ)
+    const clusters = (M, dil) => {
+      const g = PC.morph(M, w, h, 'dilate', dil, dil), cc = PC.cc(g, w, h), n = new Int32Array(cc.n), bx = Array.from({ length: cc.n }, () => [Infinity, Infinity, -1, -1]);
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+        const i = y * w + x; if (!M[i]) continue;
+        const l = cc.lab[i]; n[l]++; const q = bx[l]; if (x < q[0]) q[0] = x; if (y < q[1]) q[1] = y; if (x > q[2]) q[2] = x; if (y > q[3]) q[3] = y;
+      }
+      return { n, bx, N: cc.n, M };
+    };
     //   重なる・8画素以内のまとまりは1件にする(写真・図の中の違いが、同じ色の所をはさんで分かれたもの)。
     //   ただし、細い線だけの大きなまとまり(ページのふちの枠線など。枠の中の違う画素が 2% 未満)は、それだけで1件にする
     //   (枠の範囲に、中のほかの違いを吸い込まないように)
@@ -1773,45 +1812,153 @@
     //   ・太さ3画素以下の線だけの違い(違う画素の数 ÷ 長い辺 ≦ 3。画像を細かく分けて並べた所のつなぎ目・帯の境目が、細い線として
     //     片方の版にだけ描かれる。ページのふちの枠線・折り線などの細い線だけの違いも、ここで出さない。パタパタで目で確かめる)
     //   (ます目は、違う画素を含むものだけを数える。まわりの説明済みの字の変化を数えないように)
-    const coarse = b => {
+    const coarse = (b, M) => {
       let c = 0;
       for (let y = b[1] - (b[1] % 4); y < b[3] && y + 4 <= h; y += 4) for (let x = b[0] - (b[0] % 4); x < b[2] && x + 4 <= w; x += 4) {
         const s = [0, 0, 0, 0, 0, 0]; let k2 = 0, hit = 0;
-        for (let yy = y; yy < y + 4; yy++) for (let xx = x; xx < x + 4; xx++) { const i = yy * w + xx; if (!ok[i]) continue; k2++; hit |= m[i]; for (let t = 0; t < 3; t++) { s[t] += nd[4 * i + t]; s[3 + t] += O[4 * i + t]; } }
+        for (let yy = y; yy < y + 4; yy++) for (let xx = x; xx < x + 4; xx++) { const i = yy * w + xx; if (!ok[i]) continue; k2++; hit |= M[i]; for (let t = 0; t < 3; t++) { s[t] += nd[4 * i + t]; s[3 + t] += O[4 * i + t]; } }
         if (hit && k2 === 16 && (Math.abs(s[0] - s[3]) > 640 || Math.abs(s[1] - s[4]) > 640 || Math.abs(s[2] - s[5]) > 640) && ++c >= 3) return true;
       }
       return false;
     };
-    if (window.__pcDebug) PC._looks = PC._looks || [];
-    let out = [];
-    for (let l = 1; l < cc.n; l++) if (n[l] >= LOOK_MIN && Math.max(bx[l][2] - bx[l][0], bx[l][3] - bx[l][1]) >= 4) {
-      const b = [bx[l][0], bx[l][1], bx[l][2] + 1, bx[l][3] + 1], a = (b[2] - b[0]) * (b[3] - b[1]), thin = n[l] / Math.max(b[2] - b[0], b[3] - b[1]) <= 3, co = !thin && coarse(b);
-      if (window.__pcDebug) PC._looks.push({ b, n: n[l], thin, coarse: co });
-      if (thin || !co) continue;
-      out.push({ b, sparse: a > 200 * 200 && n[l] < 0.02 * a });
+    if (window.__pcDebug) { PC._looks = PC._looks || []; PC._fills = PC._fills || []; PC._fills.push(...fills.map(f => ({ b: f.b, n: f.n, fill: f.fill }))); }
+    const cut = (list, M, dil, line) => {
+      const out = [], { n, bx, N } = clusters(M, dil);
+      for (let l = 1; l < N; l++) if (n[l] >= LOOK_MIN && Math.max(bx[l][2] - bx[l][0], bx[l][3] - bx[l][1]) >= 4) {
+        const b = [bx[l][0], bx[l][1], bx[l][2] + 1, bx[l][3] + 1], a = (b[2] - b[0]) * (b[3] - b[1]);
+        const thin = n[l] / (line === 'h' ? b[2] - b[0] : line === 'v' ? b[3] - b[1] : Math.max(b[2] - b[0], b[3] - b[1])) <= 3, co = !thin && coarse(b, M);
+        if (window.__pcDebug) PC._looks.push({ b, n: n[l], thin, coarse: co, line: !!line, whole: list === 'whole' });
+        if (thin || !co) continue;
+        out.push({ b, n: n[l], sparse: a > 200 * 200 && n[l] < 0.02 * a });
+      }
+      return out;
+    };
+    //   分けたもの(fine)と、分ける前のまとまり(whole)
+    const fine = [...cut('fine', m, 9), ...cut('fine', lh, 3, 'h'), ...cut('fine', lv, 3, 'v'), ...fills.map(f => ({ b: f.b.slice(), n: f.n, sparse: false, fill: f.fill }))];
+    const cap = FILL.cap * w * h, area = b => (b[2] - b[0]) * (b[3] - b[1]), whole = cut('whole', m0, 9).filter(x => area(x.b) <= FILL.whole * w * h);
+    //   分けたものを、それを含むいちばん小さい(ページの 1/4 以下の)まとまりに付ける。どれにも入らないもの(大きすぎるまとまりの中のもの)は、そのまま使う
+    const wholes = whole.map(x => ({ ...x, sub: [] })), parts = wholes.slice();
+    for (const f of fine) {
+      let best = null;
+      for (const x of wholes) if (f.b[0] >= x.b[0] - 2 && f.b[1] >= x.b[1] - 2 && f.b[2] <= x.b[2] + 2 && f.b[3] <= x.b[3] + 2 && (!best || area(x.b) < area(best.b))) best = x;
+      if (best) best.sub.push(f); else parts.push(f);
     }
-    const parts = out.map(x => ({ b: x.b.slice(), sparse: x.sparse }));   // まとめる前のまとまり(移動の見分けに使う)
+    //   分ける前のまとまりの色の変化(移動の見分けのあとで使う): 中の色が変わった所の一覧と、ほかの違い(写真・図・線)があるか
+    for (const x of parts) if (x.sub) {
+      const fs = x.sub.filter(f => f.fill).sort((p, q) => q.n - p.n), nf = fs.reduce((t, f) => t + f.n, 0);
+      x.subFills = fs.map(f => ({ ...f.fill, a: area(f.b) })); x.subOther = x.sub.some(f => !f.fill) || nf < 0.9 * x.n;
+    }
+    //   まとめる前のまとまり(parts。移動の見分けに使う)と、まとめたもの
+    const res = mergeParts(withFills(parts), cap); res.parts = parts;
+    return res;
+  }
+  //   分ける前のまとまりに、中の色の変化を項目の情報として付ける(移動の見分けでは、分ける前のまとまりを色の面として扱わないように、あとで付ける)
+  const withFills = xs => xs.map(x => (x.subFills ? { ...x, fills: x.subFills, other: x.subOther, fill: !x.subOther && x.subFills.length ? x.subFills[0] : null } : x));
+  //   違いの分け方(人が見比べるときの見方): 地の色が変わった所や、ページのふちの細い線は、ページじゅうの違いを画素の上でつなぎ、
+  //   ページ全体を囲む1つのまとまりになる(その中の写真・QRコード・囲みの作り替え・移動が、場所の分からない1件に埋もれる)。
+  //   人は「ここは地の色が変わった」「ここは写真が変わった」と、まとまり(要素)ごとに見るので、画素も次のように分けてからまとめる:
+  //   ・色が変わった所: 旧版・成果物とも、まわり 5×5 の色の幅が 24 以下(平らな面どうしで、色だけが違う)の違う画素を、となりどうしで
+  //     色の変わり方(成果物 − 旧版)の差が 24 以内のものでたどる。800画素(約3.6mm角)以上のものを1か所とする(地・囲みの塗りの色の変更)
+  //   ・そのふち・上の字: 色が変わった所から 6画素以内の違う画素のうち、その所の色の変わり方で説明できるもの(成果物 − 旧版 ≒ t ×(平均の
+  //     変わり方)、0≦t≦1、どの色も差 40 以内。地の色だけが変わった所の、字のふち・地と囲みの境目)は、その所に入れる
+  //   ・長い細い線: 縦・横に 60画素(約7.6mm)以上続く、太さ 6画素ほどまでの違い(ページのふちの線など)は、ほかの違いとつながないように
+  //     線どうしだけでまとめる(細い線だけのまとまりは、これまでどおり出さない)
+  //   ・それ以外(写真・図・字のふちなど): これまでどおり近いものをまとめる
+  //   まとめる(1か所1件): 地の色のような大きな色の所(ページの 1/10 を超えるもの)は、変わり方の向きが近い(cos 0.9 以上)大きな色の所とだけ、
+  //   24画素(約3mm)以内のものをまとめる(グラデーションの地は、場所ごとに変わり方の大きさが違う。地の色の中の写真などは別の項目にする)。
+  //   それ以外は、色の所も写真・図・線の違いも区別せずに、24画素以内のものをまとめる(囲みの作り替えなどは、塗り・線・字の見た目が入り組んで
+  //   変わるので、ばらばらの項目にせず1件にする)。ただし、まとめた枠がページの 1/10 を超えるならまとめない(離れた所を1件にしない)
+  const FILL = { flat: 24, min: 800, tol: 24, reach: 6, line: 60, gap: 24, cos: 0.9, near: 24, cap: 0.1, whole: 0.25 };
+  function fillUnits(m, flat, N, O, w, h, x0, y0, x1, y1, cnt) {
+    let nF = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w + x; if (m[i] && flat[i]) nF++; }
+    if (!nF) return [];
+    const lab = new Int32Array(w * h), U = [null], T = FILL.tol;
+    let qu = new Int32Array(nF);
+    const nbr = (i, f) => { const x = i % w, y = (i - x) / w; if (x > x0) f(i - 1); if (x + 1 < x1) f(i + 1); if (y > y0) f(i - w); if (y + 1 < y1) f(i + w); };
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const s = y * w + x; if (!m[s] || !flat[s] || lab[s]) continue;
+      const id = U.length, u = { n: 0, nF: 0, b: [x, y, x, y], so: [0, 0, 0], sn: [0, 0, 0] }; U.push(u);
+      let qh = 0, qt = 0; qu[qt++] = s; lab[s] = id;
+      while (qh < qt) {
+        const i = qu[qh++], p = 4 * i, xx = i % w, yy = (i - xx) / w;
+        u.nF++; if (xx < u.b[0]) u.b[0] = xx; if (xx > u.b[2]) u.b[2] = xx; if (yy < u.b[1]) u.b[1] = yy; if (yy > u.b[3]) u.b[3] = yy;
+        for (let c = 0; c < 3; c++) { u.so[c] += O[p + c]; u.sn[c] += N[p + c]; }
+        const c0 = N[p] - O[p], c1 = N[p + 1] - O[p + 1], c2 = N[p + 2] - O[p + 2];
+        nbr(i, j => {
+          if (!m[j] || !flat[j] || lab[j]) return;
+          const r = 4 * j;
+          if (Math.abs(N[r] - O[r] - c0) <= T && Math.abs(N[r + 1] - O[r + 1] - c1) <= T && Math.abs(N[r + 2] - O[r + 2] - c2) <= T) { lab[j] = id; qu[qt++] = j; }
+        });
+      }
+      u.n = u.nF;
+    }
+    //   小さい所(800画素未満。写真の中の平らな所など)は、色が変わった所にしない(それ以外の違いとしてまとめる)
+    const big = U.map(u => !!u && u.nF >= FILL.min), cm = U.map(u => u && [0, 1, 2].map(c => (u.sn[c] - u.so[c]) / u.nF));
+    //   ふち・上の字: 色が変わった所の画素から、違う画素をたどる(6画素まで)
+    qu = new Int32Array(cnt); const qd = new Uint8Array(cnt);
+    let qh = 0, qt = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w + x; if (!lab[i]) continue; if (big[lab[i]]) { qu[qt] = i; qd[qt++] = 0; } else lab[i] = 0; }
+    while (qh < qt) {
+      const i = qu[qh], d = qd[qh++]; if (d >= FILL.reach) continue;
+      const id = lab[i], c = cm[id], cc = c[0] * c[0] + c[1] * c[1] + c[2] * c[2], u = U[id];
+      nbr(i, j => {
+        if (!m[j] || lab[j] || qt >= cnt) return;
+        const r = 4 * j, D0 = N[r] - O[r], D1 = N[r + 1] - O[r + 1], D2 = N[r + 2] - O[r + 2];
+        const t = cc > 0 ? Math.min(1, Math.max(0, (D0 * c[0] + D1 * c[1] + D2 * c[2]) / cc)) : 0;
+        if (Math.abs(D0 - t * c[0]) > LOOK_TOL || Math.abs(D1 - t * c[1]) > LOOK_TOL || Math.abs(D2 - t * c[2]) > LOOK_TOL) return;
+        lab[j] = id; qu[qt] = j; qd[qt++] = d + 1; u.n++;
+        const xx = j % w, yy = (j - xx) / w; if (xx < u.b[0]) u.b[0] = xx; if (xx > u.b[2]) u.b[2] = xx; if (yy < u.b[1]) u.b[1] = yy; if (yy > u.b[3]) u.b[3] = yy;
+      });
+    }
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = y * w + x; if (lab[i]) m[i] = 0; }
+    const out = [];
+    for (let id = 1; id < U.length; id++) if (big[id]) {
+      const u = U[id], b = [u.b[0], u.b[1], u.b[2] + 1, u.b[3] + 1];
+      if (u.n / Math.max(b[2] - b[0], b[3] - b[1]) <= 3) continue;   // 細い帯だけのもの
+      out.push({ b, n: u.n, fill: { o: u.so.map(v => Math.round(v / u.nF)), n: u.sn.map(v => Math.round(v / u.nF)) } });
+    }
+    return out;
+  }
+  //   見た目の違いのまとまり({ b, sparse, fill })をまとめる(上の説明)。cap: それ以外どうしでまとめた枠の大きさの上限(画素の面積)
+  //   返り値のまとまりには、まとめたもとの枠(members)を添える(項目の枠として、違う所ごとに描く)
+  function mergeParts(xs, cap) {
+    const out = xs.map(x => ({ ...x, b: x.b.slice(), members: x.members || [x.b.slice()] })), area = b => (b[2] - b[0]) * (b[3] - b[1]);
+    const near = (p, q, g) => Math.max(p[0], q[0]) - Math.min(p[2], q[2]) <= g && Math.max(p[1], q[1]) - Math.min(p[3], q[3]) <= g;
+    const chg = f => [0, 1, 2].map(c => f.n[c] - f.o[c]), len = v => Math.hypot(v[0], v[1], v[2]);
+    const cos = (a, c) => (a[0] * c[0] + a[1] * c[1] + a[2] * c[2]) / Math.max(1e-9, len(a) * len(c));
+    //   色の一覧(fills: 色が変わった所の旧版・成果物の色と大きさ)・中に写真・図などの違いがあるか(other)
+    for (const x of out) { if (!x.fills) x.fills = x.fill ? [{ ...x.fill, a: area(x.b) }] : []; if (x.other == null) x.other = !x.fill; }
+    const bigFill = x => x.fill && !x.other && area(x.b) > cap;
     for (let merged = true; merged;) {
       merged = false;
       for (let i = 0; i < out.length && !merged; i++) for (let j = i + 1; j < out.length; j++) {
-        const p = out[i].b, q = out[j].b;
-        if (out[i].sparse || out[j].sparse) continue;
-        if (Math.max(p[0], q[0]) - Math.min(p[2], q[2]) <= 8 && Math.max(p[1], q[1]) - Math.min(p[3], q[3]) <= 8) { out[i] = { b: PC.union([p, q]), sparse: false }; out.splice(j, 1); merged = true; break; }
+        const p = out[i], q = out[j];
+        if (p.sparse || q.sparse) continue;
+        const u = PC.union([p.b, q.b]), bp = bigFill(p), bq = bigFill(q);
+        if (bp || bq) {   // 大きな色の所(地の色): 同じ向きの大きな色の所とだけ
+          if (!(bp && bq) || !near(p.b, q.b, FILL.gap) || cos(chg(p.fill), chg(q.fill)) < FILL.cos) continue;
+        } else {
+          if (!near(p.b, q.b, FILL.near)) continue;
+          if (area(u) > cap && area(u) > Math.max(area(p.b), area(q.b))) continue;   // 大きくなりすぎる(離れた違いを、間の広い所ごと1件にする)
+        }
+        const fills = [...p.fills, ...q.fills].sort((x, y) => y.a - x.a), other = p.other || q.other;
+        out[i] = { b: u, sparse: false, fill: other ? null : fills[0] || null, fills, other, members: [...p.members, ...q.members] };
+        out.splice(j, 1); merged = true; break;
       }
     }
-    const res = out.map(x => x.b); res.parts = parts;
-    return res;
+    return out;
   }
   //   見た目の違い(成果物の画素の枠)を、2つに分ける:
   //   ・字の見た目: 違いのほとんど(6割以上)が、旧版と同じで動いていない字の上にある(同じ字の色・太さ・書体だけが変わった)。
   //     同じ行(縦組みは同じ列)で字の高さの2倍以内に並ぶものは1件にまとめ、その字(text)を添える
   //   ・字以外の見た目(写真・図・色・線など): それ以外
   //   o: oldDiff の成果物のページ(B: 字、st: 字ごとの旧版との関係(1 = 旧版と同じ)、moved: 動いた字)
-  function lookKinds(boxes, o) {
+  function lookKinds(parts, o) {
     const k = PC.S, C = o.B.chars, same = C.map((c, j) => o.st[j] === 1);
     const px = b => [b[0] * k, b[1] * k, b[2] * k, b[3] * k], area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
     const inter = (a, b) => area([Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]);
-    const out = boxes.map(box => {
+    const out = parts.map(({ b: box, fill, fills, other, members }) => {
       const js = [], g = [box[0] - 2, box[1] - 2, box[2] + 2, box[3] + 2];
       C.forEach((c, j) => { if (same[j] && inter(px(c.box), g) > 0) js.push(j); });
       //   違いの枠のうち、そうした字の枠(まわり2画素)に入る割合
@@ -1819,7 +1966,7 @@
       if (js.length) { const m = new Uint8Array(Math.max(1, Math.ceil(box[2] - box[0])) * Math.max(1, Math.ceil(box[3] - box[1]))), W = Math.max(1, Math.ceil(box[2] - box[0]));
         for (const j of js) { const b = px(C[j].box); for (let y = Math.max(box[1], Math.floor(b[1] - 2)); y < Math.min(box[3], Math.ceil(b[3] + 2)); y++) for (let x = Math.max(box[0], Math.floor(b[0] - 2)); x < Math.min(box[2], Math.ceil(b[2] + 2)); x++) m[(y - box[1]) * W + (x - box[0])] = 1; }
         cov = m.reduce((s, v) => s + v, 0) / Math.max(1, area(box)); }
-      return { box, js: cov >= 0.6 ? js : null };
+      return { box, js: cov >= 0.6 ? js : null, fill, fills, other, members: members || [box] };
     });
     //   字の見た目の違いを、同じ行・同じ列で近いものどうしまとめる
     const T = out.filter(x => x.js), N = out.filter(x => !x.js), hOf = x => { const hs = x.js.map(j => Math.min(C[j].box[3] - C[j].box[1], C[j].box[2] - C[j].box[0]) * k).sort((a, b) => a - b); return hs[hs.length >> 1] || 10; };
@@ -1829,10 +1976,10 @@
         const a = T[i].box, b = T[j].box, h = 2 * Math.max(hOf(T[i]), hOf(T[j]));
         const ovY = Math.min(a[3], b[3]) - Math.max(a[1], b[1]), ovX = Math.min(a[2], b[2]) - Math.max(a[0], b[0]), gapX = Math.max(a[0], b[0]) - Math.min(a[2], b[2]), gapY = Math.max(a[1], b[1]) - Math.min(a[3], b[3]);
         const row = ovY >= 0.5 * Math.min(a[3] - a[1], b[3] - b[1]) && gapX <= h, col = ovX >= 0.5 * Math.min(a[2] - a[0], b[2] - b[0]) && gapY <= h;
-        if (row || col) { T[i] = { box: PC.union([a, b]), js: [...new Set([...T[i].js, ...T[j].js])] }; T.splice(j, 1); merged = true; break; }
+        if (row || col) { T[i] = { box: PC.union([a, b]), js: [...new Set([...T[i].js, ...T[j].js])], members: [...T[i].members, ...T[j].members] }; T.splice(j, 1); merged = true; break; }
       }
     }
-    return [...T.map(x => ({ box: x.box, text: x.js.sort((a, b) => a - b).map(j => C[j].c).join('') })), ...N.map(x => ({ box: x.box, text: null }))];
+    return [...T.map(x => ({ box: x.box, text: x.js.sort((a, b) => a - b).map(j => C[j].c).join(''), members: x.members })), ...N.map(x => ({ box: x.box, text: null, fill: x.fill || null, fills: x.fills || [], other: x.other !== false, members: x.members }))];
   }
   // ---- 移動の見分け(旧版から見た目が変わった所のうち、動かしただけの所) ----
   //   旧版をページ全体の1つの位置合わせで成果物に重ねると、ページの中で動かしたブロック・写真・アイコンなどは、元の所と移った先の両方が
@@ -1847,7 +1994,7 @@
   //   動かして重ねたときの違う画素が、そのまとまりの違う画素の2割以下になる動きを、そのまとまりの動きとする。
   //   両方の側が説明できた(動き・地。両方とも地は除く)まとまりを、同じ動き・近い(200画素＝約25mm 以内)ものどうしで1つの「移動した範囲」に
   //   まとめる。その範囲の中で、動かして重ねても違う所は、中身の違いとして見た目の違いの項目に出す(見逃さないように)
-  const MOVE = { tex: 0.005, keep: 0.2, gap: 200, search: 24, side: 24, tol: 2, parts: 300, cands: 40, pages: 4 };
+  const MOVE = { tex: 0.005, keep: 0.2, gap: 200, search: 24, side: 24, tol: 2, parts: 300, cands: 40, pages: 4, txt: 1 };
   //   画素の違い(lookDiff と同じ見方: 色の差が 40 を超え、相手のまわり 5×5 の色の範囲にも入らない画素)の数:
   //   成果物 N の (x, y) と旧版 O の (x - tx, y - ty) を、box(成果物の画素)の中で step おきに比べる。成果物の外・旧版の外は違いとする
   //   (ページの外へ移ったことにしないように)。mask(box の大きさ)を渡すと、違う画素に 1 を入れる。違う画素が stop を超えたら、そこで数えるのをやめる
@@ -1997,7 +2144,7 @@
     for (const part of sorted.slice(MOVE.parts)) rest.push(part);
     for (const part of sorted.slice(0, MOVE.parts)) {
       const b = part.b, base = shiftDiff(NW, OI, t0[0], t0[1], b, stepOf(b)).cnt, lim = MOVE.keep * base;
-      const ob = shift(b, [-t0[0], -t0[1]]), nbg = texture(NW, b) < MOVE.tex, obg = texture(OI, ob) < MOVE.tex;
+      const ob = shift(b, [-t0[0], -t0[1]]), nbg = !!part.fill || texture(NW, b) < MOVE.tex, obg = !!part.fill || texture(OI, ob) < MOVE.tex;   // 色が変わった所は、両方とも中身の薄い所として扱う
       if (!base) { rest.push(part); continue; }
       info.push({ part, b, ob, lim, base, nbg, obg });
       if (nbg && obg) continue;   // 両方とも中身の薄い所(淡い花びら・色の面など): 探さない(2回目に、まわりの大きな動きで説明できるかだけを見る)
@@ -2048,7 +2195,8 @@
       x.os = x.os.filter(e => e.sharp || nearAnc(e.c, shift(x.ob, e.c.t)));
     }
     //   両方とも中身が薄い所は、そのまとまりの10倍以上の違いを説明できている(まわりの大きな)動きで説明できるときだけ、その動きに入れる
-    for (const x of info) if (x.nbg && x.obg) x.ns = x.ns.filter(e => (sup.get(e.c) || 0) >= 10 * x.base);
+    //   (色が変わった所(lookDiff の fill)は、その所の違う画素と同じ数以上。動かした囲み・帯のふちの、色の変わった帯を、動きに入れるため)
+    for (const x of info) if (x.nbg && x.obg) x.ns = x.ns.filter(e => (sup.get(e.c) || 0) >= (x.part.fill ? 1 : 10) * x.base);
     const choose = es => es.reduce((a, e) => (!a || (sup.get(e.c) || 0) > (sup.get(a.c) || 0) || ((sup.get(e.c) || 0) === (sup.get(a.c) || 0) && e.v < a.v) ? e : a), null);
     //   成果物の側は移ってきた中身で説明できるが、旧版の側(その所に旧版であった中身)が成果物のどこにもないまとまりは、
     //   「旧版の中身が、移ってきた中身に置き換わった所」として、その動きごとに1件にまとめる(repl。旧版の中身がなくなったことは出す)
@@ -2132,6 +2280,7 @@
     const pureT = T => Math.abs(T[0] - 1) < 1e-3 && Math.abs(T[1]) < 1e-3 && Math.abs((T.length > 4 ? T[4] : T[0]) - 1) < 1e-3;
     const mm = v => Math.round(v * 25.4 / 72 * 10) / 10;   // pt → mm(小数1けた)
     const oldName = p => { const n = oldDoc.parts && oldDoc.parts.length > 1 ? PC.pageOf(oldDoc.parts, p) : null; return n ? `旧版（${n.name}）の${n.page}ページ目` : `旧版の${p + 1}ページ目`; };
+    const dirOf = v => [Math.abs(mm(v[0])) >= 0.3 ? `${v[0] > 0 ? '右' : '左'}へ ${Math.abs(mm(v[0]))}mm` : '', Math.abs(mm(v[1])) >= 0.3 ? `${v[1] > 0 ? '下' : '上'}へ ${Math.abs(mm(v[1]))}mm` : ''].filter(Boolean).join('・');
     for (const [q, o] of OLD.byQ) {
       step(done++ / OLD.byQ.size);
       //   位置合わせを同じ字の組で確かめられたページ(Tr)だけ(おおよその変換で重ねると、ずれた所がみな違いになる)
@@ -2144,7 +2293,16 @@
       //   図形の文字で旧版から見た目が変わった所(shapeSpots で出たもの)
       const ex = [...o.moved, ...o.B.chars.filter((c, j) => o.st[j] !== 1).map(c => c.box), ...o.gone.map(g => [(OLD.pairs[g.p] && OLD.pairs[g.p].Tr) || g.T, g]).filter(([T]) => T).map(([T, g]) => PC.mapBox(T, PC.union(g.cs.map(c => c.box))))];
       for (const d of ds) for (const x of d.shapes || []) { const o0 = d.crop ? [d.crop[0], d.crop[1]] : [0, 0]; ex.push([x.nbox[0] / k + o0[0], x.nbox[1] / k + o0[1], x.nbox[2] / k + o0[0], x.nbox[3] / k + o0[1]]); }
-      const NW = await PC.renderPage(newDoc, q, PC.DPI, false), skip = pinkBands(NW, o.B);
+      const NW = await PC.renderPage(newDoc, q, PC.DPI, false), skip = pinkBands(NW, o.B), vmoves = [];   // vmoves: 見た目で見つけた移動(動き pt・範囲 pt)
+      //   結果のページ(このページを表示しているもの。なければ「成果物だけ」のページを足す)
+      const pageAt = async (cx, cy) => {
+        let d = ds.find(d => d.kind !== 'newonly' && !d.crop) || ds.find(d => d.crop && cx >= d.crop[0] && cx <= d.crop[2]) || P.find(e => e.kind === 'newonly' && e.q === q);
+        if (!d) {
+          d = { kind: 'newonly', q, src: null, label: null, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], thumbs: { left: null, right: await toThumb(NW) } };
+          P.push(d); ds.push(d);
+        }
+        return d;
+      };
       for (const mp of maps) {
         //   比べる範囲: 旧版のページを写した範囲(成果物の pt)
         const OI = await PC.renderPage(oldDoc, mp.p, PC.DPI, false);
@@ -2163,7 +2321,7 @@
           }
           const textT = [...tv.values()].filter(e => e.n >= 3).sort((a, c) => c.n - a.n).slice(0, 12).map(e => e.t);
           const r = await explainMoves(NW, [{ p: mp.p, img: OI, g: gray4(OI) }, ...(await spareImgs(q, mp.p))], t0, lk.parts, textT, ex, skip);
-          if (r.moves.length) { moves = r.moves; boxes = mergeLook(r.rest); }
+          if (r.moves.length) { moves = r.moves; boxes = mergeParts(withFills(r.rest), FILL.cap * NW.w * NW.h); }
           //   移動した範囲を、同じ動きで位置の動いた同じ字まで広げる(動かしたブロックの文字も、移動した範囲に入れる。字は文字の比べ合わせで同じと確かめてある)
           for (const m of moves) {
             if (m.p !== mp.p) continue;
@@ -2185,21 +2343,12 @@
             m.box = bs[0]; m.more = bs.slice(1);
           }
         }
-        //   結果のページ(このページを表示しているもの。なければ「成果物だけ」のページを足す)
-        const pageAt = async (cx, cy) => {
-          let d = ds.find(d => d.kind !== 'newonly' && !d.crop) || ds.find(d => d.crop && cx >= d.crop[0] && cx <= d.crop[2]) || P.find(e => e.kind === 'newonly' && e.q === q);
-          if (!d) {
-            d = { kind: 'newonly', q, src: null, label: null, ch: [], im: [], an: [], notes: [], restBoxes: [], ot: [], nt: [], pairs: [], oc: [], nc: [], extra: [], thumbs: { left: null, right: await toThumb(NW) } };
-            P.push(d); ds.push(d);
-          }
-          return d;
-        };
         const rel = (b, o0) => [b[0] - o0[0] * k, b[1] - o0[1] * k, b[2] - o0[0] * k, b[3] - o0[1] * k];
-        for (const { box: b, text } of lookKinds(boxes, o)) {
+        for (const { box: b, text, fill, fills, other, members } of lookKinds(boxes, o)) {
           const nbPt = b.map(v => v / k), [cx, cy] = PC.center(nbPt);
           if (vis.some(r => cx >= r[0] && cx <= r[2] && cy >= r[1] && cy <= r[3])) continue;
           const d = await pageAt(cx, cy), o0 = d.crop ? [d.crop[0], d.crop[1]] : [0, 0], nb = rel(b, o0);
-          (d.looks || (d.looks = [])).push({ nbox: nb, text, old: { p: mp.p, box: PC.mapBox(PC.invT(mp.Tr), nbPt).map(v => v * k), M: pxM(mp.Tr, o0) } });
+          (d.looks || (d.looks = [])).push({ nbox: nb, pnb: members && members.length > 1 ? members.map(x => rel(x, o0)) : null, text, fill, fills: (fills || []).slice(0, 3).map(f => ({ o: f.o, n: f.n })), other, old: { p: mp.p, box: PC.mapBox(PC.invT(mp.Tr), nbPt).map(v => v * k), M: pxM(mp.Tr, o0) } });
           total++;
         }
         //   移動した範囲: 1か所1件(動き・移動元・中身が同じか)。範囲の中で、動かして重ねても違う所は、見た目の違いとして別に出す
@@ -2231,11 +2380,13 @@
             });
           }
           const cross = m.p !== mp.p, v = [(m.t[0] - Math.round(mp.Tr[2] * k)) / k, (m.t[1] - Math.round(mp.Tr[3] * k)) / k];
-          const dir = [Math.abs(mm(v[0])) >= 0.3 ? `${v[0] > 0 ? '右' : '左'}へ ${Math.abs(mm(v[0]))}mm` : '', Math.abs(mm(v[1])) >= 0.3 ? `${v[1] > 0 ? '下' : '上'}へ ${Math.abs(mm(v[1]))}mm` : ''].filter(Boolean).join('・');
+          const dir = dirOf(v);
+          const vm = { p: m.p, t: v, boxes: [m.box, ...m.more].map(b => b.map(x => x / k)), o0 };
+          if (!cross) vmoves.push(vm);
           const diffN = m.rest.length + textIn;
           const show = (cross ? `${oldName(m.p)}から移ってきた所` : `${dir || 'わずかに'}移動`) + `（${m.more.length ? `${1 + m.more.length}か所。` : ''}${diffN ? `中身に違い ${diffN}か所：別の項目` : '中身は同じ'}）`;
           if (cross) OLD.movedFrom.add(m.p);
-          (d.moves || (d.moves = [])).push({ nbox: rel(m.box, o0), more: m.more.map(b => rel(b, o0)), show, same: !diffN, cross, n: m.n, absorbed, old: { p: m.p, box: [m.box[0] - m.t[0], m.box[1] - m.t[1], m.box[2] - m.t[0], m.box[3] - m.t[1]], M } });
+          (d.moves || (d.moves = [])).push(vm.item = { nbox: rel(m.box, o0), more: m.more.map(b => rel(b, o0)), show, same: !diffN, cross, n: m.n, absorbed, old: { p: m.p, box: [m.box[0] - m.t[0], m.box[1] - m.t[1], m.box[2] - m.t[0], m.box[3] - m.t[1]], M } });
           if (m.repl.length) {   // 旧版の中身が、移ってきた中身に置き換わった所(この動きで1件。旧版の切り抜きは、その所の旧版の中身)
             const r = m.repl[0], rPt = r.map(v => v / k);
             (d.looks || (d.looks = [])).push({ nbox: rel(r, o0), more: m.repl.slice(1).map(b => rel(b, o0)), text: null, replaced: cross ? oldName(m.p) : '旧版の同じページ', old: { p: mp.p, box: PC.mapBox(PC.invT(mp.Tr), rPt).map(v => v * k), M: pxM(mp.Tr, o0) } });
@@ -2250,6 +2401,90 @@
           total++;
         }
         await PC.tick();
+      }
+      //   文字だけを動かした所: 字を直していないまとまり(PC.blocksOf)の中の、字の並び(文字データのひと続き)ごとに、すべての字が同じ旧版のページから
+      //   同じだけ(0.5pt 以内)動いたもの(1pt 以上)。動いた同じ字は見た目の違いから除くので、字の枠だけを動かした所は、見た目の移動の
+      //   見分けには出てこない(見逃していた)。字を直したまとまりの中の字の動き(追い込み・改行の変化)は、文字の違いの項目で出るので見ない。
+      //   見た目の移動の範囲に同じ動き(1pt 以内)で入っているものは除く。同じ動きで近い(200画素以内)ものを1件にし、3字以上のものだけ出す
+      //   (1〜2字だけの動きは、同じ字がたまたま別の所の字と対応づいたことが多い)
+      const C = o.B.chars, at = new Map(C.map((c, j) => [c.box, j])), dv = new Map(), tms = [];
+      for (let i = 0; i + 1 < o.moved.length; i += 2) {
+        const j = at.get(o.moved[i + 1]); if (j == null) continue;
+        const a = PC.center(o.moved[i]), c = PC.center(o.moved[i + 1]);
+        dv.set(j, { t: [c[0] - a[0], c[1] - a[1]], p: o.movedP[i >> 1], ob: o.moved[i] });
+      }
+      //   文字の送り(直した段落から後ろへ続く送り)を除く: 段落ごとに、直したもの(edit)・動いたもの(move)・動かないもの(still)に分け、
+      //   直した段落と、並び(文字データの順)でとなり合い、旧版か成果物で接している(字の大きさの2倍以内)動いた段落は、送られただけとみなす。
+      //   送られただけの段落ととなり合い、接している動いた段落も同じ(段から段へ送られた所まで、たどる)。字の枠ごと動かした所は、まわりの段落を
+      //   直していないので残る
+      const BLK = PC.blocksOf(C, o.B.items), bnb = [], bob = [], bsz = [];
+      const bst = BLK.map(([s0, e0], b) => {
+        let edited = false, moved = false;
+        for (let j = s0; j < e0; j++) { if (o.st[j] !== 1) edited = true; else if (dv.has(j)) moved = true; }
+        const cs = C.slice(s0, e0); bnb[b] = PC.union(cs.map(c => c.box)); bob[b] = PC.union(cs.map((c, i) => (dv.get(s0 + i) || { ob: c.box }).ob));
+        bsz[b] = Math.max(...cs.map(c => Math.min(c.box[2] - c.box[0], c.box[3] - c.box[1])));
+        return edited ? 'edit' : moved ? 'move' : 'still';
+      });
+      const touch = (b, c) => { const d = 2 * Math.max(bsz[b], bsz[c]); return PC.gap(bnb[b], bnb[c]) <= d || PC.gap(bob[b], bob[c]) <= d; };
+      const pushed = new Set();
+      for (let grown = true; grown;) {
+        grown = false;
+        BLK.forEach((_, b) => {
+          if (bst[b] !== 'move' || pushed.has(b)) return;
+          if ([b - 1, b + 1].some(c => c >= 0 && c < BLK.length && (bst[c] === 'edit' || pushed.has(c)) && touch(b, c))) { pushed.add(b); grown = true; }
+        });
+      }
+      if (dv.size) for (const [b, [s0, e0]] of BLK.entries()) {
+        if (bst[b] !== 'move' || pushed.has(b)) continue;
+        for (let a0 = s0; a0 < e0;) {
+          let a1 = a0 + 1; while (a1 < e0 && C[a1].it === C[a0].it) a1++;
+          let t = null, p = -1, ok = true;
+          for (let j = a0; j < a1 && ok; j++) {
+            const e = dv.get(j);
+            if (!e) ok = false;
+            else if (!t) { t = e.t; p = e.p; }
+            else if (e.p !== p || Math.abs(e.t[0] - t[0]) > 0.5 || Math.abs(e.t[1] - t[1]) > 0.5) ok = false;
+          }
+          const run = [a0, a1]; a0 = a1;
+          if (!ok || Math.hypot(t[0], t[1]) < MOVE.txt) continue;
+          const cs = C.slice(run[0], run[1]), nb = PC.union(cs.map(c => c.box)), ob = PC.union(cs.map((c, i) => dv.get(run[0] + i).ob)), [cx, cy] = PC.center(nb);
+          if (vmoves.some(v => v.p === p && Math.abs(v.t[0] - t[0]) <= 1 && Math.abs(v.t[1] - t[1]) <= 1 && v.boxes.some(r => cx >= r[0] - 3 && cx <= r[2] + 3 && cy >= r[1] - 3 && cy <= r[3] + 3))) continue;
+          if (vis.some(r => cx >= r[0] && cx <= r[2] && cy >= r[1] && cy <= r[3])) continue;
+          tms.push({ t, p, nb, ob, n: cs.length, sz: Math.max(...cs.map(c => Math.min(c.box[2] - c.box[0], c.box[3] - c.box[1]))) });
+        }
+      }
+      //   (動きが少しずつ違うもの(図の中の注記を組み直した所など)も、3pt(約1mm)以内の違いで近いものは1件にする。動きは幅で示す)
+      const gap = MOVE.gap / k, tg = [], nearG = (g, x) => g.p === x.p && g.nbs.some(b => x.nbs.some(c => Math.max(b[0], c[0]) - Math.min(b[2], c[2]) <= gap && Math.max(b[1], c[1]) - Math.min(b[3], c[3]) <= gap));
+      for (const x of tms) {
+        const g = tg.find(g => Math.abs(g.t[0] - x.t[0]) <= 0.5 && Math.abs(g.t[1] - x.t[1]) <= 0.5 && nearG(g, { p: x.p, nbs: [x.nb] }));
+        if (g) { g.nbs.push(x.nb); g.obs.push(x.ob); g.n += x.n; g.sz = Math.max(g.sz, x.sz); } else tg.push({ t: x.t, ts: [x.t], p: x.p, nbs: [x.nb], obs: [x.ob], n: x.n, sz: x.sz });
+      }
+      for (let merged = true; merged;) {
+        merged = false;
+        for (let i = 0; i < tg.length && !merged; i++) for (let j = i + 1; j < tg.length; j++) {
+          const g = tg[i], h = tg[j];
+          if (!nearG(g, h) || !g.ts.every(a => h.ts.every(c => Math.abs(a[0] - c[0]) <= 3 && Math.abs(a[1] - c[1]) <= 3))) continue;
+          const n = g.n + h.n;
+          tg[i] = { t: [0, 1].map(e => (g.t[e] * g.n + h.t[e] * h.n) / n), ts: [...g.ts, ...h.ts], p: g.p, nbs: [...g.nbs, ...h.nbs], obs: [...g.obs, ...h.obs], n, sz: Math.max(g.sz, h.sz) };
+          tg.splice(j, 1); merged = true; break;
+        }
+      }
+      //   字を直した所(変わった字・消えた字)のすぐ近く(字の大きさの2倍以内)で動いたものは、直したことで後ろがずれた(追い込み・送り)とみなし、
+      //   出さない(その所は文字の違いの項目が示している。字の枠ごと動かした所は、まわりの字を直していないことが多い)
+      const E = [...C.filter((c, j) => o.st[j] !== 1).map(c => c.box), ...o.gone.map(g => { const T = (OLD.pairs[g.p] && OLD.pairs[g.p].Tr) || g.T; return T ? PC.mapBox(T, PC.union(g.cs.map(c => c.box))) : null; }).filter(Boolean)];
+      for (const g of tg) {
+        const mp = maps.find(m => m.p === g.p); if (!mp || g.n < 3) continue;
+        if (g.nbs.some(b => E.some(e => PC.gap(b, e) <= 2 * g.sz))) continue;
+        //   見た目の移動の近く(200画素以内)で、動きの違いが 3pt(約1mm)以内のものは、その移動の項目の範囲に入れる(同じ物を動かした所を2件にしない)
+        const vm = vmoves.find(v => v.item && v.p === g.p && g.ts.every(a => Math.abs(a[0] - v.t[0]) <= 3 && Math.abs(a[1] - v.t[1]) <= 3) && nearG({ p: g.p, nbs: v.boxes }, g));
+        if (vm) { vm.item.more.push(...g.nbs.map(b => [(b[0] - vm.o0[0]) * k, (b[1] - vm.o0[1]) * k, (b[2] - vm.o0[0]) * k, (b[3] - vm.o0[1]) * k])); vm.item.n += g.n; continue; }
+        const nb = PC.union(g.nbs), ob = PC.union(g.obs), [cx, cy] = PC.center(nb);
+        const d = await pageAt(cx, cy), o0 = d.crop ? [d.crop[0], d.crop[1]] : [0, 0], M0 = pxM(mp.Tr, o0), M = [M0[0], M0[1], M0[2] + k * g.t[0], M0[3] + k * g.t[1], M0[4]];
+        const r = b => [(b[0] - o0[0]) * k, (b[1] - o0[1]) * k, (b[2] - o0[0]) * k, (b[3] - o0[1]) * k];
+        const vary = g.ts.some(a => Math.abs(a[0] - g.t[0]) > 0.85 || Math.abs(a[1] - g.t[1]) > 0.85);   // 動きが 0.3mm より違うものがある
+        (d.moves || (d.moves = [])).push({ nbox: r(nb), more: [], pnb: g.nbs.length > 1 ? g.nbs.map(r) : null, show: `${vary ? '約' : ''}${dirOf(g.t) || 'わずかに'}移動（文字の枠だけ。字は同じ${vary ? '。動きは場所によって少し違う' : ''}）`, same: true, cross: false, n: g.n, absorbed: 0, text: true,
+          old: { p: g.p, box: PC.mapBox(PC.invT(mp.Tr), ob).map(v => v * k), M } });
+        total++;
       }
     }
     return total;
@@ -3004,11 +3239,13 @@
       }
       for (const x of d.moves || []) {   // 旧版から移動した所(動かした範囲1か所1件。動き・移動元と、中身が同じか)
         const f = add(p + 1, 'C3', x.nbox, x.show, x.cross ? '旧版のほかのページから移ってきた所' : '旧版から移動した所', '', '', x.nbox);
-        Object.assign(f, { onNew: true, newOnly: true, fromOld: 'move', moveSame: x.same, pnboxes: [x.nbox], moreNboxes: x.more, old: x.old });
+        Object.assign(f, { onNew: true, newOnly: true, fromOld: 'move', moveSame: x.same, pnboxes: x.pnb || [x.nbox], moreNboxes: x.more, old: x.old });
+        if (x.text) f.moveText = true;
       }
       for (const x of d.looks || []) {   // 旧版から見た目が変わった所(字の見た目、または写真・図版・色・線など。文字の変化で説明できない描画の違い)
-        const f = add(p + 1, 'C3', x.nbox, x.replaced ? `${x.replaced}から移ってきた中身` : x.text || '', x.text ? '旧版から字の見た目が変わった所（色・太さ・書体など）' : x.replaced ? '旧版の中身が、移ってきた中身に置き換わった所' : x.inMove ? '旧版から移動した範囲の中で、見た目が違う所' : '旧版から見た目が変わった所（文字以外）', '', '', x.nbox);
-        Object.assign(f, { onNew: true, newOnly: true, fromOld: 'look', pnboxes: [x.nbox], old: x.old });
+        const f = add(p + 1, 'C3', x.nbox, x.replaced ? `${x.replaced}から移ってきた中身` : x.text || '', x.text ? '旧版から字の見た目が変わった所（色・太さ・書体など）' : x.replaced ? '旧版の中身が、移ってきた中身に置き換わった所' : x.inMove ? '旧版から移動した範囲の中で、見た目が違う所' : x.fills && x.fills.length && !x.other ? '旧版から色が変わった所（地・塗り）' : '旧版から見た目が変わった所（文字以外）', '', '', x.nbox);
+        Object.assign(f, { onNew: true, newOnly: true, fromOld: 'look', pnboxes: x.pnb || [x.nbox], old: x.old });
+        if (!x.text && x.fills && x.fills.length) Object.assign(f, x.other ? { fills: x.fills } : { fill: x.fills[0], fills: x.fills });
         if (x.text) f.lookText = true;
         if (x.inMove) f.inMove = true;
         if (x.replaced) Object.assign(f, { replaced: true, moreNboxes: x.more || [] });
