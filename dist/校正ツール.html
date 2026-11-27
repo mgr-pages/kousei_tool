@@ -7638,16 +7638,36 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     }
     //   2回目: まとまりごとに、説明できる候補をすべて調べ、いちばん多くのまとまり(違う画素の多さ)を説明できる候補を選ぶ
     //   (同じ中身が旧版の2か所にあるときなどに、まとまりごとにばらばらの動きにならないように)
+    //   たまたま重なっただけの動きを除く: その動きから縦・横に 6画素(約0.8mm)ずらすと、違う画素がはっきり(まとまりの違う画素の2%・20画素以上)
+    //   増える動き(ぴったり重なる動き)だけを、動きのよりどころ(sharp)にする。まっすぐな縁(グラフの棒の上の縁など)・なめらかなグラデーションは、
+    //   ずらしても重なるので、よりどころにならない。よりどころにならない説明は、同じ動きのよりどころが近く(200画素以内)にあるときだけ使う
+    //   (横に長い帯などを、まわりと一緒に動いたものとして入れるため)
+    const D6 = [[6, 0], [-6, 0], [0, 6], [0, -6]];
+    const sharp = (f, c, b, v, base) => { const m = v + Math.max(20, 0.02 * base); return D6.every(([dx, dy]) => f({ p: c.p, t: [c.t[0] + dx, c.t[1] + dy] }, b, m) >= m); };
     for (const x of info) {
       const bb = x.nbg && x.obg;   // 両方とも中身が薄い所は、成果物の側だけを見る(ほかの動きの支えには数えない)
       x.ns = x.nbg && !bb ? [] : cands.map(c => ({ c, v: fN(c, x.b, x.lim) })).filter(e => e.v <= x.lim);
       x.os = x.obg ? [] : cands.map(c => ({ c, v: fO(c, x.ob, x.lim) })).filter(e => e.v <= x.lim);
+      if (!bb) for (const e of x.ns) e.sharp = sharp(fN, e.c, x.b, e.v, x.base);
+      for (const e of x.os) e.sharp = sharp(fO, e.c, x.ob, e.v, x.base);
     }
-    const sup = new Map();
-    for (const x of info) if (!(x.nbg && x.obg)) for (const c of new Set([...x.ns, ...x.os].map(e => e.c))) sup.set(c, (sup.get(c) || 0) + x.base);
+    //   動きごとの、よりどころのまとまり(成果物の側は移ってきた所、旧版の側は移っていった先。成果物の画素)と、その違う画素の数(支え)
+    const sup = new Map(), anc = new Map();
+    for (const x of info) {
+      if (x.nbg && x.obg) continue;
+      const seen = new Set();
+      for (const e of x.ns) if (e.sharp) { seen.add(e.c); (anc.get(e.c) || anc.set(e.c, []).get(e.c)).push(x.b); }
+      for (const e of x.os) if (e.sharp) { seen.add(e.c); (anc.get(e.c) || anc.set(e.c, []).get(e.c)).push(shift(x.ob, e.c.t)); }
+      for (const c of seen) sup.set(c, (sup.get(c) || 0) + x.base);
+    }
+    const nearAnc = (c, b) => (anc.get(c) || []).some(a => Math.max(a[0], b[0]) - Math.min(a[2], b[2]) <= MOVE.gap && Math.max(a[1], b[1]) - Math.min(a[3], b[3]) <= MOVE.gap);
+    for (const x of info) {
+      x.ns = x.ns.filter(e => e.sharp || nearAnc(e.c, x.b));
+      x.os = x.os.filter(e => e.sharp || nearAnc(e.c, shift(x.ob, e.c.t)));
+    }
     //   両方とも中身が薄い所は、そのまとまりの10倍以上の違いを説明できている(まわりの大きな)動きで説明できるときだけ、その動きに入れる
     for (const x of info) if (x.nbg && x.obg) x.ns = x.ns.filter(e => (sup.get(e.c) || 0) >= 10 * x.base);
-    const choose = es => es.reduce((a, e) => (!a || sup.get(e.c) > sup.get(a.c) || (sup.get(e.c) === sup.get(a.c) && e.v < a.v) ? e : a), null);
+    const choose = es => es.reduce((a, e) => (!a || (sup.get(e.c) || 0) > (sup.get(a.c) || 0) || ((sup.get(e.c) || 0) === (sup.get(a.c) || 0) && e.v < a.v) ? e : a), null);
     //   成果物の側は移ってきた中身で説明できるが、旧版の側(その所に旧版であった中身)が成果物のどこにもないまとまりは、
     //   「旧版の中身が、移ってきた中身に置き換わった所」として、その動きごとに1件にまとめる(repl。旧版の中身がなくなったことは出す)
     if (window.__pcDebug) { PC._moves = PC._moves || []; PC._moves.push({ t0, cands: cands.map(c => ({ p: c.p, t: c.t, sup: sup.get(c) || 0 })), parts: info.map(x => ({ b: x.b, base: x.base, nbg: x.nbg, obg: x.obg, ns: x.ns.map(e => [cands.indexOf(e.c), e.v]), os: x.os.map(e => [cands.indexOf(e.c), e.v]) })), skipped: rest.map(r => r.b) }); }
