@@ -9742,8 +9742,9 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(t, x + 9, y + 11.5); ctx.restore();
   };
   // ---- 差分の赤い表示: 成果物のページの上に、相手(パタパタと同じ旧版・原稿)と色の違う所を赤く塗って出す(パタパタとは別の見方) ----
-  //   違う所: どれかの色の差が 40 を超え、相手のまわり 5×5 画素の色の範囲(±40)にも入らない画素(2画素ほどのずれ・字のふちのぼかし・
-  //   画像の圧縮のゆらぎは、違いにしない。照合の「見た目の違い」と同じ見方)。成果物は薄くし、違う画素を赤く(1画素ふくらませて)塗る。
+  //   違う所: どれかの色の差が 22 を超え、相手のまわり 5×5 画素の色の範囲(±22)にも入らない画素(2画素ほどのずれ・字のふちのぼかし・
+  //   画像の圧縮のゆらぎは、違いにしない。照合の「見た目の違い」と同じ見方。表示用の画像は 55% に薄めてあるので、照合の 40 に当たる 22 で見る)。
+  //   成果物は薄くし、違う画素を赤く(1画素ふくらませて)塗る。
   //   表示用の画像(ページの縮小画像)で、ページごとに1回だけ作る
   function setDiff(on) {
     S.diff = !!on;
@@ -9760,7 +9761,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       const [cn, xn] = canvas(), [, xo] = canvas();
       xn.drawImage(im.R, 0, 0, W, H); const N = xn.getImageData(0, 0, W, H).data;
       xo.fillStyle = '#fff'; xo.fillRect(0, 0, W, H); drawAligned(xo, a, A, kk, 0, 0, 0, 0); const O = xo.getImageData(0, 0, W, H).data;
-      const T = 40, R = 2, m = new Uint8Array(W * H);
+      const T = 22, R = 2, m = new Uint8Array(W * H);   // 表示用の画像は 55% に薄めてあるので、照合の 40 に当たる差は 22
       const outside = (P, Q, x, y) => {   // P の (x, y) の色が、Q のまわり 5×5 の色の範囲の外か
         const p = 4 * (y * W + x);
         for (let c = 0; c < 3; c++) {
