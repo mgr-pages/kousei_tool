@@ -11,6 +11,8 @@
     { key: 'OK', label: '自動で確認済み（指示どおり）', test: f => f.auto === 'ok', minor: true, auto: true },
     { key: 'OLD', label: '前回のまま（原稿のない部分）', test: f => f.oldSame, minor: true },
     // 原稿がなく旧版と比べたとき: 前回の成果物から変わった所(指示がないので、意図した変更かを確かめるもの)
+    //   旧版から動かした範囲(1か所1件。中身が同じかを添える): 動かしただけで違いの項目が何十件にもならないように、ほかの変化と分けて示す
+    { key: 'MV', label: '移動した所（範囲と中身を確認）', test: f => f.fromOld === 'move' },
     { key: 'P', label: '前回から変わった所', test: f => !!f.fromOld && S.runMode === 'old' && f.cat !== 'V' },
     { key: 'B', label: '直っていない', test: f => f.cat === 'B', need: true },
     // 文字データのない所(アウトライン・画像の文字)を OCR で読んだ字がかかわる違い(読み違いのこともあるので分けて示す)
@@ -132,6 +134,12 @@
     if (f.oldSame) return ['前回のまま', '原稿のない部分ですが、旧版と同じです'];
     if (f.ocr) return [f.fromOld ? (S.runMode === 'old' ? '前回から変わった？（OCR）' : '旧版と違う？（OCR）') : '原稿と違う？（OCR）', '文字データのない所（アウトライン化・画像の文字）をOCRで読んで比べました。読み違いのこともあるので、切り抜きで確かめてください'];
     if (f.shape) return [S.runMode === 'old' ? '前回から変わった（図形の文字）' : '旧版から変わった（図形の文字）', '文字が図形になっていて文字データのない所（ロゴなど）の見た目が変わっています。文字では比べられないので、切り抜きで確認'];
+    if (f.fromOld === 'move') {   // 旧版から移動した所(動かした範囲1か所1件)
+      const prev = S.runMode === 'old' ? '前回' : '旧版';
+      return [`${prev}から移動した`, f.moveSame ? `動かした範囲です。中身は${prev}と同じです（${prev}の切り抜き・パタパタは、動かした元の所を重ねます）。範囲と動かした先が意図どおりか確認` : `動かした範囲です。範囲の中に${prev}と違う所があります（それぞれ別の項目）。範囲と動かした先が意図どおりか確認`];
+    }
+    if (f.fromOld === 'look' && f.replaced) return [S.runMode === 'old' ? '前回の中身が置き換わった' : '旧版の中身が置き換わった', `ここにあった${S.runMode === 'old' ? '前回' : '旧版'}の中身（写真・図・色・線など）が成果物になく、移ってきた中身（「移動した所」の項目）になっています。なくなってよいか確認`];
+    if (f.fromOld === 'look' && f.inMove) return [S.runMode === 'old' ? '前回から移動した中の違い' : '旧版から移動した中の違い', '動かした範囲の中で、動かした元の所と重ねても違う所です。意図した変更か、切り抜き（パタパタ）で確認'];
     if (f.fromOld === 'look' && f.lookText) return [S.runMode === 'old' ? '前回から字の見た目が変わった' : '旧版から字の見た目が変わった', '字は同じで、色・太さ・書体などの見た目が変わっています。意図した変更か、切り抜き（パタパタ）で確認'];
     if (f.fromOld === 'look') return [S.runMode === 'old' ? '前回から見た目が変わった' : '旧版から見た目が変わった', '写真・図・色・線など、文字以外の見た目が変わっています。意図した変更か、切り抜き（パタパタ）で確認'];
     if (f.fromOld === 'annot') {   // 旧版と成果物の注釈(コメント・図形などの書き込み)の違い
@@ -232,6 +240,9 @@
     if (f.cat === 'I') return `<div class="what">成果物の文字：${esc(longCut(f.show))}</div>`;
     if (f.cat === 'U') return `<div class="what">このページで、文字が図形になっている所 ${+f.spotN || 1}か所（ページの表示で枠を確認）</div>`;
     if (f.shape) return '<div class="what">見た目が変わっています（文字データがないため、切り抜きで確認）</div>';
+    if (f.fromOld === 'move') return `<div class="what">${esc(f.show)}</div>`;
+    if (f.fromOld === 'look' && f.replaced) return `<div class="what">前の中身がなく、${esc(f.show)}になっています</div>`;
+    if (f.fromOld === 'look' && f.inMove) return '<div class="what">動かした範囲の中で、見た目（写真・図・色・線など）が違います</div>';
     if (f.fromOld === 'look' && f.lookText) return `<div class="what">${q(f.show)}の見た目（色・太さ・書体など）が変わっています（字は同じ）</div>`;
     if (f.fromOld === 'look') return '<div class="what">文字以外の見た目（写真・図・色・線など）が変わっています</div>';
     if (f.kind === 'layout' || f.kind === 'image') return `<div class="what">${esc(f.show.replace(/[（）]/g, ''))}</div>`;
@@ -244,6 +255,9 @@
     if (f.textSame) return '文字データは同じ（字形・位置の違い）';
     if (f.cat === 'U') return `文字が図形の所 ${+f.spotN || 1}か所（文字として確かめていない）`;
     if (f.shape) return '見た目の変化（文字データのない文字・ロゴ）';
+    if (f.fromOld === 'move') return `移動：${f.show}`;
+    if (f.fromOld === 'look' && f.replaced) return `前の中身がなく、${f.show}になっている`;
+    if (f.fromOld === 'look' && f.inMove) return '移動した範囲の中の見た目の違い（写真・図・色・線など）';
     if (f.fromOld === 'look' && f.lookText) return `「${f.show}」の見た目の変化（色・太さ・書体など。字は同じ）`;
     if (f.fromOld === 'look') return '見た目の変化（写真・図・色・線など。文字以外）';
     if (f.fromOld === 'annot') return `${f.cat === 'W' ? '成果物だけの' : '旧版だけの'}${f.how}${f.show ? `「${f.show.replace(/\s*\n\s*/g, ' ／ ')}」` : ''}`;
