@@ -2891,34 +2891,37 @@
   //   (同じ所に2つ以上の項目があると、同じ所を何度も確かめることになり、手間が増え、見逃しもしやすくなる)。ただし、まとめた枠がその
   //   ページの 15% を超えるならまとめない(1件に入れすぎて、かえって確かめにくくならないように。大きな移動の範囲などは、そのまま1件)。
   //   まとめた項目は、中の項目(parts)を位置の順に持ち、違う所ごとの枠をすべて描く。一覧での種類は、文字の違いがあればその項目の種類。
-  //   成果物だけで見るチェック・注釈の違いは、観点が違うのでまとめない
+  //   成果物だけで見るチェック(J)も、旧版との比べ合わせの項目と同じ所にあれば、その項目に入れる(成果物だけで見るチェックどうしだけでは
+  //   まとめない)。中に「直す必要がありそう」なチェックがあれば、まとめた項目もその重さで出す(画面の一覧の種類)。注釈の違いはまとめない
   const SAME = { kinds: new Set(['add', 'del', 'look', 'move', 'shape']), gap: 2, cap: 0.15 };
   function mergeSame(F, pages) {
     const M2 = SAME.gap * PC.S, area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
     const boxesOf = f => [...(f.pnboxes && f.pnboxes.length ? f.pnboxes : [f.nbox]), ...(f.moreNboxes || [])].filter(Boolean);
     const touch = (a, b) => a.some(p => b.some(q => Math.min(p[2], q[2]) + M2 > Math.max(p[0], q[0]) && Math.min(p[3], q[3]) + M2 > Math.max(p[1], q[1])));
-    const byPage = new Map(), drop = new Set();
-    for (const f of F) if (SAME.kinds.has(f.fromOld) && f.nbox) (byPage.get(f.page) || byPage.set(f.page, []).get(f.page)).push(f);
-    const rank = { add: 0, del: 0, look: 1, move: 2, shape: 3 }, pos = (a, b) => a.nbox[1] - b.nbox[1] || a.nbox[0] - b.nbox[0];
+    const isOld = f => SAME.kinds.has(f.fromOld), byPage = new Map(), drop = new Set();
+    for (const f of F) if ((isOld(f) || f.cat === 'J') && f.nbox) (byPage.get(f.page) || byPage.set(f.page, []).get(f.page)).push(f);
+    const rank = { add: 0, del: 0, look: 1, move: 2, shape: 3 }, rk = f => (f.cat === 'J' ? 9 : rank[f.fromOld]), pos = (a, b) => a.nbox[1] - b.nbox[1] || a.nbox[0] - b.nbox[0];
     for (const [pg, fs] of byPage) {
+      if (!fs.some(isOld)) continue;
       const im = pages[pg - 1], A = im && im.right ? im.right.w * im.right.h : Infinity;   // そのページの面積(画素)
-      const gs = fs.map(f => ({ fs: [f], bs: boxesOf(f) }));
+      const gs = fs.map(f => ({ fs: [f], bs: boxesOf(f), old: isOld(f) }));
       for (let merged = true; merged;) {
         merged = false;
         for (let i = 0; i < gs.length && !merged; i++) for (let j = i + 1; j < gs.length; j++) {
+          if (!gs[i].old && !gs[j].old) continue;   // 成果物だけで見るチェックどうしは、まとめない
           if (!touch(gs[i].bs, gs[j].bs) || area(PC.union([...gs[i].bs, ...gs[j].bs])) > SAME.cap * A) continue;
-          gs[i] = { fs: [...gs[i].fs, ...gs[j].fs], bs: [...gs[i].bs, ...gs[j].bs] }; gs.splice(j, 1); merged = true; break;
+          gs[i] = { fs: [...gs[i].fs, ...gs[j].fs], bs: [...gs[i].bs, ...gs[j].bs], old: true }; gs.splice(j, 1); merged = true; break;
         }
       }
       for (const g of gs) {
         if (g.fs.length < 2) continue;
-        const base = g.fs.slice().sort((a, b) => rank[a.fromOld] - rank[b.fromOld] || pos(a, b))[0];
-        //   中の項目: 表示に使うものだけを写す(位置の順)
-        base.parts = g.fs.slice().sort(pos).map(f => ({ cat: f.cat, fromOld: f.fromOld, show: f.show, how: f.how, segs: f.segs, same: f.same, para: f.para, ocr: f.ocr, fill: f.fill, fills: f.fills, lookText: f.lookText, inMove: f.inMove, replaced: f.replaced, moveSame: f.moveSame, moveText: f.moveText, shape: f.shape, nbox: f.nbox }));
+        const base = g.fs.slice().sort((a, b) => rk(a) - rk(b) || pos(a, b))[0];
+        //   中の項目: 表示に使うものだけを写す(位置の順)。成果物だけで見るチェックは、その中身(j)・重さ(level)も
+        base.parts = g.fs.slice().sort(pos).map(f => ({ cat: f.cat, fromOld: f.fromOld, show: f.show, how: f.how, segs: f.segs, same: f.same, para: f.para, ocr: f.ocr, fill: f.fill, fills: f.fills, lookText: f.lookText, inMove: f.inMove, replaced: f.replaced, moveSame: f.moveSame, moveText: f.moveText, shape: f.shape, nbox: f.nbox, ...(f.cat === 'J' ? { j: f.j, level: f.level } : {}) }));
         const seen = new Set();
         base.pnboxes = g.bs.filter(b => { const k = b.map(Math.round).join(','); if (seen.has(k)) return false; seen.add(k); return true; });
         base.moreNboxes = []; base.nbox = PC.union(g.bs).map(Math.trunc); base.box = base.nbox.slice();
-        base.kinds = [...new Set(g.fs.map(f => f.fromOld === 'del' ? 'add' : f.fromOld))];
+        base.kinds = [...new Set(g.fs.map(f => (f.cat === 'J' ? 'J' : f.fromOld === 'del' ? 'add' : f.fromOld)))];
         if (g.fs.some(f => f.ocr)) base.ocr = true;
         //   旧版の切り抜き: 同じ旧版のページ・同じ位置合わせの項目の、旧版の所をまとめる(動かした所は位置合わせが違うので、まとめない)
         const sameM = o => o && base.old && o.p === base.old.p && JSON.stringify(o.M) === JSON.stringify(base.old.M);

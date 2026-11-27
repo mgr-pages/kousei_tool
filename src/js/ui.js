@@ -12,6 +12,8 @@
     { key: 'OLD', label: '前回のまま（原稿のない部分）', test: f => f.oldSame, minor: true },
     // 原稿がなく旧版と比べたとき: 前回の成果物から変わった所(指示がないので、意図した変更かを確かめるもの)
     //   旧版から動かした範囲(1か所1件。中身が同じかを添える): 動かしただけで違いの項目が何十件にもならないように、ほかの変化と分けて示す
+    //   同じ所をまとめた項目で、中に「直す必要がありそう」な成果物だけのチェックがあるもの(まとめても、重さは軽くしない)
+    { key: 'MJ', label: '変わった所と誤りの可能性（同じ所の、前回からの変化と、成果物だけで見つけた誤りの可能性をまとめたもの）', test: f => !!(f.parts && f.parts.some(p => p.cat === 'J' && p.level === 'need' && enabledOne(p))), need: true },
     { key: 'MV', label: '移動した所（範囲と中身を確認）', test: f => f.fromOld === 'move' },
     { key: 'P', label: '前回から変わった所', test: f => !!f.fromOld && S.runMode === 'old' && f.cat !== 'V' },
     { key: 'B', label: '直っていない', test: f => f.cat === 'B', need: true },
@@ -96,7 +98,10 @@
   const OPT_KEY = 'pc:opts';
   const optOff = (() => { try { const v = JSON.parse(localStorage.getItem(OPT_KEY) || '[]'); return new Set(Array.isArray(v) ? v : []); } catch (e) { return new Set(); } })();
   const optOf = f => OPT_ORDER.find(o => o[2](f));
-  const enabled = f => { const o = optOf(f); return !o || !optOff.has(o[0]); };
+  const enabledOne = f => { const o = optOf(f); return !o || !optOff.has(o[0]); };
+  //   同じ所をまとめた項目: 中の項目のどれかが出す設定なら出す(仕上がりの外の項目は、項目全体で見る)。中身も、出す設定の項目だけを見せる
+  const enabled = f => (f.parts && f.parts.length > 1 ? !(f.outTrim && optOff.has('slug')) && f.parts.some(enabledOne) : enabledOne(f));
+  const partsOn = f => (f.parts || []).filter(enabledOne);
   // 項目の色は3つだけ: 直す必要がありそう(赤)・確認だけ(青緑)・参考(灰)。種類は札の文字で見分ける
   const LV = { need: '直す必要がありそう', look: '確認だけ', ref: '参考' };
   const colorOf = f => { const g = groupOf(f); return g.need ? 'need' : g.minor ? 'ref' : 'look'; };
@@ -116,11 +121,13 @@
   };
   const modeOf = () => (S.lists.marks.length ? (S.lists.old.length ? 'all' : 'marks') : S.lists.old.length ? 'old' : 'new');
   //   同じ所をまとめた項目(旧版との比べ合わせ): 中の種類の名前
-  const PARTK = { add: '文字', look: '見た目', move: '移動', shape: '図形の文字' };
+  const PARTK = { add: '文字', look: '見た目', move: '移動', shape: '図形の文字', J: '成果物チェック' };
+  const partK = p => PARTK[p.cat === 'J' ? 'J' : p.fromOld === 'del' ? 'add' : p.fromOld] || '';
   function verdictOf(f) {
     if (f.parts && f.parts.length > 1) {   // 同じ所の変化をまとめた項目(文字・見た目・移動など)
-      const prev = S.runMode === 'old' ? '前回' : '旧版', ks = (f.kinds || []).map(k => PARTK[k]).filter(Boolean);
-      return [`${prev}から変わった所（${ks.join('・') || 'まとめ'}）`, `同じ所の変化 ${f.parts.length}件を1件にまとめています（枠は変わった所ごと）。それぞれ意図した変更か、切り抜き（パタパタ・差分を赤で）で確認`];
+      const prev = S.runMode === 'old' ? '前回' : '旧版', ps = partsOn(f), ks = [...new Set(ps.map(partK))].filter(Boolean);
+      const nJ = ps.filter(p => p.cat === 'J').length, nNeed = ps.filter(p => p.cat === 'J' && p.level === 'need').length;
+      return [`${prev}から変わった所（${ks.join('・') || 'まとめ'}）`, `同じ所の${nJ ? `変化と、成果物だけで見つけた確認事項 ${nJ}件（うち誤りの可能性 ${nNeed}件）` : '変化'}をまとめています（全部で ${ps.length}件。枠は変わった所ごと）。それぞれ、切り抜き（パタパタ・差分を赤で）で確認`];
     }
     if (f.merge) {   // 差し込み印刷(名刺など)の行ごとの照合
       const r = f.merge;
@@ -225,7 +232,7 @@
   const UWHY = { src: '文字が図形になっていて文字データがないため、原稿とは文字で比べていません。目で確認', old: '文字が図形になっていて文字データがないため、成果物だけのチェックをしていません。旧版とはページの大きさ・位置がそろわず、見た目でも比べていません。目で確認', none: '文字が図形になっていて文字データがないため、成果物だけのチェック（表記・日付など）をしていません。目で確認' };
   // 項目の中身: 何が違うか(どの種類でも、なるべく短く)
   function whatHtml(f) {
-    if (f.parts && f.parts.length > 1) return `<div class="parts">${f.parts.map(p => `<div class="part"><span class="pk">${esc(PARTK[p.fromOld === 'del' ? 'add' : p.fromOld] || '')}</span>${whatHtml({ ...p, parts: null }) || `<div class="what">${esc(p.show || '')}</div>`}</div>`).join('')}</div>`;
+    if (f.parts && f.parts.length > 1) return `<div class="parts">${partsOn(f).map(p => `<div class="part${p.cat === 'J' && p.level === 'need' ? ' need' : ''}"><span class="pk">${esc(partK(p))}</span>${p.cat === 'J' ? `<span class="pj">${esc((JT[p.j.kind] || '成果物の確認') + '：' + p.j.msg)}</span>` : ''}${whatHtml({ ...p, parts: null }) || `<div class="what">${esc(p.show || '')}</div>`}</div>`).join('')}</div>`;
     const q = s => `「${esc(clipMid(s || ''))}」`;
     if (f.cat === 'J') { const [a, z] = f.j.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.show)}</mark>${z}</span>${f.j.want ? `<span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.j.want)}</ins>${z}</span>` : ''}</div>`; }
     if (f.lint) { const [a, z] = f.lint.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.lint.c)}</mark>${z}</span><span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.lint.want)}</ins>${z}</span></div>`; }
@@ -267,7 +274,7 @@
   function swatch(c) { return `<span class="sw" style="background:${hex(c)}"></span>${hex(c)}`; }
   // CSV用の短い文: 「旧→新」をか所ごとに
   function diffText(f) {
-    if (f.parts && f.parts.length > 1) return f.parts.map(p => `[${PARTK[p.fromOld === 'del' ? 'add' : p.fromOld] || ''}] ${diffText({ ...p, parts: null })}`).join(' ／ ');
+    if (f.parts && f.parts.length > 1) return partsOn(f).map(p => `[${partK(p)}] ${diffText({ ...p, parts: null })}`).join(' ／ ');
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
     if (f.textSame) return '文字データは同じ（字形・位置の違い）';
     if (f.cat === 'U') return `文字が図形の所 ${+f.spotN || 1}か所（文字として確かめていない）`;
@@ -1238,7 +1245,8 @@
       for (const k of ['merge', 'rec']) if (f[k]) g[k] = typeof f[k] === 'object' ? { ...f[k], kind: str(f[k].kind), fields: Array.isArray(f[k].fields) ? f[k].fields.map(str) : [] } : null;
       delete g.parts; delete g.kinds;
       if (deep && Array.isArray(f.parts)) g.parts = f.parts.slice(0, 300).map((p, k) => clean(p, k, false));
-      if (deep && Array.isArray(f.kinds)) g.kinds = f.kinds.map(str).filter(k => ['add', 'look', 'move', 'shape'].includes(k));
+      if (deep && Array.isArray(f.kinds)) g.kinds = f.kinds.map(str).filter(k => ['add', 'look', 'move', 'shape', 'J'].includes(k));
+      if ('level' in f) g.level = f.level === 'need' ? 'need' : 'look';
       for (const k of ['fromOld', 'para']) if (k in f) g[k] = k === 'para' ? num(f[k]) : str(f[k]);
       return g;
     };
