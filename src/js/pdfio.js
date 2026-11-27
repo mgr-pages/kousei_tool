@@ -94,6 +94,7 @@
       numPages: n, parts,
       getPage: k => { const i = parts.findIndex(q => k - 1 < q.start + q.pages); return docs[i].getPage(k - parts[i].start); },
       destroy: () => Promise.all(docs.map(d => d.destroy())),
+      cleanup: keep => Promise.all(docs.map(d => d.cleanup(keep))),
     };
   };
   // files: 選んだときに読み込んでおいた中身 { name, type, buf }。pdf.jsは渡したデータを手放させるため、毎回写しを渡す
@@ -120,6 +121,8 @@
       annotationMode: annots ? pdfjsLib.AnnotationMode.ENABLE : pdfjsLib.AnnotationMode.DISABLE,
     }).promise;
     const id = ctx.getImageData(0, 0, w, h);
+    cv_.width = cv_.height = 0;   // 描いた画像の置き場をすぐ手放す(ごみ集めを待つと、大きなページで何百MBもたまる)
+    page.cleanup();   // pdf.js がこのページのために展開した画像なども手放す(同じページを描き直すときは展開し直す)
     return { w, h, d: id.data };
   };
 
@@ -131,6 +134,7 @@
     const ctx = cv_.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
     await page.render({ canvasContext: ctx, viewport: vp, background: 'rgb(255,255,255)', annotationMode: pdfjsLib.AnnotationMode.DISABLE }).promise;
+    page.cleanup();
     return cv_;
   };
 
@@ -191,8 +195,9 @@
       } else items.push({ file: new Blob([f.buf], { type: f.type }), name: f.name });
       parts.push({ name: f.name, start, pages: items.length - start });
     }
+    const docs = [...new Set(items.map(it => it.doc).filter(Boolean))];
     return {
-      numPages: items.length, parts,
+      numPages: items.length, parts, docs,
       // 注釈(取り消し線・コメントなど)があり、文字データもあるページは「注釈を入れたPDF」。それ以外はスキャンとして扱う
       kind: async p => {
         const it = items[p];
@@ -219,7 +224,9 @@
         const k = Math.min(1, 3600 / bmp.width), c = document.createElement('canvas');
         c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
         const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bmp, 0, 0, c.width, c.height); bmp.close();
-        return { img: { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data }, dpi: 0 };
+        const img = { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data };
+        c.width = c.height = 0;   // 置き場をすぐ手放す
+        return { img, dpi: 0 };
       },
     };
   };

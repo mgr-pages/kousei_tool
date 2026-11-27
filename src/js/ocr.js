@@ -6,13 +6,14 @@
   const bytes = id => { const el = document.getElementById(id); return el ? PC.b64bytes(el.textContent) : null; };
   // ---- Tesseract の作業者(横書き・縦書きで1つずつ。初めて使うときに作る) ----
   const workers = {};
+  let workerUrl = null;   // 作業者のスクリプト(1つ作って使い回す。作業者はページごとに閉じて作り直すので、毎回作ると置き場がたまる)
   async function worker(vert) {
     const key = vert ? 'v' : 'h';
     if (!workers[key]) workers[key] = (async () => {
       if (!window.Tesseract) return null;
-      const src = bytes('tess-worker'), lang = bytes(vert ? 'tess-jpn_vert' : 'tess-jpn');
-      if (!src || !lang) return null;
-      const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+      if (!workerUrl) { const src = bytes('tess-worker'); if (!src) return null; workerUrl = URL.createObjectURL(new Blob([src], { type: 'text/javascript' })); }
+      const lang = bytes(vert ? 'tess-jpn_vert' : 'tess-jpn'), url = workerUrl;
+      if (!lang) return null;
       const w = await Tesseract.createWorker([{ code: vert ? 'jpn_vert' : 'jpn', data: lang }], 1, { workerPath: url, workerBlobURL: false, corePath: 'embedded.js', cacheMethod: 'none', logger: () => {}, errorHandler: () => {} });
       // 横書きはひとまとまりの文(6)、縦書きは縦のひとまとまり(5)として読む。字の間に空白を入れない
       await w.setParameters({ tessedit_pageseg_mode: vert ? '5' : '6', preserve_interword_spaces: '1' });
@@ -74,9 +75,10 @@
     const dpi = PC.OCR_DPI || Math.max(150, Math.min(400, Math.round(40 / Math.max(1, R.size || 16) * 72 / 10) * 10));
     const m = 2, box = [R.box[0] - m, R.box[1] - m, R.box[2] + m, R.box[3] + m], k = dpi / 72;
     const c = await PC.renderRegion(doc, q, box, dpi);
-    if (c.width < 8 || c.height < 8) return [];
-    const w = await worker(R.vert); if (!w) return [];
+    if (c.width < 8 || c.height < 8) { c.width = c.height = 0; return []; }
+    const w = await worker(R.vert); if (!w) { c.width = c.height = 0; return []; }
     const r = await w.recognize(c, {}, { blocks: true, text: false });
+    c.width = c.height = 0;   // 描いた所の置き場をすぐ手放す
     const lines = [];
     for (const bl of r.data.blocks || []) for (const p of bl.paragraphs) for (const l of p.lines) {
       const cs = [];
@@ -121,6 +123,9 @@
     }
     if (!wants.size) return 0;
     let added = 0, first = true;
+    //   読み終えたら、文字を読む部品(Tesseract の作業者)を閉じる(作業者は、読んだ画像の大きさに合わせて広げたメモリを手放さないため。
+    //   次に読むときに作り直す)
+    try {
     for (const [R, ws] of wants) {
       if (!B.ocrRead.has(R)) { if (first) { step('文字データのない所を読み取っています（OCR）'); first = false; } B.ocrRead.set(R, await readRegion(doc, q, R)); await PC.tick(); }
       for (const l of B.ocrRead.get(R)) {
@@ -133,6 +138,7 @@
         for (const c of l.chars) for (const ch of [...c.c]) { B.chars.push({ c: ch, k: PC.fold(ch), box: c.box, it, brk: false, sp: false, ocr: true, conf: c.conf, alt: altOf(ch) }); added++; }
       }
     }
+    } finally { await PC.ocrRelease(); }
     return added;
   };
 })();

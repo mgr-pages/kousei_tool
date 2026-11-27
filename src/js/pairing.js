@@ -170,16 +170,20 @@
     const wM = C.pairMatch * newDoc.numPages, nS = src.numPages, cumS = [0];
     for (let p = 0; p < nS; p++) cumS.push(cumS[p] + wS(p));
     const tot = wN * newDoc.numPages + cumS[nS] + wM * nS;
+    //   ページごとに、PDFの読み込み部品が展開した画像などを手放す(メモリを抑える。字の形はそのまま使う)
+    const relax = async d => { if (d && d.cleanup) { try { await d.cleanup(true); } catch (e) { /* 描いている途中なら次の機会に */ } } };
     const N = await cluesOf(async q => {
       const img = await PC.renderPage(newDoc, q, VDPI, false), t = await PC.pageText(newDoc, q);
+      await relax(newDoc);
       return { w: t.w, h: t.h, orb: orbOf(img), text: t.chars.length ? t : null };
     }, newDoc.numPages, k => progress(`成果物 ${k + 1}/${newDoc.numPages} ページの特徴を読み取り`, wN * (k + 1) / tot));
     const M = await cluesOf(async p => {
       const it = src.page(p);
       if (it.virt) { const t = it.virt.text; return { w: t.w, h: t.h, orb: null, text: t, blocks: it.virt.blocks, image: false, images: [], free: true }; }
       if (it.doc) {
-        const img = await PC.renderPage(it.doc, it.i, VDPI, false), t = await PC.pageText(it.doc, it.i);
-        return { w: t.w, h: t.h, orb: orbOf(img), text: t.chars.length ? t : null, image: false, images: await PC.imageBoxes(it.doc, it.i) };
+        const img = await PC.renderPage(it.doc, it.i, VDPI, false), t = await PC.pageText(it.doc, it.i), images = await PC.imageBoxes(it.doc, it.i);
+        await relax(it.doc);
+        return { w: t.w, h: t.h, orb: orbOf(img), text: t.chars.length ? t : null, image: false, images };
       }
       const { img } = await src.image(p), k = 1000 / Math.max(img.w, img.h), small = shrink(img, Math.round(img.w * k), Math.round(img.h * k));
       return { w: small.w * PT, h: small.h * PT, orb: orbOf(small), text: null, image: true };

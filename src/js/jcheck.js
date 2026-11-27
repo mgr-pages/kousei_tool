@@ -281,6 +281,7 @@
     if (!window.kuromoji) return res(null);
     try { kuromoji.builder({ dicPath: 'ipadic/' }).build((err, tk) => res(err ? null : tk)); } catch (e) { res(null); }
   }));
+  PC.tokenizerRelease = () => { tkP = null; };   // 辞書を手放す(メモリを抑える。次に使うときに読み込み直す)
   // ページの文字列を、まとまりごとに語に分ける(語の位置 i は文字列の位置)
   //   位置は語の字数を足して求める(kuromoji の word_position は、「℃、」のように2字以上の語で区切った文のあとでずれる。
   //   語をつなげると元の文字列に戻る)

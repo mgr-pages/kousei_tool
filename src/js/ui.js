@@ -474,9 +474,11 @@
     ETA.eta = ETA.prior; ETA.at = ETA.t0;
     clearInterval(ETA.timer); ETA.timer = setInterval(() => { if (S.running) $('pmsg').textContent = ETA.msg + etaText(); }, 1000);
     const mode = f.marks && f.marks.length ? (f.old && f.old.length ? 'all' : 'marks') : f.old && f.old.length ? 'old' : 'new';
-    const t0 = performance.now();
+    const t0 = performance.now(), opened = [];
     try {
-      const marks = await PC.markSource(f.marks), newDoc = await PC.openPdfs(f.nw), oldDoc = f.old && f.old.length ? await PC.openPdfs(f.old) : null;
+      const marks = await PC.markSource(f.marks); opened.push(...(marks.docs || []));
+      const newDoc = await PC.openPdfs(f.nw); opened.push(newDoc);
+      const oldDoc = f.old && f.old.length ? await PC.openPdfs(f.old) : null; if (oldDoc) opened.push(oldDoc);
       const res = await PC.analyze({ marks, newDoc, oldDoc, progress: (m, x) => { if (S.abort) throw ABORT; progress(m, x); } });
       S.opened = null;
       res.seconds = (performance.now() - t0) / 1000; res.markParts = marks.parts; res.newParts = newDoc.parts; res.oldParts = oldDoc ? oldDoc.parts : null; res.mode = mode;
@@ -490,7 +492,13 @@
       if (e === ABORT) { S.doneMsg = '中止しました'; $('pbar').style.width = '0'; return null; }
       console.error(e); $('err').textContent = '処理できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
       throw e;
-    } finally { S.running = false; S.abort = false; clearInterval(ETA.timer); ETA.t0 = 0; refresh(); }
+    } finally {
+      //   照合が終わったら(途中でやめたときも)、開いたPDFと文字を読む部品(OCR)を閉じて、メモリを手放す
+      //   (結果の表示は縮めた画像で行うので、PDFは要らない。次の照合では、入れたファイルから開き直す)
+      for (const d of opened) { try { await d.destroy(); } catch (e) { /* 閉じられなくても続ける */ } }
+      if (PC.ocrRelease) { try { await PC.ocrRelease(); } catch (e) { /* 同上 */ } }
+      S.running = false; S.abort = false; clearInterval(ETA.timer); ETA.t0 = 0; refresh();
+    }
   }
   $('stop').onclick = () => { if (!S.running) return; S.abort = true; $('stop').disabled = true; ETA.eta = null; ETA.msg = '中止しています…'; $('pmsg').textContent = ETA.msg; };
   $('run').onclick = () => run(files()).catch(() => {});
