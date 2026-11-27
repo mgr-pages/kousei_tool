@@ -196,6 +196,11 @@ ins { background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 7
 .gap { display: inline-block; width: 3px; height: 1.1em; background: var(--bad); vertical-align: -3px; margin: 0 3px; border-radius: 2px }
 .more { color: var(--sub); font-size: 12px }
 .what { margin-top: 8px; font-size: 15px }
+/* 同じ所をまとめた項目: 中の変化ごとに、種類の札を付けて並べる */
+.parts { margin-top: 6px; display: grid; gap: 6px }
+.part { border-left: 3px solid var(--line2); padding-left: 8px }
+.part .pk { display: inline-block; font-size: 11px; font-weight: 700; color: var(--sub); background: #eef1f6; border-radius: 99px; padding: 0 8px; margin-right: 6px }
+.part > .what, .part > .rows { margin-top: 2px }
 .what.ng { color: var(--bad); font-weight: 700; font-size: 13px; margin-top: 2px }
 .what .sw { display: inline-block; width: 1.1em; height: 1.1em; margin: 0 4px 0 2px; vertical-align: -0.15em; border: 1px solid #888; border-radius: 3px }
 mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; border-radius: 4px }
@@ -8585,6 +8590,50 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   }
 
   // opts: { marks: PC.markSource(...), newDoc, progress(msg, frac) }
+  // ---- 同じ所を指す、旧版との比べ合わせの項目を1件にまとめる ----
+  //   文字の違い・見た目の違い・移動・図形の文字の項目のうち、違う所ごとの枠どうしが重なるか 2pt 以内に接するものを、つながるかぎりまとめる
+  //   (同じ所に2つ以上の項目があると、同じ所を何度も確かめることになり、手間が増え、見逃しもしやすくなる)。ただし、まとめた枠がその
+  //   ページの 15% を超えるならまとめない(1件に入れすぎて、かえって確かめにくくならないように。大きな移動の範囲などは、そのまま1件)。
+  //   まとめた項目は、中の項目(parts)を位置の順に持ち、違う所ごとの枠をすべて描く。一覧での種類は、文字の違いがあればその項目の種類。
+  //   成果物だけで見るチェック・注釈の違いは、観点が違うのでまとめない
+  const SAME = { kinds: new Set(['add', 'del', 'look', 'move', 'shape']), gap: 2, cap: 0.15 };
+  function mergeSame(F, pages) {
+    const M2 = SAME.gap * PC.S, area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+    const boxesOf = f => [...(f.pnboxes && f.pnboxes.length ? f.pnboxes : [f.nbox]), ...(f.moreNboxes || [])].filter(Boolean);
+    const touch = (a, b) => a.some(p => b.some(q => Math.min(p[2], q[2]) + M2 > Math.max(p[0], q[0]) && Math.min(p[3], q[3]) + M2 > Math.max(p[1], q[1])));
+    const byPage = new Map(), drop = new Set();
+    for (const f of F) if (SAME.kinds.has(f.fromOld) && f.nbox) (byPage.get(f.page) || byPage.set(f.page, []).get(f.page)).push(f);
+    const rank = { add: 0, del: 0, look: 1, move: 2, shape: 3 }, pos = (a, b) => a.nbox[1] - b.nbox[1] || a.nbox[0] - b.nbox[0];
+    for (const [pg, fs] of byPage) {
+      const im = pages[pg - 1], A = im && im.right ? im.right.w * im.right.h : Infinity;   // そのページの面積(画素)
+      const gs = fs.map(f => ({ fs: [f], bs: boxesOf(f) }));
+      for (let merged = true; merged;) {
+        merged = false;
+        for (let i = 0; i < gs.length && !merged; i++) for (let j = i + 1; j < gs.length; j++) {
+          if (!touch(gs[i].bs, gs[j].bs) || area(PC.union([...gs[i].bs, ...gs[j].bs])) > SAME.cap * A) continue;
+          gs[i] = { fs: [...gs[i].fs, ...gs[j].fs], bs: [...gs[i].bs, ...gs[j].bs] }; gs.splice(j, 1); merged = true; break;
+        }
+      }
+      for (const g of gs) {
+        if (g.fs.length < 2) continue;
+        const base = g.fs.slice().sort((a, b) => rank[a.fromOld] - rank[b.fromOld] || pos(a, b))[0];
+        //   中の項目: 表示に使うものだけを写す(位置の順)
+        base.parts = g.fs.slice().sort(pos).map(f => ({ cat: f.cat, fromOld: f.fromOld, show: f.show, how: f.how, segs: f.segs, same: f.same, para: f.para, ocr: f.ocr, fill: f.fill, fills: f.fills, lookText: f.lookText, inMove: f.inMove, replaced: f.replaced, moveSame: f.moveSame, moveText: f.moveText, shape: f.shape, nbox: f.nbox }));
+        const seen = new Set();
+        base.pnboxes = g.bs.filter(b => { const k = b.map(Math.round).join(','); if (seen.has(k)) return false; seen.add(k); return true; });
+        base.moreNboxes = []; base.nbox = PC.union(g.bs).map(Math.trunc); base.box = base.nbox.slice();
+        base.kinds = [...new Set(g.fs.map(f => f.fromOld === 'del' ? 'add' : f.fromOld))];
+        if (g.fs.some(f => f.ocr)) base.ocr = true;
+        //   旧版の切り抜き: 同じ旧版のページ・同じ位置合わせの項目の、旧版の所をまとめる(動かした所は位置合わせが違うので、まとめない)
+        const sameM = o => o && base.old && o.p === base.old.p && JSON.stringify(o.M) === JSON.stringify(base.old.M);
+        if (base.old && base.old.box) { const ob = g.fs.map(f => f.old).filter(o => sameM(o) && o.box).map(o => o.box); if (ob.length) base.old = { ...base.old, box: PC.union(ob) }; }
+        for (const f of g.fs) if (f !== base) drop.add(f);
+      }
+    }
+    if (!drop.size) return;
+    const keep = F.filter(f => !drop.has(f));
+    F.length = 0; keep.forEach((f, i) => { f.id = i; F.push(f); });
+  }
   PC.analyze = async opts => {
     const { marks: src, newDoc } = opts, prog = opts.progress || (() => {});
     const cb = new PC.Codebook(), P = [], npages = src.numPages, warn = [];
@@ -9120,6 +9169,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       }
     }
     const pages = P.map(d => ({ ...d.thumbs, kind: d.kind, q: d.q, src: d.src, label: d.label, crop: d.crop || null, region: d.kind === 'content' ? d.pr.region.map(v => v * PC.S) : null, flip: flipOf(d) }));
+    mergeSame(F, pages);
     // 仕上がり(トンボ)の外にある項目に印を付ける(詳細設定で、ページ情報などを結果から外せるように)
     //   仕上がりは成果物のPDFに書かれた TrimBox(ページの外枠と同じなら外はない)。項目の成果物での位置の中心で見る
     //   違う字の枠(pnboxes)があれば、そのすべてが外のものだけ(内側の字を含む項目は、外の項目として隠さない)
@@ -9264,7 +9314,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     all: { run: '照合', note: '' },
   };
   const modeOf = () => (S.lists.marks.length ? (S.lists.old.length ? 'all' : 'marks') : S.lists.old.length ? 'old' : 'new');
+  //   同じ所をまとめた項目(旧版との比べ合わせ): 中の種類の名前
+  const PARTK = { add: '文字', look: '見た目', move: '移動', shape: '図形の文字' };
   function verdictOf(f) {
+    if (f.parts && f.parts.length > 1) {   // 同じ所の変化をまとめた項目(文字・見た目・移動など)
+      const prev = S.runMode === 'old' ? '前回' : '旧版', ks = (f.kinds || []).map(k => PARTK[k]).filter(Boolean);
+      return [`${prev}から変わった所（${ks.join('・') || 'まとめ'}）`, `同じ所の変化 ${f.parts.length}件を1件にまとめています（枠は変わった所ごと）。それぞれ意図した変更か、切り抜き（パタパタ・差分を赤で）で確認`];
+    }
     if (f.merge) {   // 差し込み印刷(名刺など)の行ごとの照合
       const r = f.merge;
       if (r.kind === 'ok') return ['原稿の表と一致', `原稿の表の${r.rn}行目の${r.fields.join('・')}が、このページにあります（自動で確認済み）`];
@@ -9368,6 +9424,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   const UWHY = { src: '文字が図形になっていて文字データがないため、原稿とは文字で比べていません。目で確認', old: '文字が図形になっていて文字データがないため、成果物だけのチェックをしていません。旧版とはページの大きさ・位置がそろわず、見た目でも比べていません。目で確認', none: '文字が図形になっていて文字データがないため、成果物だけのチェック（表記・日付など）をしていません。目で確認' };
   // 項目の中身: 何が違うか(どの種類でも、なるべく短く)
   function whatHtml(f) {
+    if (f.parts && f.parts.length > 1) return `<div class="parts">${f.parts.map(p => `<div class="part"><span class="pk">${esc(PARTK[p.fromOld === 'del' ? 'add' : p.fromOld] || '')}</span>${whatHtml({ ...p, parts: null }) || `<div class="what">${esc(p.show || '')}</div>`}</div>`).join('')}</div>`;
     const q = s => `「${esc(clipMid(s || ''))}」`;
     if (f.cat === 'J') { const [a, z] = f.j.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.show)}</mark>${z}</span>${f.j.want ? `<span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.j.want)}</ins>${z}</span>` : ''}</div>`; }
     if (f.lint) { const [a, z] = f.lint.ctx.map(esc); return `<div class="rows"><span class="lb">成果物</span><span class="tx">${a}<mark>${esc(f.lint.c)}</mark>${z}</span><span class="lb">候補</span><span class="tx">${a}<ins>${esc(f.lint.want)}</ins>${z}</span></div>`; }
@@ -9409,6 +9466,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   function swatch(c) { return `<span class="sw" style="background:${hex(c)}"></span>${hex(c)}`; }
   // CSV用の短い文: 「旧→新」をか所ごとに
   function diffText(f) {
+    if (f.parts && f.parts.length > 1) return f.parts.map(p => `[${PARTK[p.fromOld === 'del' ? 'add' : p.fromOld] || ''}] ${diffText({ ...p, parts: null })}`).join(' ／ ');
     if (f.lint) return `${f.lint.ctx[0]}${f.lint.c}${f.lint.ctx[1]}（「${f.lint.want}」では？）`;
     if (f.textSame) return '文字データは同じ（字形・位置の違い）';
     if (f.cat === 'U') return `文字が図形の所 ${+f.spotN || 1}か所（文字として確かめていない）`;
@@ -10355,7 +10413,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const flipOf = fl => (fl && typeof fl === 'object' ? (int(fl.old) != null ? { old: int(fl.old), M: m5(fl.M) } : fl.src ? { src: true } : null) : null);
     const pages = r.pages.map(pg => { pg = pg && typeof pg === 'object' ? pg : {}; return { kind: str(pg.kind), q: int(pg.q) ?? -1, src: int(pg.src), label: pg.label == null ? null : str(pg.label), crop: box4(pg.crop), region: box4(pg.region), left: img(pg.left), right: img(pg.right), base: img(pg.base), flip: flipOf(pg.flip) }; });
     const P = Math.max(1, pages.length);
-    const findings = r.findings.map((f0, i) => {
+    //   (同じ所をまとめた項目の中の項目(parts)も、同じようにそろえる。中の項目の中には入れない)
+    const clean = (f0, i, deep) => {
       const f = f0 && typeof f0 === 'object' ? f0 : {}, g = { ...f, id: i, page: Math.min(P, Math.max(1, Math.round(num(f.page)) || 1)), cat: str(f.cat), label: str(f.label), box: box4(f.box) || [0, 0, 0, 0], nbox: box4(f.nbox), show: str(f.show), how: str(f.how), note: str(f.note), check: str(f.check) };
       for (const k of ['pboxes', 'pnboxes', 'moreBoxes', 'moreNboxes']) if (k in f) g[k] = Array.isArray(f[k]) ? f[k].map(box4).filter(Boolean) : [];
       for (const k of ['frm', 'to', 'byInstr', 'ref', 'dropText']) if (k in f) g[k] = str(f[k]);
@@ -10376,8 +10435,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       if ('fill' in f) g.fill = f.fill && typeof f.fill === 'object' ? { o: rgb(f.fill.o), n: rgb(f.fill.n) } : null;
       if ('fills' in f || g.fill) g.fills = Array.isArray(f.fills) ? f.fills.slice(0, 3).map(x => ({ o: rgb(x && x.o), n: rgb(x && x.n) })) : g.fill ? [g.fill] : [];
       for (const k of ['merge', 'rec']) if (f[k]) g[k] = typeof f[k] === 'object' ? { ...f[k], kind: str(f[k].kind), fields: Array.isArray(f[k].fields) ? f[k].fields.map(str) : [] } : null;
+      delete g.parts; delete g.kinds;
+      if (deep && Array.isArray(f.parts)) g.parts = f.parts.slice(0, 300).map((p, k) => clean(p, k, false));
+      if (deep && Array.isArray(f.kinds)) g.kinds = f.kinds.map(str).filter(k => ['add', 'look', 'move', 'shape'].includes(k));
+      for (const k of ['fromOld', 'para']) if (k in f) g[k] = k === 'para' ? num(f[k]) : str(f[k]);
       return g;
-    });
+    };
+    const findings = r.findings.map((f0, i) => clean(f0, i, true));
     const parts = a => (Array.isArray(a) ? a.map(x => ({ name: str(x && x.name), start: num(x && x.start), pages: num(x && x.pages) })) : null);
     return {
       findings, pages, oldPages: Array.isArray(r.oldPages) ? r.oldPages.map(img) : [],

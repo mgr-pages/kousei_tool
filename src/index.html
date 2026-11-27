@@ -196,6 +196,11 @@ ins { background: #d9f3e2; color: #0b5d2b; text-decoration: none; font-weight: 7
 .gap { display: inline-block; width: 3px; height: 1.1em; background: var(--bad); vertical-align: -3px; margin: 0 3px; border-radius: 2px }
 .more { color: var(--sub); font-size: 12px }
 .what { margin-top: 8px; font-size: 15px }
+/* 同じ所をまとめた項目: 中の変化ごとに、種類の札を付けて並べる */
+.parts { margin-top: 6px; display: grid; gap: 6px }
+.part { border-left: 3px solid var(--line2); padding-left: 8px }
+.part .pk { display: inline-block; font-size: 11px; font-weight: 700; color: var(--sub); background: #eef1f6; border-radius: 99px; padding: 0 8px; margin-right: 6px }
+.part > .what, .part > .rows { margin-top: 2px }
 .what.ng { color: var(--bad); font-weight: 700; font-size: 13px; margin-top: 2px }
 .what .sw { display: inline-block; width: 1.1em; height: 1.1em; margin: 0 4px 0 2px; vertical-align: -0.15em; border: 1px solid #888; border-radius: 3px }
 mark { background: #fde2e2; color: #a3151b; font-weight: 700; padding: 0 2px; border-radius: 4px }
