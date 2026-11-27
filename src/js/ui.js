@@ -321,7 +321,7 @@
       } catch (err) { /* 目安に使うだけなので、読めなくてもよい */ }
       d.destroy(); e.pages = n;
     }
-    catch (err) { e.err = 'PDFとして開けません（' + (err && err.message || err) + '）。パスワード付き・壊れたPDFは使えません。'; }
+    catch (err) { e.err = /password/i.test(String(err && (err.name || '') + (err.message || err))) ? 'パスワード付きのPDFは使えません。パスワードを外したPDFを入れてください。' : 'PDFとして開けません。壊れているか、PDFではないファイルです。'; }
   }
   function add(kind, files) {
     const rf = [...files].find(isResultFile);
@@ -378,7 +378,8 @@
   }
   function renderFiles(kind) {
     const k = KIND[kind], L = S.lists[kind];
-    document.querySelector(`.step[data-kind="${kind}"]`).classList.toggle('has', L.length > 0);
+    const bad = L.some(e => e.err), box = document.querySelector(`.step[data-kind="${kind}"]`);   // 読めないファイルがあれば、緑のチェックでなく赤の印
+    box.classList.toggle('has', L.length > 0 && !bad); box.classList.toggle('bad', bad);
     $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : PC.dataKind(e) ? `${PC.dataLabel(e)}・${e.pages}ページ` : e.pages + (PC.isPdf(e) ? 'ページ' : '枚')}</span>` +
       `<span class="ops"><button data-op="up" data-i="${i}" title="上へ" ${i === 0 ? 'disabled' : ''}>↑</button> <button data-op="down" data-i="${i}" title="下へ" ${i === L.length - 1 ? 'disabled' : ''}>↓</button> <button data-op="del" data-i="${i}" title="外す">×</button></span>` +
       (e.err ? `<div class="em">${esc(e.err)}</div>` : '') + '</li>').join('');
@@ -411,9 +412,12 @@
   };
   //   入れられるファイルの形式を、拡張子で各欄に出し、ファイルを選ぶ画面にもその形式だけを出す(読み取りの処理と同じ一覧から作る)
   const EXTS = { marks: ['pdf', ...IMG_EXTS, ...PC.DATA_EXTS], nw: ['pdf'], old: ['pdf'] };
+  //   欄ごとの1行の説明(何を入れるか)。入れられる形式(拡張子)の一覧は、その行にマウスを置くと出す(画面には並べない)
+  const HINT = { marks: '赤字・指示を入れたもの（PDF・画像・Excel・Word など）', nw: '今回チェックするPDF', old: '前回の成果物のPDF（前回から変わった所も見ます）' };
   document.querySelectorAll('.exts[data-kind]').forEach(el => {
     const k = el.dataset.kind;
-    el.innerHTML = EXTS[k].map(x => `<code>.${x}</code>`).join('');
+    el.textContent = HINT[k];
+    el.title = '入れられる形式：' + EXTS[k].map(x => '.' + x).join(' ') + '。ここへドラッグしても入れられます';
   });
   $('fMarks').accept = [...EXTS.marks.map(x => '.' + x), 'application/pdf', ...PC.OLD_EXTS.map(x => '.' + x)].join(',');   // 古い形式は、選ぶと直し方を知らせる
   $('fNew').accept = $('fOld').accept = '.pdf,application/pdf';
@@ -460,6 +464,7 @@
       try { S.verdict = JSON.parse(localStorage.getItem(S.key) || '{}'); } catch (e) { S.verdict = {}; }
       await show(res);
       S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1); S.runSig = runSig;
+      $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });   // 結果へ動かす(下に出たことに気づくように)
       return res;
     } catch (e) {
       if (e === ABORT) { S.doneMsg = '中止しました'; $('pbar').style.width = '0'; return null; }
@@ -498,10 +503,13 @@
     const nNew = (res.newParts || []).reduce((n, x) => n + x.pages, 0);
     $('sumNote').textContent = res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`;
     const notes = [S.opened ? `保存した結果を開いています（${S.opened}）。照合し直してはいません` : '', ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : '', res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : ''].filter(Boolean);
-    $('notes').innerHTML = notes.map(t => `<li>${esc(t)}</li>`).join('');
-    //   お知らせ: ふだんは畳んで件数だけ。項目が1件もないときは開いておく(なぜ0件かが分かるように)
-    $('notesBox').hidden = !notes.length; $('notesSum').textContent = `お知らせ ${notes.length}件`;
-    if (!F.length && notes.length) $('notesBox').open = true;
+    //   比べていない・確かめていない所の知らせ(ページが当たらない・文字データがないなど)は、見逃しにつながるので目立たせる
+    const GAP = /比べていません|比べられませんでした|照合していません|見つかりませんでした|確かめていません|行っていません|うまく合いません/, gaps = notes.filter(t => GAP.test(t)).length;
+    $('notes').innerHTML = notes.map(t => `<li${GAP.test(t) ? ' class="nocmp"' : ''}>${esc(t)}</li>`).join('');
+    //   お知らせ: ふだんは畳んで件数だけ。項目が1件もないとき(なぜ0件かが分かるように)と、比べていない所の知らせがあるときは開いておく
+    $('notesBox').hidden = !notes.length; $('notesSum').textContent = gaps ? `お知らせ ${notes.length}件（比べていない所があります）` : `お知らせ ${notes.length}件`;
+    $('notesBox').classList.toggle('warn', gaps > 0);
+    if ((!F.length || gaps) && notes.length) $('notesBox').open = true;
     //   2つのまとまり(直す必要がありそう・確認だけ)と、件数のある種類の札。見出しや札を押すと、それだけを一覧とページに出す(もう一度押すと全部に戻る)
     const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nOf = g => F.filter(f => groupOf(f) === g).length;
     const nNeed = F.filter(f => groupOf(f).need).length, nLook = F.filter(f => look.includes(groupOf(f))).length, nAuto = F.filter(f => groupOf(f).auto).length;
