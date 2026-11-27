@@ -9,6 +9,7 @@
 #   差し込み印刷(名刺・社員証)は、testdata/merge を照合し、test/merge/evaluate.py で採点する
 #   紙の赤字原稿＋旧版＋成果物は testdata/scan3 と test/scan3/evaluate.py、文法・話し言葉は testdata/jcheck3 と test/jcheck3/gt.json で採点する
 #   コメント(マーカー・付箋と返信)で指示を入れたPDF原稿は、testdata/annot2 を照合し、test/annot2/evaluate.py で採点する
+#   旧版から動かしただけの所(1か所1件の「移動した所」)は、testdata/move を照合し、test/move/evaluate.py で採点する
 #   性質の試験(正解を決めなくても成り立つはずのこと。test/props/check.py): 同じPDFを原稿と成果物・旧版と成果物に入れたら照合の項目は0件、
 #   注釈で指示した原稿と直していない成果物では変化の項目は0件、注釈の数＝結果に指示として出た数。あわせて、架空のPDFに誤りを無作為に
 #   入れる試験(test/realcheck)の成績を出す
@@ -119,6 +120,8 @@ wait
 run "$I/annot.pdf" "$I/old.pdf" imgonly_mk_annot_old &
 run "$I/annot.pdf" "$I/new.pdf" imgonly_mk_annot_new &
 run "$I/redflat.pdf" "$I/old.pdf" imgonly_mk_redflat_old &
+#   旧版から動かしただけの所(同じページの中で動かしたブロック・旧版の別のページから移したブロック。test/move/make.py。採点は test/move/evaluate.py)
+OLD="$DATA/move/old.pdf" run - "$DATA/move/new.pdf" move &
 wait
 #   架空のPDFに誤りを無作為に入れる試験(成績を出す。採点は test/realcheck/evaluate.py)
 JOBS=4 bash test/realcheck/run.sh "$OUT/realcheck" 1 12 "$DATA/new.pdf" "$DATA/props/design.pdf" > "$OUT/realcheck.txt" 2>&1
@@ -168,6 +171,7 @@ python3 test/annot2/evaluate.py "$DATA/annot2/truth.json" "$OUT/annot2.json" | t
 echo "旧版から見た目が変わった所: $(head1 "$OUT/look_old.log" 24) | $(python3 test/look/evaluate.py test/look/gt.json "$OUT/look_old.json" | sed -n 1p)"
 python3 test/look/evaluate.py test/look/gt.json "$OUT/look_old.json" | tail -n +2
 python3 test/imgonly/evaluate.py "$OUT" | tail -1; python3 test/imgonly/evaluate.py "$OUT" | grep NG
+python3 test/move/evaluate.py "$OUT/move.json" | tail -1; python3 test/move/evaluate.py "$OUT/move.json" | grep NG
 echo "性質の試験: $(python3 test/props/check.py same "$OUT"/props/same_*.json "$OUT"/props/oldsame_*.json | sed -n 1p)"
 python3 test/props/check.py same "$OUT"/props/same_*.json "$OUT"/props/oldsame_*.json | tail -n +2
 python3 test/props/check.py unchanged "$OUT/props/unchanged_digital.json" | sed 's/^/性質の試験: /'
