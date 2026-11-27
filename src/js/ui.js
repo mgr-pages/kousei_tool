@@ -474,9 +474,11 @@
     ETA.eta = ETA.prior; ETA.at = ETA.t0;
     clearInterval(ETA.timer); ETA.timer = setInterval(() => { if (S.running) $('pmsg').textContent = ETA.msg + etaText(); }, 1000);
     const mode = f.marks && f.marks.length ? (f.old && f.old.length ? 'all' : 'marks') : f.old && f.old.length ? 'old' : 'new';
-    const t0 = performance.now();
+    const t0 = performance.now(), opened = [];
     try {
-      const marks = await PC.markSource(f.marks), newDoc = await PC.openPdfs(f.nw), oldDoc = f.old && f.old.length ? await PC.openPdfs(f.old) : null;
+      const marks = await PC.markSource(f.marks); opened.push(...(marks.docs || []));
+      const newDoc = await PC.openPdfs(f.nw); opened.push(newDoc);
+      const oldDoc = f.old && f.old.length ? await PC.openPdfs(f.old) : null; if (oldDoc) opened.push(oldDoc);
       const res = await PC.analyze({ marks, newDoc, oldDoc, progress: (m, x) => { if (S.abort) throw ABORT; progress(m, x); } });
       S.opened = null;
       res.seconds = (performance.now() - t0) / 1000; res.markParts = marks.parts; res.newParts = newDoc.parts; res.oldParts = oldDoc ? oldDoc.parts : null; res.mode = mode;
@@ -490,7 +492,13 @@
       if (e === ABORT) { S.doneMsg = '中止しました'; $('pbar').style.width = '0'; return null; }
       console.error(e); $('err').textContent = '処理できませんでした：' + (e && e.message ? e.message : e); progress('エラー', 0);
       throw e;
-    } finally { S.running = false; S.abort = false; clearInterval(ETA.timer); ETA.t0 = 0; refresh(); }
+    } finally {
+      //   照合が終わったら(途中でやめたときも)、開いたPDFと文字を読む部品(OCR)を閉じて、メモリを手放す
+      //   (結果の表示は縮めた画像で行うので、PDFは要らない。次の照合では、入れたファイルから開き直す)
+      for (const d of opened) { try { await d.destroy(); } catch (e) { /* 閉じられなくても続ける */ } }
+      if (PC.ocrRelease) { try { await PC.ocrRelease(); } catch (e) { /* 同上 */ } }
+      S.running = false; S.abort = false; clearInterval(ETA.timer); ETA.t0 = 0; refresh();
+    }
   }
   $('stop').onclick = () => { if (!S.running) return; S.abort = true; $('stop').disabled = true; ETA.eta = null; ETA.msg = '中止しています…'; $('pmsg').textContent = ETA.msg; };
   $('run').onclick = () => run(files()).catch(() => {});
@@ -585,8 +593,9 @@
     ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(t, x + 9, y + 11.5); ctx.restore();
   };
   // ---- 差分の赤い表示: 成果物のページの上に、相手(パタパタと同じ旧版・原稿)と色の違う所を赤く塗って出す(パタパタとは別の見方) ----
-  //   違う所: どれかの色の差が 40 を超え、相手のまわり 5×5 画素の色の範囲(±40)にも入らない画素(2画素ほどのずれ・字のふちのぼかし・
-  //   画像の圧縮のゆらぎは、違いにしない。照合の「見た目の違い」と同じ見方)。成果物は薄くし、違う画素を赤く(1画素ふくらませて)塗る。
+  //   違う所: どれかの色の差が 22 を超え、相手のまわり 5×5 画素の色の範囲(±22)にも入らない画素(2画素ほどのずれ・字のふちのぼかし・
+  //   画像の圧縮のゆらぎは、違いにしない。照合の「見た目の違い」と同じ見方。表示用の画像は 55% に薄めてあるので、照合の 40 に当たる 22 で見る)。
+  //   成果物は薄くし、違う画素を赤く(1画素ふくらませて)塗る。
   //   表示用の画像(ページの縮小画像)で、ページごとに1回だけ作る
   function setDiff(on) {
     S.diff = !!on;
@@ -603,7 +612,7 @@
       const [cn, xn] = canvas(), [, xo] = canvas();
       xn.drawImage(im.R, 0, 0, W, H); const N = xn.getImageData(0, 0, W, H).data;
       xo.fillStyle = '#fff'; xo.fillRect(0, 0, W, H); drawAligned(xo, a, A, kk, 0, 0, 0, 0); const O = xo.getImageData(0, 0, W, H).data;
-      const T = 40, R = 2, m = new Uint8Array(W * H);
+      const T = 22, R = 2, m = new Uint8Array(W * H);   // 表示用の画像は 55% に薄めてあるので、照合の 40 に当たる差は 22
       const outside = (P, Q, x, y) => {   // P の (x, y) の色が、Q のまわり 5×5 の色の範囲の外か
         const p = 4 * (y * W + x);
         for (let c = 0; c < 3; c++) {

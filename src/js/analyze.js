@@ -157,14 +157,19 @@
   }
 
   // 表示用の画像(赤字原稿を薄く／修正後を薄く)をJPEGにして手放す
-  const blend = img => { const d = new Uint8ClampedArray(img.d.length); for (let k = 0; k < d.length; k++) d[k] = (k & 3) === 3 ? 255 : Math.round(img.d[k] * 0.55 + 255 * 0.45); return { w: img.w, h: img.h, d }; };
   //   大きなページ(A3・見開きなど)は、面積が 2400×2400 画素までになるよう縮める(w, h は元の大きさ。表示のときに縮めた分を戻す)。
   //   長い辺で決めると、縦に長いページ(ランディングページなど)の幅がとても粗くなり、印刷で字が読めないため(長い辺は 6000画素まで)
+  //   (メモリを抑える: もとの大きさの写し・canvas を作らずに縮め(createImageBitmap)、縮めた画像の上に白を 45% 重ねて薄める(もとの画像を 55% に薄める計算と同じ)。
+  //    使った置き場はすぐ手放す)
   async function toThumb(img) {
-    let c = PC.toCanvas(blend(img));
     const k = Math.min(1, Math.sqrt(2400 * 2400 / (img.w * img.h)), 6000 / Math.max(img.w, img.h));
-    if (k < 1) { const d = document.createElement('canvas'); d.width = Math.round(img.w * k); d.height = Math.round(img.h * k); d.getContext('2d').drawImage(c, 0, 0, d.width, d.height); c = d; }
+    const W = Math.max(1, Math.round(img.w * k)), H = Math.max(1, Math.round(img.h * k));
+    const bmp = await createImageBitmap(new ImageData(img.d instanceof Uint8ClampedArray ? img.d : new Uint8ClampedArray(img.d), img.w, img.h), k < 1 ? { resizeWidth: W, resizeHeight: H, resizeQuality: 'high' } : {});
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.drawImage(bmp, 0, 0); bmp.close();
+    ctx.globalAlpha = 0.45; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+    c.width = c.height = 0;
     return { url: URL.createObjectURL(blob), w: img.w, h: img.h };
   }
   //   パタパタ表示(旧版と成果物を同じ所に重ねて交互に出す)の位置合わせ: 旧版のページの画素 → 結果のページの成果物の画像の画素。
@@ -1352,6 +1357,7 @@
     const C = PC.COST, n = oldDoc.numPages, wp = C.pairNew * newDoc.numPages + C.pairOld * n, a = wp / (wp + C.oldCmp * n);
     const pairs = await PC.pairPages(src, newDoc, (s, f) => step('旧版との対応：' + s, a * f), '旧版'), out = new Map();
     for (let p = 0; p < pairs.length; p++) {
+      if (p) for (const d of [oldDoc, newDoc]) { try { await d.cleanup(true); } catch (e) { /* 描いている途中なら次の機会に */ } }   // 前のページで展開した画像などを手放す(メモリを抑える)
       const pr = pairs[p], at = a + (1 - a) * p / n, prog = s => step(s, at);
       prog(`旧版 ${p + 1}/${n} ページを成果物と比べています`);
       if (pr.q < 0) continue;
@@ -2264,7 +2270,7 @@
     }
     return { moves, rest };
   }
-  async function oldLooks(P, OLD, newDoc, oldDoc, step) {
+  async function oldLooks(P, OLD, newDoc, oldDoc, step, relax = async () => {}) {
     const k = PC.S, VIS = new Set(['annot', 'scan', 'scan3']);
     let total = 0, done = 0;
     //   移動の見分けで探す旧版のほかのページ: 成果物のこのページに当たった旧版のページと、成果物のどのページにも当たらなかった旧版のページ
@@ -2282,6 +2288,7 @@
     const oldName = p => { const n = oldDoc.parts && oldDoc.parts.length > 1 ? PC.pageOf(oldDoc.parts, p) : null; return n ? `旧版（${n.name}）の${n.page}ページ目` : `旧版の${p + 1}ページ目`; };
     const dirOf = v => [Math.abs(mm(v[0])) >= 0.3 ? `${v[0] > 0 ? '右' : '左'}へ ${Math.abs(mm(v[0]))}mm` : '', Math.abs(mm(v[1])) >= 0.3 ? `${v[1] > 0 ? '下' : '上'}へ ${Math.abs(mm(v[1]))}mm` : ''].filter(Boolean).join('・');
     for (const [q, o] of OLD.byQ) {
+      if (done) await relax();   // 前のページで描いた画像などを手放す
       step(done++ / OLD.byQ.size);
       //   位置合わせを同じ字の組で確かめられたページ(Tr)だけ(おおよその変換で重ねると、ずれた所がみな違いになる)
       const maps = o.maps.filter(m => m.Tr && OLD.pairs[m.p] && OLD.pairs[m.p].same);
@@ -2914,6 +2921,19 @@
       ['final', C.final + (oldDoc ? C.oldThumb * nOld : 0)],
     ]);
     plan(null);
+    //   メモリの上限の目安(PC.MEM)を超えそうな大きなページ(描いたときの画素数が多いもの)を知らせる
+    {
+      const big = [], k2 = (PC.DPI / 72) ** 2;
+      const check = async (doc, n, name) => {
+        if (!doc) return;
+        const ps = [];
+        for (let i = 0; i < n; i++) { const vp = (await doc.getPage(i + 1)).getViewport({ scale: 1 }); if (vp.width * vp.height * k2 > PC.MEM.px) ps.push(i + 1); }
+        if (ps.length) big.push(`${name}の${spans(ps)}ページ目`);
+      };
+      await check(newDoc, nNew, '成果物'); await check(oldDoc, nOld, '旧版');
+      for (const d of src.docs || []) await check(d, d.numPages, '原稿');
+      if (big.length) warn.push(`${big.join('・')}は大きいため、照合中のメモリが上限の目安（${PC.MEM.mb}MB）を超えることがあります（A3見開きまでのページで、上限に収まることを確かめています）`);
+    }
     // 1) 原稿の各ページが、成果物のどのページのどの範囲に当たるか
     const pairs = npages ? await PC.pairPages(src, newDoc, (s, f) => G.at('pair', s, f)) : [];   // 原稿がなければ、成果物だけをチェックする
     if (npages) plan(pairs);
@@ -2936,8 +2956,12 @@
     }
     //   成果物のページ q に、大きさ・位置がそろって当たる旧版のページ(なければ null)
     const sameOld = q => { if (!OLDP) return null; const i = OLDP.findIndex(x => x.q === q && x.same && x.T && Math.abs(x.T[0] - 1) < 0.01 && Math.abs(x.T[1]) < 0.01 && Math.abs(x.T[2]) < 3 && Math.abs(x.T[3]) < 3 && Math.abs((x.T.length > 4 ? x.T[4] : x.T[0]) - 1) < 0.01); return i >= 0 ? { p: i, pr: OLDP[i] } : null; };
+    //   メモリを抑える: PDFの読み込み部品(pdf.js)が抱えている、描いたページの画像・字の形などを手放す(描き直すときは読み直す)。
+    //   ページごと・段階ごとに行う(手放さないと、画像の多いページでは何百MBもたまる)
+    const relax = async () => { for (const d of [newDoc, oldDoc, ...(src.docs || [])]) if (d && d.cleanup) { try { await d.cleanup(); } catch (e) { /* 描いている途中なら、次の機会に */ } } };
     // 2) ページごとに照合: 同じレイアウトなら字形を重ねて比べ、レイアウトが違えば文字データの内容で比べる
     for (let p = 0; p < npages; p++) {
+      if (p) await relax();
       const step = (s, f) => G.at('page' + p, `${p + 1} / ${npages} ページ：${s}`, f);
       step('描画', 0.01); await PC.tick();
       const pr = pairs[p], it = src.page(p), label = src.label(p);
@@ -3001,6 +3025,7 @@
       d.thumbs = { left: await toThumb(d.left), right: await toThumb(d.right), ...(d.base ? { base: await toThumb(d.base) } : {}) }; d.left = d.right = d.base = null;
       put(d);
     }
+    await relax();
     scan3Resolve(P);   // 紙の赤字原稿＋旧版: 同じ成果物のページの赤字と変化を、ページ全体でまとめて突き合わせる
     if (s3.length) {
       warn.push(`紙の赤字原稿（${spans(s3.map(x => x.p))}ページ目）は旧版を刷ったものとして、変化を旧版と成果物のPDFどうしで求め、赤字の近くかどうかで分けました（取り出した赤字 ${s3.reduce((t, x) => t + x.n, 0)}か所）`);
@@ -3015,6 +3040,7 @@
     await recordPages(P, src, JP, newDoc, NQ);
     // 旧版(任意)があれば、成果物の字が旧版から変わったかを求める(原稿のない部分の変化・前回のままの見分けに使う)
     const OLD = opts.oldDoc ? await oldDiff(opts.oldDoc, newDoc, NQ, (s, f) => G.at('old', s, f), JP) : null;
+    if (OLD) await relax();
     if (OLD) for (const d of P) if (d.kind === 'content' && OLD.byQ.has(d.q)) d.oldSt = OLD.byQ.get(d.q).st;
     leftovers(P, NQ, OLD && OLD.byQ);
     if (OLD) await oldChanges(P, OLD, newDoc);
@@ -3022,10 +3048,13 @@
     G.at('shape', '文字データのない文字の所を調べています'); await PC.tick();
     const SH = await shapeSpots(P, newDoc, JP, OLD ? { ...OLD, doc: opts.oldDoc } : null, f => G.at('shape', '文字データのない文字の所を調べています', f));
     if (SH.total) warn.push(`文字が図形になっていて文字データのない所が ${SH.total}か所あり、文字としては確かめていません（一覧の「文字として確かめていない所」。見た目で比べたページは除く）`);
+    await relax();
     //   旧版から見た目が変わった所(写真・図版・色・線など。文字の変化・字の移動で説明できない描画の違い)
-    if (OLD) { G.at('looks', '旧版から見た目が変わった所を調べています'); await PC.tick(); await oldLooks(P, OLD, newDoc, opts.oldDoc, f => G.at('looks', '旧版から見た目が変わった所を調べています', f)); }
+    if (OLD) { G.at('looks', '旧版から見た目が変わった所を調べています'); await PC.tick(); await oldLooks(P, OLD, newDoc, opts.oldDoc, f => G.at('looks', '旧版から見た目が変わった所を調べています', f), relax); }
     //   旧版と成果物の注釈(コメント・図形などの書き込み)の違い
+    if (OLD) await relax();
     const AR = OLD ? await oldAnnots(P, OLD, newDoc, opts.oldDoc, NQ, npages > 0) : null;
+    if (OLD) await relax();
     if (AR && AR.nw) warn.push(`成果物のPDFに、旧版にない注釈（コメント・図形などの書き込み）が ${AR.nw}件あります（一覧の「指示・書き込みの確認」の中）。校正の赤字なら、このPDFを「原稿」の欄に入れて、直した成果物と比べると、指示どおりに直っているかを確かめられます`);
     if (AR && AR.old) warn.push(npages ? `旧版のPDFにあった注釈（コメント・図形などの書き込み）${AR.old}件が、成果物にはありません（原稿の欄の指示と同じものなら問題ありません。別のものなら、旧版を原稿の欄にも入れて確かめてください）`
       : `旧版のPDFにあった注釈（コメント・図形などの書き込み）${AR.old}件が、成果物にはありません（一覧の「指示・書き込みの確認」の中）。旧版に書き込んだ赤字の指示なら、旧版を「原稿」の欄に入れると、指示どおりに直っているかを確かめられます`);
@@ -3053,10 +3082,13 @@
     //   (見開きの片側だけを照合したページは、その側にある項目だけ。どこにも表示していない成果物のページは「成果物だけ」のページを足す)
     G.at('check', '辞書を読み込んでいます'); await PC.tick();
     const TK = await PC.tokenizer();
+    //   (辞書は、使い終わったら手放す(約130MB)。照合のたびに読み込み直す(1秒ほど))
     G.at('check', '成果物だけで文字・表記を確認しています', C.checkBase / (C.checkBase + C.check * nNew)); await PC.tick();
     if (!TK) warn.push('辞書を読み込めなかったため、成果物だけのチェックの一部（表記ゆれの一部・助詞の続き方など）を行っていません');
     const pname = q => { const n = PC.pageOf(newDoc.parts, q); return n ? `${newDoc.parts.length > 1 ? n.name + ' ' : ''}${n.page}ページ` : `${q + 1}ページ`; };   // 成果物のページの名前(ファイルが複数なら名前も)
-    for (const x of PC.jcheck(JP, TK, pname).sort((a, b) => a.q - b.q)) {   // 成果物のページの順に(「成果物だけ」のページもこの順に足す)
+    const JF = PC.jcheck(JP, TK, pname).sort((a, b) => a.q - b.q);
+    if (PC.tokenizerRelease) PC.tokenizerRelease();
+    for (const x of JF) {   // 成果物のページの順に(「成果物だけ」のページもこの順に足す)
       const c = PC.center(x.box), ds = P.filter(d => d.q === x.q && d.kind !== 'none');
       let d = ds.find(d => d.crop && c[0] >= d.crop[0] && c[0] <= d.crop[2] && c[1] >= d.crop[1] && c[1] <= d.crop[3]) || ds.find(d => !d.crop);
       if (!d) {
