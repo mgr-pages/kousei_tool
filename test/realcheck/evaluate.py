@@ -25,6 +25,7 @@ CH = ('C2', 'C3', 'E', 'V', 'T', 'N')   # 指示のない変化として出る�
 
 def boxes(f):
     bs = [b for b in (f.get('pnboxes') or []) + (f.get('pboxes') or []) if b]
+    if f.get('para') and bs: return bs   # 段落ごとにまとめた件: 違う所ごとの枠で見る(件の枠は段落の違いをすべて含む表示用の範囲)
     for k in ('nbox', 'box'):
         if f.get(k): bs.append(f[k])
     return bs
