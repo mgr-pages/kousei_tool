@@ -42,16 +42,18 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .step.req { border-color: #a9c3f2; background: #f7faff }
 .step.has { border-style: solid; border-color: #bfe3cd; background: #fff }
 .step.over { border-color: var(--accent); background: var(--accent-soft) }
+.step.bad { border-style: solid; border-color: #f0b8bb; background: #fff }
 .step .t { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px }
 .step .ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); position: relative }
 .step.has .ico { background: var(--good-soft); color: var(--good) }
+.step.bad .ico { background: var(--bad-soft); color: var(--bad) }
+.step.bad .ico::after { content: '!'; position: absolute; right: -5px; bottom: -5px; width: 17px; height: 17px; border-radius: 50%; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; line-height: 17px; text-align: center }
 .step.has .ico::after { content: '✓'; position: absolute; right: -5px; bottom: -5px; width: 17px; height: 17px; border-radius: 50%; background: var(--good); color: #fff; font-size: 11px; line-height: 17px; text-align: center; border: 2px solid #fff }
 .badge { font-style: normal; font-size: 11px; font-weight: 700; border-radius: 99px; padding: 1px 9px; margin-left: auto; white-space: nowrap }
 .badge.req { background: #fff0e3; color: #b4510b }
 .badge.opt { background: #eef1f5; color: var(--sub) }
-/* 入れられるファイルの形式(拡張子) */
-.exts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px; margin: 10px 0 10px; font-size: 11px; color: var(--faint) }
-.exts code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; background: transparent; color: var(--sub); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; line-height: 1.5 }
+/* 欄ごとの1行の説明(何を入れるか。形式の一覧はマウスを置くと出す) */
+.exts { margin: 8px 0 10px; font-size: 12px; color: var(--sub); line-height: 1.5; cursor: default }
 .pickrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
 .pick { position: relative; display: inline-flex; align-items: center; gap: 6px; border-radius: 99px; background: #fff; color: var(--accent); border: 1px solid #b9cdf3; padding: 5px 14px; font-size: 13px; font-weight: 700; cursor: pointer }
 .pick:hover { background: var(--accent-soft) }
@@ -113,6 +115,9 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .notesbox { margin: 6px 0 12px; font-size: 13px }
 .notesbox[hidden] { display: none }
 .notesbox summary { cursor: pointer; color: var(--sub); font-size: 12.5px; width: max-content }
+.notesbox.warn summary { color: #b4510b; font-weight: 700 }
+.notes li.nocmp { color: #8a3d06; font-weight: 600 }
+.notes li.nocmp::before { background: #e07a1f }
 .notes { list-style: none; margin: 6px 0 0; padding: 8px 12px; background: #f7f9fc; border: 1px solid var(--line); border-radius: var(--r-s); font-size: 13px }
 .notes:empty { display: none }
 .notes li { position: relative; padding-left: 16px; margin: 2px 0 }
@@ -161,7 +166,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px }
 .switch input:focus-visible { outline: 3px solid #bcd3fb; outline-offset: 2px }
 /* ---- 一覧とページ ---- */
 .work { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(420px, 1.25fr); gap: 16px; align-items: start }
-@media (max-width: 1000px) { .work { grid-template-columns: 1fr } .viewer { position: static !important } }
+@media (max-width: 880px) { .work { grid-template-columns: 1fr } .viewer { order: -1; position: sticky !important; top: 0; z-index: 5 } .viewer .scroll { max-height: 45vh !important } }   /* 狭い画面: ページの表示を一覧の上に固定(項目を選ぶと、そのページが見えるように) */
 .work > * { min-width: 0 }
 .list { display: flex; flex-direction: column; gap: 10px }
 .item { background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 12px; padding: 12px 14px; cursor: pointer; box-shadow: var(--shadow); transition: box-shadow .12s }
@@ -9166,7 +9171,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       } catch (err) { /* 目安に使うだけなので、読めなくてもよい */ }
       d.destroy(); e.pages = n;
     }
-    catch (err) { e.err = 'PDFとして開けません（' + (err && err.message || err) + '）。パスワード付き・壊れたPDFは使えません。'; }
+    catch (err) { e.err = /password/i.test(String(err && (err.name || '') + (err.message || err))) ? 'パスワード付きのPDFは使えません。パスワードを外したPDFを入れてください。' : 'PDFとして開けません。壊れているか、PDFではないファイルです。'; }
   }
   function add(kind, files) {
     const rf = [...files].find(isResultFile);
@@ -9223,7 +9228,8 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   }
   function renderFiles(kind) {
     const k = KIND[kind], L = S.lists[kind];
-    document.querySelector(`.step[data-kind="${kind}"]`).classList.toggle('has', L.length > 0);
+    const bad = L.some(e => e.err), box = document.querySelector(`.step[data-kind="${kind}"]`);   // 読めないファイルがあれば、緑のチェックでなく赤の印
+    box.classList.toggle('has', L.length > 0 && !bad); box.classList.toggle('bad', bad);
     $(k.list).innerHTML = L.map((e, i) => `<li class="${e.err ? 'err' : ''}"><span class="nm">${esc(e.name)}</span><span class="pc">${e.err ? '読めません' : e.pages == null ? '読み込み中…' : PC.dataKind(e) ? `${PC.dataLabel(e)}・${e.pages}ページ` : e.pages + (PC.isPdf(e) ? 'ページ' : '枚')}</span>` +
       `<span class="ops"><button data-op="up" data-i="${i}" title="上へ" ${i === 0 ? 'disabled' : ''}>↑</button> <button data-op="down" data-i="${i}" title="下へ" ${i === L.length - 1 ? 'disabled' : ''}>↓</button> <button data-op="del" data-i="${i}" title="外す">×</button></span>` +
       (e.err ? `<div class="em">${esc(e.err)}</div>` : '') + '</li>').join('');
@@ -9256,9 +9262,12 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
   };
   //   入れられるファイルの形式を、拡張子で各欄に出し、ファイルを選ぶ画面にもその形式だけを出す(読み取りの処理と同じ一覧から作る)
   const EXTS = { marks: ['pdf', ...IMG_EXTS, ...PC.DATA_EXTS], nw: ['pdf'], old: ['pdf'] };
+  //   欄ごとの1行の説明(何を入れるか)。入れられる形式(拡張子)の一覧は、その行にマウスを置くと出す(画面には並べない)
+  const HINT = { marks: '赤字・指示を入れたもの（PDF・画像・Excel・Word など）', nw: '今回チェックするPDF', old: '前回の成果物のPDF（前回から変わった所も見ます）' };
   document.querySelectorAll('.exts[data-kind]').forEach(el => {
     const k = el.dataset.kind;
-    el.innerHTML = EXTS[k].map(x => `<code>.${x}</code>`).join('');
+    el.textContent = HINT[k];
+    el.title = '入れられる形式：' + EXTS[k].map(x => '.' + x).join(' ') + '。ここへドラッグしても入れられます';
   });
   $('fMarks').accept = [...EXTS.marks.map(x => '.' + x), 'application/pdf', ...PC.OLD_EXTS.map(x => '.' + x)].join(',');   // 古い形式は、選ぶと直し方を知らせる
   $('fNew').accept = $('fOld').accept = '.pdf,application/pdf';
@@ -9305,6 +9314,7 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
       try { S.verdict = JSON.parse(localStorage.getItem(S.key) || '{}'); } catch (e) { S.verdict = {}; }
       await show(res);
       S.doneMsg = `完了（${res.seconds.toFixed(1)}秒）`; progress(S.doneMsg, 1); S.runSig = runSig;
+      $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });   // 結果へ動かす(下に出たことに気づくように)
       return res;
     } catch (e) {
       if (e === ABORT) { S.doneMsg = '中止しました'; $('pbar').style.width = '0'; return null; }
@@ -9343,10 +9353,13 @@ PC.esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '
     const nNew = (res.newParts || []).reduce((n, x) => n + x.pages, 0);
     $('sumNote').textContent = res.pages.length ? res.pages.length + 'ページ' : `成果物 ${nNew}ページ`;
     const notes = [S.opened ? `保存した結果を開いています（${S.opened}）。照合し直してはいません` : '', ruleNote.replace(/^／/, ''), ...res.warn, optOff.size ? `詳細設定で外した項目に当たる${nOff}件は出していません` : '', res.markParts && res.markParts.length ? 'ページの対応：' + mapSummary() : ''].filter(Boolean);
-    $('notes').innerHTML = notes.map(t => `<li>${esc(t)}</li>`).join('');
-    //   お知らせ: ふだんは畳んで件数だけ。項目が1件もないときは開いておく(なぜ0件かが分かるように)
-    $('notesBox').hidden = !notes.length; $('notesSum').textContent = `お知らせ ${notes.length}件`;
-    if (!F.length && notes.length) $('notesBox').open = true;
+    //   比べていない・確かめていない所の知らせ(ページが当たらない・文字データがないなど)は、見逃しにつながるので目立たせる
+    const GAP = /比べていません|比べられませんでした|照合していません|見つかりませんでした|確かめていません|行っていません|うまく合いません/, gaps = notes.filter(t => GAP.test(t)).length;
+    $('notes').innerHTML = notes.map(t => `<li${GAP.test(t) ? ' class="nocmp"' : ''}>${esc(t)}</li>`).join('');
+    //   お知らせ: ふだんは畳んで件数だけ。項目が1件もないとき(なぜ0件かが分かるように)と、比べていない所の知らせがあるときは開いておく
+    $('notesBox').hidden = !notes.length; $('notesSum').textContent = gaps ? `お知らせ ${notes.length}件（比べていない所があります）` : `お知らせ ${notes.length}件`;
+    $('notesBox').classList.toggle('warn', gaps > 0);
+    if ((!F.length || gaps) && notes.length) $('notesBox').open = true;
     //   2つのまとまり(直す必要がありそう・確認だけ)と、件数のある種類の札。見出しや札を押すと、それだけを一覧とページに出す(もう一度押すと全部に戻る)
     const need = GROUPS.filter(g => g.need), look = GROUPS.filter(g => !g.need && !g.minor), nOf = g => F.filter(f => groupOf(f) === g).length;
     const nNeed = F.filter(f => groupOf(f).need).length, nLook = F.filter(f => look.includes(groupOf(f))).length, nAuto = F.filter(f => groupOf(f).auto).length;
